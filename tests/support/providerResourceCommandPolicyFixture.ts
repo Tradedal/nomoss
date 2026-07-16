@@ -136,9 +136,9 @@ const stripeBillingConfigurationExportFixtureLayer = Layer.effect(
         Ref.update(exportsByPath, (current) =>
           new Map(current).set(props.outputPath, props.document),
         ).pipe(
-          Effect.as({
+          Effect.map(() => ({
             OutputPath: props.outputPath,
-          }),
+          })),
         ),
     };
   }),
@@ -152,12 +152,12 @@ const awsSqsTransportFixtureLayer = Layer.effect(
     return {
       createQueue: (request) =>
         capture.append("create aws queue").pipe(
-          Effect.as({
+          Effect.map(() => ({
             QueueUrl: `https://sqs.us-east-1.amazonaws.com/123456789012/${request.QueueName}`,
-          }),
+          })),
         ),
       deleteQueue: () =>
-        capture.append("destroy aws queue").pipe(Effect.as({})),
+        capture.append("destroy aws queue").pipe(Effect.map(() => ({}))),
       getQueueAttributes: () =>
         Effect.succeed({
           Attributes: {
@@ -176,15 +176,16 @@ const awsSqsTransportFixtureLayer = Layer.effect(
   }),
 );
 
+const awsQueueLifecycleFixtureLayer = Layer.effect(
+  QueueLifecycleService,
+  QueueLifecycleService.make,
+).pipe(Layer.provide(awsSqsTransportFixtureLayer));
+
 const awsQueueResourcePolicyFixtureLayer = Layer.effect(
   QueueResourcePolicy,
   QueueResourcePolicy.make,
 ).pipe(
-  Layer.provideMerge(
-    Layer.effect(QueueLifecycleService, QueueLifecycleService.make).pipe(
-      Layer.provide(awsSqsTransportFixtureLayer),
-    ),
-  ),
+  Layer.provideMerge(awsQueueLifecycleFixtureLayer),
   Layer.provideMerge(
     Layer.succeed(AwsTagging, {
       reconcile: () => Effect.void,
@@ -282,7 +283,7 @@ const stripeProductLayer = (scenario: ProviderCommandFixtureScenario) =>
           capture
             .append("create stripe product")
             .pipe(
-              Effect.as(
+              Effect.map(() =>
                 productState("prod_test_starter", "Example Starter", 1),
               ),
             ),
@@ -332,20 +333,20 @@ const stripeProductLayer = (scenario: ProviderCommandFixtureScenario) =>
                 attempts + 1,
               ]),
             ),
-            Effect.flatMap((attempts) =>
-              Match.value({ scenario, attempts }).pipe(
-                Match.when(
-                  { scenario: "productDestroyFailsOnce", attempts: 0 },
-                  () =>
-                    Effect.fail(
-                      new StripeProductDestroyFailed({
-                        cause: Cause.fail("fixture product destroy failed"),
-                      }),
+              Effect.flatMap((attempts) =>
+                Match.value({ scenario, attempts }).pipe(
+                  Match.when(
+                    { scenario: "productDestroyFailsOnce", attempts: 0 },
+                    () =>
+                      Effect.fail(
+                        new StripeProductDestroyFailed({
+                          cause: Cause.fail("fixture product destroy failed"),
+                        }),
+                      ),
                     ),
+                  Match.orElse(() => Effect.void),
                 ),
-                Match.orElse(() => Effect.void),
               ),
-            ),
           ),
       };
     }),
@@ -359,7 +360,7 @@ const stripePriceSuccessLayer = Layer.effect(
     return {
       createPrice: (_props: StripePriceProps) =>
         capture.append("create stripe price").pipe(
-          Effect.as({
+          Effect.map(() => ({
             active: true,
             billing_scheme: "per_unit" as const,
             created: 1,
@@ -384,11 +385,11 @@ const stripePriceSuccessLayer = Layer.effect(
             type: "recurring" as const,
             unit_amount: 2900,
             unit_amount_decimal: "2900",
-          }),
+          })),
         ),
       createReplacementPrice: (_priceId: string, _props: StripePriceProps) =>
         capture.append("replace stripe price").pipe(
-          Effect.as({
+          Effect.map(() => ({
             active: true,
             billing_scheme: "per_unit" as const,
             created: 1,
@@ -413,7 +414,7 @@ const stripePriceSuccessLayer = Layer.effect(
             type: "recurring" as const,
             unit_amount: 2900,
             unit_amount_decimal: "2900",
-          }),
+          })),
         ),
       readPrice: () => Effect.succeedNone,
       deactivatePrice: () => capture.append("destroy stripe price"),
@@ -429,7 +430,7 @@ const stripeWebhookEndpointSuccessLayer = Layer.effect(
     return {
       createWebhookEndpoint: (_props: StripeWebhookEndpointRequestProps) =>
         capture.append("create stripe webhook endpoint").pipe(
-          Effect.as({
+          Effect.map(() => ({
             api_version: "2026-06-24.dahlia",
             application: null,
             created: 1,
@@ -442,12 +443,12 @@ const stripeWebhookEndpointSuccessLayer = Layer.effect(
             secret: "whsec_test_billing_events",
             status: "enabled",
             url: "https://example.test/api/stripe/webhook",
-          }),
+          })),
         ),
       readWebhookEndpoint: () => Effect.succeedNone,
       updateWebhookEndpoint: (_input: StripeWebhookEndpointUpdateProps) =>
         capture.append("update stripe webhook endpoint").pipe(
-          Effect.as({
+          Effect.map(() => ({
             api_version: "2026-06-24.dahlia",
             application: null,
             created: 1,
@@ -459,7 +460,7 @@ const stripeWebhookEndpointSuccessLayer = Layer.effect(
             object: "webhook_endpoint" as const,
             status: "enabled",
             url: "https://example.test/api/stripe/webhook",
-          }),
+          })),
         ),
       deleteWebhookEndpoint: () =>
         capture.append("destroy stripe webhook endpoint"),
@@ -687,13 +688,16 @@ const providerResourcePolicyLayer = (
     stripeBillingConfigurationExportResourcePolicyLayer,
   );
 
+const providerCommandMetadataFixtureLayer = (
+  scenario: ProviderCommandFixtureScenario,
+) =>
+  providerCommandMetadataLayer.pipe(
+    Layer.provideMerge(providerResourcePolicyLayer(scenario)),
+  );
+
 const providerCommandPolicyLayer = (scenario: ProviderCommandFixtureScenario) =>
   providerResourceCommandPolicyLayerLive.pipe(
-    Layer.provideMerge(
-      providerCommandMetadataLayer.pipe(
-        Layer.provideMerge(providerResourcePolicyLayer(scenario)),
-      ),
-    ),
+    Layer.provideMerge(providerCommandMetadataFixtureLayer(scenario)),
     Layer.provideMerge(providerCommandFixtureCaptureLayer),
     Layer.provideMerge(stripeBillingConfigurationExportFixtureLayer),
   );
