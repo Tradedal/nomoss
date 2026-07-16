@@ -19,13 +19,13 @@ nomoss list --stack upload-events
 With no saved resource state, `nomoss plan --stack upload-events` returns this plan. The `diff` fence colors each `Create` action on GitHub.
 
 ```diff
-batch 0: 0
-+ Create aws:s3:bucket/Uploads 1
-+ Create aws:sqs:queue/UploadEvents 2
-batch 1: 0
-+ Create aws:sqs:queue-policy/UploadEventsPolicy 1
-batch 2: 0
-+ Create aws:s3:bucket-notification/UploadEventsNotification 1
+batch 0:
++ Create aws:s3:bucket/Uploads
++ Create aws:sqs:queue/UploadEvents
+batch 1:
++ Create aws:sqs:queue-policy/UploadEventsPolicy
+batch 2:
++ Create aws:s3:bucket-notification/UploadEventsNotification
 ```
 
 ## Apply to AWS

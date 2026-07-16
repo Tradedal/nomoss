@@ -27,6 +27,11 @@ export class ResourceApplyResultExpected extends Data.TaggedError(
   readonly result: ResourceCommandResult;
 }> {}
 
+export type AppliedResourceCommandResult = Extract<
+  ResourceCommandResult,
+  { readonly _tag: "Created" | "Updated" | "Destroyed" }
+>;
+
 /**
  * Refresh, reconciliation, and apply code use this command protocol instead of
  * unpacking provider-specific resource results locally.
@@ -46,9 +51,15 @@ export class AwsResourceLifecycle extends Context.Service<AwsResourceLifecycle>(
           ResourceCommand.Apply({ decision: nextDecision }),
         );
         const applied = yield* Match.value(result).pipe(
-          Match.when({ _tag: "Created" }, () => Effect.succeed(result)),
-          Match.when({ _tag: "Updated" }, () => Effect.succeed(result)),
-          Match.when({ _tag: "Destroyed" }, () => Effect.succeed(result)),
+          Match.when({ _tag: "Created" }, (created) =>
+            Effect.succeed(created),
+          ),
+          Match.when({ _tag: "Updated" }, (updated) =>
+            Effect.succeed(updated),
+          ),
+          Match.when({ _tag: "Destroyed" }, (destroyed) =>
+            Effect.succeed(destroyed),
+          ),
           Match.orElse(() =>
             Effect.fail(new ResourceApplyResultExpected({ result })),
           ),

@@ -26,7 +26,6 @@ const stackFlag = Flag.string("stack").pipe(
 
 const profileFlag = Flag.string("profile").pipe(
   Flag.withDescription("AWS SSO profile used by the provider layer"),
-  Flag.withDefault("default"),
 );
 
 const resourceFormatFlag = Flag.choice("format", [

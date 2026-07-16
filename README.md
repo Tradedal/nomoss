@@ -2,6 +2,8 @@
 
 Nomoss is a bare-bones, embeddable infrastructure automation library for TypeScript projects written in pure Effect. Get your hands dirty!
 
+![Nomoss infrastructure automation demo](media/nomoss.gif)
+
 Nomoss keeps resource definitions beside application code. Effect test layers exercise the resource lifecycle without cloud access.
 
 A Nomoss program is an `Effect`. It records resources in a typed graph and returns typed output references. The project Effect graph provides the Nomoss runtime.

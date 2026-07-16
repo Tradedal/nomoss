@@ -1,4 +1,11 @@
-import { Array as Arr, Context, Effect, Graph, Layer } from "effect";
+import {
+  Array as Arr,
+  Context,
+  Duration,
+  Effect,
+  Graph,
+  Match,
+} from "effect";
 
 import type { PlanDecision } from "../../core/lifecycle.js";
 import type { ResourceNode } from "../../core/model.js";
@@ -6,7 +13,7 @@ import { PhysicalNameStore } from "../../core/physicalNameStore.js";
 import type { ResourceDependencyGraph } from "../../core/planner.js";
 import { ResourceGraphStore } from "../../core/resourceGraphStore.js";
 import { ResourceStateStore } from "../../core/stateStore.js";
-import { AwsApply } from "./awsApply.js";
+import { AwsApply, type AppliedResource } from "./awsApply.js";
 import { AwsProviderRuntime } from "./awsProviderLayer.js";
 import { AwsReconciliation } from "./awsReconciliation.js";
 import { AwsRefresh } from "./awsRefresh.js";
@@ -32,6 +39,8 @@ export type DecisionReport = {
 export type StackApplyResult = {
   readonly report: DecisionReport;
   readonly applied: boolean;
+  readonly resources: ReadonlyArray<AppliedResource>;
+  readonly durationMillis: number;
 };
 
 export type StackDestroyResult = {
@@ -88,10 +97,7 @@ export class AwsStackLifecycle extends Context.Service<AwsStackLifecycle>()(
           resourceListing,
         );
       const providerDecisionLayer = (profile: string, region: string) =>
-        Layer.provide(
-          providerRuntime.decisionLayerLive,
-          providerRuntime.resourceLayerSsoRegion(profile, region),
-        );
+        providerRuntime.decisionLayerSsoRegion(profile, region);
       const liveDecisions = Effect.fn("AwsStackLifecycle.liveDecisions")(
         function* (desired: ResourceDependencyGraph) {
           const refresh = yield* AwsRefresh;
@@ -114,11 +120,16 @@ export class AwsStackLifecycle extends Context.Service<AwsStackLifecycle>()(
         }) {
           const applyService = yield* AwsApply;
 
-          yield* applyService.applyDecisions(input.desired, input.decisions);
+          const results = yield* applyService.applyDecisions(
+            input.desired,
+            input.decisions,
+          );
           yield* stateStore.saveResources(
             input.stackName,
             input.desiredResources,
           );
+
+          return results;
         },
       );
       const prepareStack = Effect.fn("AwsStackLifecycle.prepare")(function* (
@@ -192,13 +203,19 @@ export class AwsStackLifecycle extends Context.Service<AwsStackLifecycle>()(
             stackName: prepared.stackName,
             desiredResources,
           }).pipe(Effect.provide(decisionLayer));
-          const shouldApply = Effect.succeed(report.changed.length > 0);
-
-          yield* Effect.when(applyChanges, shouldApply);
+          const shouldApply = report.changed.length > 0;
+          const [duration, resources] = yield* Match.value(shouldApply).pipe(
+            Match.when(true, () => applyChanges.pipe(Effect.timed)),
+            Match.orElse(() =>
+              Effect.succeed([Duration.zero, [] as Array<AppliedResource>] as const),
+            ),
+          );
 
           const result: StackApplyResult = {
             report,
-            applied: report.changed.length > 0,
+            applied: shouldApply,
+            resources,
+            durationMillis: Duration.toMillis(duration),
           };
 
           return result;
@@ -232,12 +249,9 @@ export class AwsStackLifecycle extends Context.Service<AwsStackLifecycle>()(
               desiredResources: [],
             }).pipe(
               Effect.provide(
-                Layer.provide(
-                  providerRuntime.applyLayerLive,
-                  providerRuntime.resourceLayerSsoRegion(
-                    input.profile,
-                    prepared.region,
-                  ),
+                providerRuntime.applyLayerSsoRegion(
+                  input.profile,
+                  prepared.region,
                 ),
               ),
               Effect.andThen(physicalNames.deleteNames(logicalIds)),
