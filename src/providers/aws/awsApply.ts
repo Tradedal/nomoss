@@ -1,4 +1,11 @@
-import { Array as Arr, Context, Data, Effect, Option } from "effect";
+import {
+  Array as Arr,
+  Context,
+  Data,
+  Duration,
+  Effect,
+  Option,
+} from "effect";
 
 import type { PlanDecision } from "../../core/lifecycle.js";
 import {
@@ -10,13 +17,21 @@ import {
   type ResourceDependencyGraph,
   ResourcePlanner,
 } from "../../core/planner.js";
-import { AwsResourceLifecycle } from "./awsResourceLifecycle.js";
+import {
+  type AppliedResourceCommandResult,
+  AwsResourceLifecycle,
+} from "./awsResourceLifecycle.js";
 
 export class ResourceDecisionMissing extends Data.TaggedError(
   "ResourceDecisionMissing",
 )<{
   readonly key: ResourceKey;
 }> {}
+
+export type AppliedResource = {
+  readonly result: AppliedResourceCommandResult;
+  readonly durationMillis: number;
+};
 
 /**
  * AWS apply runs reconciliation decisions in planner order while allowing each
@@ -91,9 +106,14 @@ export class AwsApply extends Context.Service<AwsApply>()(
                     onSome: Effect.succeed,
                   }),
                 );
-                const result = yield* lifecycle.apply(decision);
+                const [duration, result] = yield* lifecycle.apply(decision).pipe(
+                  Effect.timed,
+                );
 
-                return result;
+                return Option.map(result, (defined) => ({
+                  result: defined,
+                  durationMillis: Duration.toMillis(duration),
+                } satisfies AppliedResource));
               }),
               { concurrency: "unbounded" },
             ),

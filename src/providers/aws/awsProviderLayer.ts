@@ -168,34 +168,45 @@ export const awsResourcePolicyLayerLive = (
     ),
   );
 
-export const awsResourceLifecycleLayerLive = Layer.effect(
-  AwsResourceLifecycle,
-  AwsResourceLifecycle.make,
-).pipe(Layer.provideMerge(awsResourcePolicyLayerLive()));
+const awsResourceLifecycleLayer = (awsRuntimeLayer = awsRuntimeLayerLive) =>
+  Layer.effect(AwsResourceLifecycle, AwsResourceLifecycle.make).pipe(
+    Layer.provideMerge(awsResourcePolicyLayerLive(awsRuntimeLayer)),
+    Layer.provideMerge(awsRuntimeLayer),
+  );
 
-export const awsApplyLayerLive = Layer.effect(AwsApply, AwsApply.make).pipe(
-  Layer.provideMerge(awsResourceLifecycleLayerLive),
-  Layer.provideMerge(resourcePlannerLayer),
-);
+export const awsResourceLifecycleLayerLive = awsResourceLifecycleLayer();
 
-export const awsRefreshLayerLive = Layer.effect(
-  AwsRefresh,
-  AwsRefresh.make,
-).pipe(
-  Layer.provideMerge(awsResourceLifecycleLayerLive),
-  Layer.provideMerge(resourcePolicyLayer),
-);
+const awsApplyLayer = (awsRuntimeLayer = awsRuntimeLayerLive) =>
+  Layer.effect(AwsApply, AwsApply.make).pipe(
+    Layer.provideMerge(awsResourceLifecycleLayer(awsRuntimeLayer)),
+    Layer.provideMerge(resourcePlannerLayer),
+  );
 
-export const awsReconciliationLayerLive = Layer.effect(
-  AwsReconciliation,
-  AwsReconciliation.make,
-).pipe(Layer.provideMerge(awsResourceLifecycleLayerLive));
+export const awsApplyLayerLive = awsApplyLayer();
 
-export const awsDecisionLayerLive = Layer.mergeAll(
-  awsApplyLayerLive,
-  awsRefreshLayerLive,
-  awsReconciliationLayerLive,
-);
+const awsRefreshLayer = (awsRuntimeLayer = awsRuntimeLayerLive) =>
+  Layer.effect(AwsRefresh, AwsRefresh.make).pipe(
+    Layer.provideMerge(awsResourceLifecycleLayer(awsRuntimeLayer)),
+    Layer.provideMerge(resourcePolicyLayer),
+  );
+
+export const awsRefreshLayerLive = awsRefreshLayer();
+
+const awsReconciliationLayer = (awsRuntimeLayer = awsRuntimeLayerLive) =>
+  Layer.effect(AwsReconciliation, AwsReconciliation.make).pipe(
+    Layer.provideMerge(awsResourceLifecycleLayer(awsRuntimeLayer)),
+  );
+
+export const awsReconciliationLayerLive = awsReconciliationLayer();
+
+const awsDecisionLayer = (awsRuntimeLayer = awsRuntimeLayerLive) =>
+  Layer.mergeAll(
+    awsApplyLayer(awsRuntimeLayer),
+    awsRefreshLayer(awsRuntimeLayer),
+    awsReconciliationLayer(awsRuntimeLayer),
+  );
+
+export const awsDecisionLayerLive = awsDecisionLayer();
 
 export const awsResourcesLayerLive = Layer.effect(
   AwsResources,
@@ -235,9 +246,13 @@ export class AwsProviderRuntime extends Context.Service<AwsProviderRuntime>()(
         resourcePolicyLayerLive: awsResourcePolicyLayerLive,
         resourceLifecycleLayerLive: awsResourceLifecycleLayerLive,
         applyLayerLive: awsApplyLayerLive,
+        applyLayerSsoRegion: (profile: string, region: string) =>
+          awsApplyLayer(awsRuntimeLayerSsoRegion(profile, region)),
         refreshLayerLive: awsRefreshLayerLive,
         reconciliationLayerLive: awsReconciliationLayerLive,
         decisionLayerLive: awsDecisionLayerLive,
+        decisionLayerSsoRegion: (profile: string, region: string) =>
+          awsDecisionLayer(awsRuntimeLayerSsoRegion(profile, region)),
         resourcesLayerLive: awsResourcesLayerLive,
         runtimeLayerLive: awsRuntimeLayerLive,
         runtimeLayerSso,

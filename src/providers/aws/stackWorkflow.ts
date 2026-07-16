@@ -17,7 +17,9 @@ import {
   AwsStackLifecycle,
   type DecisionReport,
   type ResourceListing,
+  type StackApplyResult,
 } from "./awsStackLifecycle.js";
+import type { AppliedResource } from "./awsApply.js";
 import type { StackName } from "./sampleStack.js";
 
 export type ResourceOutputFormat =
@@ -32,6 +34,67 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
   {
     make: Effect.gen(function* () {
       const model = yield* ResourceModel;
+      const ansi = {
+        green: "\u001b[32m",
+        yellow: "\u001b[33m",
+        red: "\u001b[31m",
+        reset: "\u001b[0m",
+      } as const;
+      const formatDuration = (milliseconds: number) =>
+        Match.value(milliseconds < 1_000).pipe(
+          Match.when(true, () => `${Math.round(milliseconds)}ms`),
+          Match.orElse(() => `${(milliseconds / 1_000).toFixed(2)}s`),
+        );
+      const appliedResourceLabel = (resource: AppliedResource) =>
+        Match.value(resource.result).pipe(
+          Match.tagsExhaustive({
+            Created: () => "created",
+            Updated: () => "updated",
+            Destroyed: () => "destroyed",
+          }),
+        );
+      const resourceType = (resource: AppliedResource) => {
+        const { node } = resource.result;
+
+        return `${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId}`;
+      };
+      const applyResultLines = (
+        result: StackApplyResult,
+        colors: boolean,
+      ): ReadonlyArray<string> => {
+        const labels = Arr.map(result.resources, appliedResourceLabel);
+        const uniqueLabels = new Set(labels);
+        const resourceCount = result.resources.length;
+        const noun = Match.value(resourceCount === 1).pipe(
+          Match.when(true, () => "resource"),
+          Match.orElse(() => "resources"),
+        );
+        const outcome = Match.value(uniqueLabels.size === 1).pipe(
+          Match.when(true, () => `${resourceCount} ${noun} ${labels[0]}`),
+          Match.orElse(() => `${resourceCount} ${noun} applied`),
+        );
+
+        return Arr.append(
+          Arr.map(result.resources, (resource) => {
+            const label = `✓ ${appliedResourceLabel(resource)}`;
+            const status = Match.value(colors).pipe(
+              Match.when(
+                true,
+                () =>
+                  `${Match.value(resource.result).pipe(
+                    Match.when({ _tag: "Created" }, () => ansi.green),
+                    Match.when({ _tag: "Updated" }, () => ansi.yellow),
+                    Match.orElse(() => ansi.red),
+                  )}${label}${ansi.reset}`,
+              ),
+              Match.orElse(() => label),
+            );
+
+            return `${status} ${resourceType(resource)}  ${formatDuration(resource.durationMillis)}`;
+          }),
+          `${outcome} in ${formatDuration(result.durationMillis)}`,
+        );
+      };
 
       const prefixedValueLines = (prefix: string, value: string) => [
         `${prefix} ${value}`,
@@ -151,7 +214,7 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
           yield* Console.log("Resources");
           yield* Effect.forEach(
             Arr.flatMap(report.changed, decisionLines),
-            Console.log,
+            (line) => Console.log(line),
             { discard: true },
           );
 
@@ -164,6 +227,20 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
 
           yield* Effect.when(logNoChanges, shouldLogNoChanges);
         }),
+
+        renderApplyResult: Effect.fn("StackWorkflowRenderer.renderApplyResult")(
+          function* (result: StackApplyResult) {
+            const colors =
+              process.stdout.isTTY && process.env.NO_COLOR === undefined;
+
+            yield* Console.log(`Stack "${result.report.stackName}"`);
+            yield* Effect.forEach(
+              applyResultLines(result, colors),
+              (line) => Console.log(line),
+              { discard: true },
+            );
+          },
+        ),
 
         renderCreatePlan: Effect.fn("StackWorkflowRenderer.renderCreatePlan")(
           function* (input: {
@@ -184,7 +261,7 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
                       (action) => `  ${model.actionString(action)}`,
                     ),
                   ),
-                  Console.log,
+                  (line) => Console.log(line),
                   { discard: true },
                 ),
               { discard: true },
@@ -336,11 +413,12 @@ export const applyLiveStack = Effect.fn("StackWorkflow.applyLiveStack")(
     const stackLifecycle = yield* AwsStackLifecycle;
     const renderer = yield* StackWorkflowRenderer;
     const result = yield* stackLifecycle.applyLive(input);
-    const logApplied = Console.log(`applied stack ${input.stackName}`);
-    const shouldLogApplied = Effect.succeed(result.applied);
 
-    yield* renderer.renderDecisionReport(result.report);
-    yield* Effect.when(logApplied, shouldLogApplied);
+    if (result.applied) {
+      yield* renderer.renderApplyResult(result);
+    } else {
+      yield* renderer.renderDecisionReport(result.report);
+    }
   },
 );
 
