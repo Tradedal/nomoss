@@ -14,13 +14,12 @@ const project = new javascript.NodeProject({
   copyrightOwner: "Roman Naumenko",
   devDeps: [
     "@biomejs/biome@2.4.12",
-    "@effect/language-service@0.86.2",
-    "@effect/tsgo@0.16.0",
+    "@catenarycloud/linteffect@0.0.7-dev.2",
+    "@effect/tsgo@0.23.0",
     "@effect/vitest@4.0.0-beta.93",
     "@types/node@^24.0.0",
-    "@typescript/native-preview@7.0.0-dev.20260611.2",
     "projen@^0.98.34",
-    "typescript@^5.9.3",
+    "typescript@7.0.2",
     "vite@^8.0.7",
     "vitest@^4.1.4",
   ],
@@ -36,15 +35,17 @@ const project = new javascript.NodeProject({
   release: false,
   sampleCode: false,
   yarnBerryOptions: {
-    version: "4.12.0",
+    version: "4.17.1",
     zeroInstalls: false,
     yarnRcOptions: {
+      enableScripts: true,
       nodeLinker: YarnNodeLinker.NODE_MODULES,
     },
   },
 });
 
 project.package.addField("type", "module");
+project.package.addField("version", "0.0.1"); // x-release-please-version
 project.package.addField("engines", { node: ">=24" });
 project.package.addField("bin", { nomoss: "bin/nomoss" });
 project.package.addField("exports", {
@@ -60,22 +61,23 @@ project.package.addField("files", [
   "bin",
   "docs",
   "examples",
+  "media",
   "src",
 ]);
 project.package.addField("publishConfig", { access: "public" });
-project.package.addField("packageManager", "yarn@4.12.0");
+project.package.addField("packageManager", "yarn@4.17.1");
 project.package.addField("scripts", {
   check: "yarn lint && yarn typecheck:tsgo && vitest run --pool forks --passWithNoTests --exclude 'tests/**/*.integration.test.ts'",
   lint: "biome lint --reporter=summary",
   "lint:fix": "biome check --write",
-  "typecheck:tsgo": "node ./node_modules/@typescript/native-preview/bin/tsgo.js -b .",
+  "typecheck:tsgo": "effect-tsgo patch && tsc -b .",
   projen: "tsx .projenrc.ts",
-  postinstall: "effect-tsgo patch",
 });
 project.gitignore.addPatterns(".nomoss/");
 
 new JsonFile(project, "tsconfig.json", {
   obj: {
+    $schema: "./node_modules/@effect/tsgo/schema.json",
     compilerOptions: {
       noEmit: true,
       rootDir: ".",
@@ -144,6 +146,7 @@ new TextFile(project, "biome.jsonc", {
     "{",
     '  \"$schema\": \"node_modules/@biomejs/biome/configuration_schema.json\",',
     '  \"root\": true,',
+    '  \"extends\": [\"@catenarycloud/linteffect\"],',
     '  \"files\": {',
     '    \"ignoreUnknown\": false,',
     '    \"includes\": [\"src/**/*.ts\", \"tests/**/*.ts\", \"vitest.config.ts\", \"vitest.integration.config.ts\"]',
