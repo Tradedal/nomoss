@@ -5,9 +5,7 @@
     "type": "git",
     "url": "https://github.com/Tradedal/nomoss.git"
   },
-  "bin": {
-    "nomoss": "bin/nomoss"
-  },
+  "bin": "bin/nomoss",
   "scripts": {
     "check": "yarn lint && yarn typecheck:tsgo && vitest run --pool forks --passWithNoTests --exclude 'tests/**/*.integration.test.ts'",
     "lint": "biome lint --reporter=summary",
