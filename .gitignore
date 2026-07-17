@@ -46,6 +46,8 @@ jspm_packages/
 !/.github/workflows/upgrade-main.yml
 !/.github/pull_request_template.md
 .nomoss/
+!/.release-please-manifest.json
+!/release-please-config.json
 !/tsconfig.json
 !/biome.jsonc
 !/vitest.config.ts

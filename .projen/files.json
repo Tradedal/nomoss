@@ -12,9 +12,11 @@
     ".projen/deps.json",
     ".projen/files.json",
     ".projen/tasks.json",
+    ".release-please-manifest.json",
     ".yarnrc.yml",
     "biome.jsonc",
     "LICENSE",
+    "release-please-config.json",
     "tsconfig.json",
     "vitest.config.ts",
     "vitest.integration.config.ts"

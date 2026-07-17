@@ -15,6 +15,7 @@
 /.projen/deps.json linguist-generated
 /.projen/files.json linguist-generated
 /.projen/tasks.json linguist-generated
+/.release-please-manifest.json linguist-generated
 /.yarn/** linguist-vendored
 /.yarn/plugins/**/* binary
 /.yarn/releases/* binary
@@ -22,6 +23,7 @@
 /biome.jsonc linguist-generated
 /LICENSE linguist-generated
 /package.json linguist-generated
+/release-please-config.json linguist-generated
 /tsconfig.json linguist-generated
 /vitest.config.ts linguist-generated
 /vitest.integration.config.ts linguist-generated
