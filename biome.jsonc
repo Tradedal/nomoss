@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/@biomejs/biome/configuration_schema.json",
   "root": true,
+  "extends": ["@catenarycloud/linteffect"],
   "files": {
     "ignoreUnknown": false,
     "includes": ["src/**/*.ts", "tests/**/*.ts", "vitest.config.ts", "vitest.integration.config.ts"]

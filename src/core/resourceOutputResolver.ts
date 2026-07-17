@@ -9,11 +9,7 @@ import {
   Stream,
 } from "effect";
 
-import {
-  type ResourceKey,
-  type ResourceNode,
-  ResourceNodeSchema,
-} from "./model.js";
+import { type ResourceNode, ResourceNodeSchema } from "./model.js";
 import type { ResourceDependency } from "./resourceGraphStore.js";
 
 /**
@@ -29,7 +25,7 @@ export class ResourceOutputResolutionMissing extends Data.TaggedError(
   readonly sourceLogicalId: string;
 }> {}
 
-class ResourceOutputPropertyPathInvalid extends Data.TaggedError(
+export class ResourceOutputPropertyPathInvalid extends Data.TaggedError(
   "ResourceOutputPropertyPathInvalid",
 )<{
   readonly logicalId: string;
@@ -44,161 +40,124 @@ export class ResourceOutputResolver extends Context.Service<ResourceOutputResolv
   "nomoss/core/resourceOutputResolver",
   {
     make: Effect.gen(function* () {
-      function readAppliedOutputValue(
-        source: ResourceKey,
-        property: string,
-        resources: ReadonlyArray<ResourceNode>,
-      ) {
-        return Effect.gen(function* () {
-          const resource = yield* Arr.findFirst(
-            resources,
-            (resource) => resource.key.logicalId === source.logicalId,
-          ).pipe(
-            Option.match({
-              onNone: () =>
-                Effect.fail(
-                  new ResourceOutputResolutionMissing({
-                    property,
-                    sourceLogicalId: source.logicalId,
-                  }),
-                ),
-              onSome: Effect.succeed,
-            }),
-          );
-          const outputValue = yield* Schema.decodeUnknownEffect(
-            Schema.Record(Schema.String, Schema.Json),
-          )(resource.outputs).pipe(
-            Effect.flatMap((outputs) =>
-              Option.fromUndefinedOr(outputs[property]).pipe(
-                Option.match({
-                  onNone: () =>
-                    Effect.fail(
-                      new ResourceOutputResolutionMissing({
-                        property,
-                        sourceLogicalId: source.logicalId,
-                      }),
-                    ),
-                  onSome: Effect.succeed,
-                }),
-              ),
-            ),
-          );
-
-          return outputValue;
-        });
-      }
-
       function replaceJsonProperty(
-        node: ResourceNode,
         props: Schema.Json,
         property: string,
         value: Schema.Json,
-      ) {
-        return Effect.gen(function* () {
-          const segments = property.split(".");
-          const arrayIndex = (segment: string) =>
-            /^(?:0|[1-9]\d*)$/.test(segment)
-              ? Option.some(Number.parseInt(segment, 10))
-              : Option.none<number>();
-          const replaceAtPath = (
-            current: Schema.Json,
-            remainingSegments: ReadonlyArray<string>,
-          ): Option.Option<Schema.Json> =>
-            Arr.head(remainingSegments).pipe(
-              Option.match({
-                onNone: () => Option.some(value),
-                onSome: (segment) =>
+      ): Option.Option<Schema.Json> {
+        const arrayIndex = (segment: string) =>
+          Option.map(
+            Option.fromNullishOr(segment.match(/^(?:0|[1-9]\d*)$/)),
+            () => Number.parseInt(segment, 10),
+          );
+        const replaceAtPath = (
+          current: Schema.Json,
+          remainingSegments: ReadonlyArray<string>,
+        ): Option.Option<Schema.Json> =>
+          Option.match(Arr.head(remainingSegments), {
+            onNone: () => Option.some(value),
+            onSome: (segment) =>
+              Option.orElse(
+                Option.flatMap(
                   Schema.decodeUnknownOption(
                     Schema.Record(Schema.String, Schema.Json),
-                  )(current).pipe(
-                    Option.flatMap((record) =>
-                      Option.fromUndefinedOr(record[segment]).pipe(
-                        Option.flatMap((child) =>
+                  )(current),
+                  (record) =>
+                    Option.flatMap(
+                      Option.fromUndefinedOr(record[segment]),
+                      (child) =>
+                        Option.map(
                           replaceAtPath(child, Arr.drop(remainingSegments, 1)),
+                          (updatedChild) =>
+                            Schema.Json.make(
+                              Rec.set(record, segment, updatedChild),
+                            ),
                         ),
-                        Option.map((updatedChild) =>
-                          Schema.Json.make(
-                            Rec.set(record, segment, updatedChild),
-                          ),
-                        ),
-                      ),
                     ),
-                    Option.orElse(() =>
-                      Schema.decodeUnknownOption(Schema.Array(Schema.Json))(
-                        current,
-                      ).pipe(
-                        Option.flatMap((array) =>
-                          arrayIndex(segment).pipe(
-                            Option.flatMap((index) =>
-                              Arr.get(array, index).pipe(
-                                Option.flatMap((child) =>
-                                  replaceAtPath(
-                                    child,
-                                    Arr.drop(remainingSegments, 1),
+                ),
+                () =>
+                  Option.flatMap(
+                    Schema.decodeUnknownOption(Schema.Array(Schema.Json))(
+                      current,
+                    ),
+                    (array) =>
+                      Option.flatMap(arrayIndex(segment), (index) =>
+                        Option.flatMap(Arr.get(array, index), (child) =>
+                          Option.map(
+                            replaceAtPath(
+                              child,
+                              Arr.drop(remainingSegments, 1),
+                            ),
+                            (updatedChild) =>
+                              Schema.Json.make(
+                                Arr.appendAll(
+                                  Arr.append(
+                                    Arr.take(array, index),
+                                    updatedChild,
                                   ),
-                                ),
-                                Option.map((updatedChild) =>
-                                  Schema.Json.make(
-                                    Arr.appendAll(
-                                      Arr.append(
-                                        Arr.take(array, index),
-                                        updatedChild,
-                                      ),
-                                      Arr.drop(array, index + 1),
-                                    ),
-                                  ),
+                                  Arr.drop(array, index + 1),
                                 ),
                               ),
-                            ),
                           ),
                         ),
                       ),
-                    ),
                   ),
-              }),
-            );
-          const resolvedProps = yield* replaceAtPath(props, segments).pipe(
-            Option.match({
-              onNone: () =>
-                Effect.fail(
-                  new ResourceOutputPropertyPathInvalid({
-                    logicalId: node.key.logicalId,
-                    property,
-                  }),
-                ),
-              onSome: Effect.succeed,
-            }),
-          );
+              ),
+          });
 
-          return resolvedProps;
-        });
+        return replaceAtPath(props, property.split("."));
       }
 
-      function resolveNodeProps(
+      const resolveNodeProps = (
         node: ResourceNode,
         resources: ReadonlyArray<ResourceNode>,
         dependencies: ReadonlyArray<ResourceDependency>,
-      ) {
-        return Stream.runFoldEffect(
+      ) =>
+        Stream.runFoldEffect(
           Stream.fromIterable(dependencies),
           () => node.props,
           (props, dependency) =>
-            readAppliedOutputValue(
-              dependency.source,
-              dependency.edge.sourceProperty,
+            Arr.findFirst(
               resources,
+              (resource) =>
+                resource.key.logicalId === dependency.source.logicalId,
             ).pipe(
-              Effect.flatMap((value) =>
-                replaceJsonProperty(
-                  node,
-                  props,
-                  dependency.edge.property,
-                  value,
+              Effect.fromOption(
+                () =>
+                  new ResourceOutputResolutionMissing({
+                    property: dependency.edge.sourceProperty,
+                    sourceLogicalId: dependency.source.logicalId,
+                  }),
+              ),
+              Effect.flatMap((resource) =>
+                Schema.decodeUnknownEffect(
+                  Schema.Record(Schema.String, Schema.Json),
+                )(resource.outputs),
+              ),
+              Effect.flatMap((outputs) =>
+                Effect.fromOption(
+                  () =>
+                    new ResourceOutputResolutionMissing({
+                      property: dependency.edge.sourceProperty,
+                      sourceLogicalId: dependency.source.logicalId,
+                    }),
+                )(
+                  Option.fromUndefinedOr(
+                    outputs[dependency.edge.sourceProperty],
+                  ),
                 ),
+              ),
+              Effect.flatMap((value) =>
+                Effect.fromOption(
+                  () =>
+                    new ResourceOutputPropertyPathInvalid({
+                      logicalId: node.key.logicalId,
+                      property: dependency.edge.property,
+                    }),
+                )(replaceJsonProperty(props, dependency.edge.property, value)),
               ),
             ),
         );
-      }
 
       return {
         resolveNode: Effect.fn("ResourceOutputResolver.resolveNode")(function* (

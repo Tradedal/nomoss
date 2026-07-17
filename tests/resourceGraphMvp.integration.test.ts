@@ -1,5 +1,9 @@
+import { randomUUID } from "node:crypto";
 import * as s3 from "@distilled.cloud/aws/s3";
 import * as sqs from "@distilled.cloud/aws/sqs";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { assert, describe, it } from "@effect/vitest";
 import {
   Config,
   ConfigProvider,
@@ -9,17 +13,12 @@ import {
   Option,
   Schema,
 } from "effect";
-import { randomUUID } from "node:crypto";
-
-import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
-import * as NodeServices from "@effect/platform-node/NodeServices";
-import { assert, describe, it } from "@effect/vitest";
 
 import {
   physicalNameStoreLayer as corePhysicalNameStoreLayer,
-  resourcePlannerLayer,
   resourceStateStoreLayer as coreResourceStateStoreLayer,
   resourceGraphStoreLayer,
+  resourcePlannerLayer,
 } from "../src/core/runtimeLayer.js";
 import { NomossTracingLive } from "../src/core/tracing.js";
 import {
@@ -46,14 +45,7 @@ class IntegrationMessageMissing extends Data.TaggedError(
 }> {}
 
 const stackName: StackName = "upload-events";
-const integrationConfigLayer = ConfigProvider.layer(
-  ConfigProvider.fromUnknown({
-    NOMOSS_AWS_INTEGRATION: "1",
-    NOMOSS_AWS_INTEGRATION_PROFILE: "default",
-    NOMOSS_EFFECT_DEVTOOLS: "1",
-    NOMOSS_EFFECT_DEVTOOLS_URL: "ws://localhost:34437",
-  }),
-);
+const integrationConfigLayer = ConfigProvider.layer(ConfigProvider.fromEnv());
 
 const physicalNameStoreLayer = Layer.provide(
   corePhysicalNameStoreLayer,
@@ -80,9 +72,7 @@ const appLayer = awsStackLifecycleLayerLive.pipe(
   Layer.provideMerge(awsProviderRuntimeLayer),
   Layer.provideMerge(NodeServices.layer),
   Layer.provideMerge(integrationConfigLayer),
-  Layer.provideMerge(
-    Layer.provide(NomossTracingLive, integrationConfigLayer),
-  ),
+  Layer.provideMerge(Layer.provide(NomossTracingLive, integrationConfigLayer)),
 );
 
 const bodyContaining = (messages: ReadonlyArray<sqs.Message>, key: string) =>
@@ -95,9 +85,7 @@ describe("ResourceGraph MVP AWS integration", () => {
     "creates stack, uploads a file, receives SQS notification, and destroys stack",
     () =>
       Effect.gen(function* () {
-        const profile = yield* Config.string(
-          "NOMOSS_AWS_INTEGRATION_PROFILE",
-        );
+        const profile = yield* Config.string("NOMOSS_AWS_INTEGRATION_PROFILE");
         const providerRuntime = yield* AwsProviderRuntime;
 
         const awsLayer = providerRuntime.runtimeLayerSsoRegion(

@@ -6,13 +6,13 @@
       "type": "build"
     },
     {
-      "name": "@effect/language-service",
-      "version": "0.86.2",
+      "name": "@catenarycloud/linteffect",
+      "version": "0.0.7-dev.2",
       "type": "build"
     },
     {
       "name": "@effect/tsgo",
-      "version": "0.16.0",
+      "version": "0.23.0",
       "type": "build"
     },
     {
@@ -26,11 +26,6 @@
       "type": "build"
     },
     {
-      "name": "@typescript/native-preview",
-      "version": "7.0.0-dev.20260611.2",
-      "type": "build"
-    },
-    {
       "name": "constructs",
       "version": "^10.0.0",
       "type": "build"
@@ -41,7 +36,7 @@
     },
     {
       "name": "typescript",
-      "version": "^5.9.3",
+      "version": "7.0.2",
       "type": "build"
     },
     {

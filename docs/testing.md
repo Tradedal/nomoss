@@ -2,44 +2,85 @@
 
 ## Scope
 
-This document defines Nomoss testing practice. Repository-wide implementation guardrails remain in `AGENTS.md`; Effect testing APIs are documented in `refs/effect/packages/vitest/README.md`.
+This document defines deterministic, composable testing for Nomoss. [linting.md](linting.md) covers the lint workflow. Effect Vitest APIs are documented by the installed `@effect/vitest` package.
 
-## Test Shape
+## Test File Names
 
-Tests describe behavior from the consumer's perspective. Labels start with `it` and name the outcome plus the condition that causes it, for example `it creates a queue when the desired graph contains a missing queue`.
+Keep tests for a service in a file named after that service:
 
-Tests call real code paths and assert observable outcomes. Fixture layers supply standard data through standard service methods. Adapter test hooks supply typed external responses and typed errors.
+```text
+awsStackLifecycle.test.ts
+```
 
-## Service Graphs
+Do not encode a scenario, implementation detail, or timing mechanism in the file name. Those belong in the test label.
 
-Each test group builds one service graph and provides it once at the test edge. Local stateful services, provider adapters, config, tracing, and file-system test layers compose into that graph.
+## Test Labels
 
-When a service has a reusable test layer, the layer lives beside the live service with a `TestLayer` suffix. Fixture-backed domains expose composed fixture layers so tests can consume a stable graph without recreating model or provider wiring.
+Test labels describe the observable outcome, not the implementation. A reader should know what contract the test proves without reading the body.
 
-## Adapter And Fixture Control
+Use one of these shapes:
 
-Provider adapter tests control external AWS or Distilled responses through the adapter API. Resource policy, reconciliation, apply, and workflow tests use those adapter test hooks while running the internal service code normally.
+```text
+It {capability or state} {observable outcome}
+It {capability or state} {observable outcome} when|if|after|for {condition}
+```
 
-Fixtures model reusable domain states. Tests extend fixture APIs when the same state is useful across contracts. One-off behavior stays local only when it is truly local to one test and does not duplicate production graph assembly.
+Examples:
 
-## Assertions
+- `It creates a bucket when the desired graph contains a missing bucket`
+- `It saves the applied resource state after all provider operations succeed`
+- `It reports no changes when the live stack matches the desired graph`
 
-Assertions target public behavior, tagged errors, persisted state, canonical snapshots, rendered output, or provider command results. Implementation details such as call order, local helper structure, and framework plumbing are avoided unless the contract is explicitly about sequencing.
+Weak labels describe internal work rather than the result:
 
-Asynchronous tests use deterministic Effect signals and runtime-controlled clocks. Terminating Effect programs carry the assertions. Expected failures are asserted by flipping the program and matching the tagged error.
+- `It calls refresh before apply`
+- `It uses the queue fixture`
+- `It renders no changes`
 
-Effect Vitest tests place assertions directly in the main `Effect` returned from `it.effect(...)`, using `Effect.gen(...)` or `Effect.sync(...)`.
+Name the capability family in `describe`. Use a mechanical group name only when it represents a real technical contract.
 
-## Resource Graph Coverage
+## Testing Principles
 
-Graph tests cover graph construction, dependency ordering, schema-bound node payloads, refs, and persisted state hydration.
+Tests call real code paths and assert observable outcomes. Fixtures and test layers supply standard data through standard services; tests should not rebuild provider or model wiring locally.
 
-Lifecycle tests cover missing remote resources, matched desired and observed state, modeled drift, recreate after missing remote state, resource removal from the desired graph, successful state persistence, and dependency failure stopping downstream execution.
+Reusable fixture states belong beside the relevant adapter or service. Extend a shared fixture when a scenario is useful across contracts. Keep a genuinely one-off input local to one test.
 
-Workflow tests prove the composed path: desired graph creation, state hydration, provider refresh, reconciliation, execution, and persisted cleanup.
+Test code stays thin. It invokes the production operation, provides its assigned graph once at the test edge, and asserts the resulting state, output, or tagged error.
+
+## Service Test Layers
+
+Provider and service modules expose reusable test layers beside their live layers using a `TestLayer` suffix. Each test group composes one service graph and provides it once.
+
+Use `Layer.provide` when dependencies are internal to the service under test. Use `Layer.provideMerge` only when the provided service is intentionally part of the test boundary. Do not build the same stateful dependency in parallel layer graphs.
+
+## Behavior Coverage
+
+Behavior tests begin at the production entry point responsible for a contract and end where that contract becomes observable. Assert persisted state, provider commands, rendered output, or tagged errors—not helper calls or incidental sequencing.
+
+Helper tests are separate. They name the helper contract and assert the helper result; they do not stand in for a behavior test that should exercise the owning command path.
+
+The label and assertion must state the same contract. A persistence label requires a persisted read. An output label requires the rendered output. An ordering label requires an observing boundary that records the claimed order.
+
+Tests should survive refactors that change private helpers, local preparation, or internal sequencing without changing the observable contract.
+
+## Effect Tests
+
+Effect Vitest tests put assertions in the main `Effect` returned from `it.effect(...)`, using a flat `Effect.gen(...)` or `Effect.sync(...)` flow.
+
+For expected failures, flip the program and match the tagged error directly. Asynchronous tests use deterministic Effect signals and runtime-controlled clocks, not sleeps, raw timers, or ambient wall-clock time.
+
+Use one terminating Effect chain for a test. Manual fiber control is reserved for tests whose contract is interruption or shared-fiber responsibility.
 
 ## Validation
 
-Documentation-only edits do not require Biome, TypeScript, or Vitest validation.
+Documentation-only edits do not need Biome, TypeScript, or Vitest validation.
 
-Code changes use the narrowest command that covers the touched package. For Nomoss Effect-heavy changes, run `yarn --cwd nomoss typecheck:tsgo`, `yarn --cwd nomoss lint`, and the targeted Vitest file.
+For code changes, run file-level linting, the project compiler, and the smallest affected test:
+
+```sh
+yarn exec biome lint tests/awsStackWorkflowRenderer.test.ts
+yarn typecheck:tsgo
+yarn vitest run --pool forks tests/awsStackWorkflowRenderer.test.ts
+```
+
+For a behavior regression, first run the test against a realistic break in the production path and confirm that it fails. Restore the implementation and confirm the same test passes.

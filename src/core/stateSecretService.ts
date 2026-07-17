@@ -47,7 +47,9 @@ type StateSecretOutputUpdate = {
   readonly outputKey: string;
 };
 
-const MacOSKeychainServiceName = "com.nomoss.state";
+enum MacOSKeychainServiceName {
+  NomossState = "com.nomoss.state",
+}
 
 /**
  * `ResourceStateStore` invokes this service while loading and saving each
@@ -129,68 +131,66 @@ const resourceNodeWithOutputs = (
     outputs,
   });
 
-const executeSecurity = (
-  args: ReadonlyArray<string>,
-  key: string,
-  operation: "read" | "write",
-) =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const process = yield* ChildProcess.make("security", args).pipe(
-        Effect.mapError(
-          (cause) =>
-            new StateSecretServiceError({
-              key,
-              operation,
-              cause,
-            }),
+const executeSecurity = Effect.fn("StateSecretService.executeSecurity")(
+  function* (
+    args: ReadonlyArray<string>,
+    key: string,
+    operation: "read" | "write",
+  ) {
+    const process = yield* ChildProcess.make("security", args).pipe(
+      Effect.mapError(
+        (cause) =>
+          new StateSecretServiceError({
+            key,
+            operation,
+            cause,
+          }),
+      ),
+    );
+    const [exitCode, stdout] = yield* Effect.all(
+      [
+        process.exitCode.pipe(
+          Effect.mapError(
+            (cause) =>
+              new StateSecretServiceError({
+                key,
+                operation,
+                cause,
+              }),
+          ),
         ),
-      );
-      const [exitCode, stdout] = yield* Effect.all(
-        [
-          process.exitCode.pipe(
-            Effect.mapError(
-              (cause) =>
-                new StateSecretServiceError({
-                  key,
-                  operation,
-                  cause,
-                }),
-            ),
+        process.stdout.pipe(
+          Stream.decodeText(),
+          Stream.runFold(
+            () => "",
+            (output, chunk) => `${output}${chunk}`,
           ),
-          process.stdout.pipe(
-            Stream.decodeText(),
-            Stream.runFold(
-              () => "",
-              (output, chunk) => `${output}${chunk}`,
-            ),
-            Effect.mapError(
-              (cause) =>
-                new StateSecretServiceError({
-                  key,
-                  operation,
-                  cause,
-                }),
-            ),
+          Effect.mapError(
+            (cause) =>
+              new StateSecretServiceError({
+                key,
+                operation,
+                cause,
+              }),
           ),
-        ],
-        { concurrency: 2 },
-      );
+        ),
+      ],
+      { concurrency: 2 },
+    );
 
-      return yield* Match.value(exitCode === 0).pipe(
-        Match.when(true, () => Effect.succeed(stdout)),
-        Match.orElse(() =>
-          Effect.fail(
-            new StateSecretServiceError({
-              key,
-              operation,
-              cause: { exitCode },
-            }),
-          ),
-        ),
-      );
-    }),
-  );
+    return yield* Effect.succeed(stdout).pipe(
+      Effect.filterOrFail(
+        () => exitCode === 0,
+        () =>
+          new StateSecretServiceError({
+            key,
+            operation,
+            cause: { exitCode },
+          }),
+      ),
+    );
+  },
+);
 
 const writeMacOSKeychainSecret = (
   reference: StateSecretReference,
@@ -203,185 +203,193 @@ const writeMacOSKeychainSecret = (
       "-a",
       reference.key,
       "-s",
-      MacOSKeychainServiceName,
+      MacOSKeychainServiceName.NomossState,
       "-w",
       value,
     ],
     reference.key,
     "write",
-  ).pipe(Effect.asVoid);
+  ).pipe(Effect.scoped, Effect.asVoid);
 
-const readMacOSKeychainSecret = (reference: StateSecretReference) =>
-  Effect.gen(function* () {
-    const secret = yield* executeSecurity(
-      [
-        "find-generic-password",
-        "-a",
-        reference.key,
-        "-s",
-        MacOSKeychainServiceName,
-        "-w",
-      ],
+const readMacOSKeychainSecret = Effect.fn(
+  "StateSecretService.readMacOSKeychainSecret",
+)(function* (reference: StateSecretReference) {
+  const secret = yield* executeSecurity(
+    [
+      "find-generic-password",
+      "-a",
       reference.key,
-      "read",
-    );
+      "-s",
+      MacOSKeychainServiceName.NomossState,
+      "-w",
+    ],
+    reference.key,
+    "read",
+  ).pipe(Effect.scoped);
 
-    return secret.replace(/\n$/, "");
-  });
+  return secret.replace(/\n$/, "");
+});
 
-const persistResourceNodeSecrets = (stack: string, node: ResourceNode) =>
-  Effect.gen(function* () {
-    const outputs = yield* Schema.decodeUnknownEffect(
-      ResourceOutputRecordSchema,
-    )(node.outputs).pipe(
-      Effect.mapError(
-        (cause) =>
-          new StateSecretServiceError({
-            key: node.key.logicalId,
-            operation: "persist",
-            cause,
-          }),
-      ),
-    );
-    const persistedResourceNode: ResourceNode = yield* Effect.forEach(
-      node.schema.stateSecretOutputKeys,
-      (outputKey) =>
-        Option.fromUndefinedOr(outputs[outputKey]).pipe(
-          Option.match({
-            onNone: () =>
-              Effect.succeed(Option.none<StateSecretOutputUpdate>()),
-            onSome: (output) =>
-              Schema.decodeUnknownOption(StateSecretReferenceSchema)(
-                output,
-              ).pipe(
-                Option.match({
-                  onNone: () =>
-                    Schema.decodeUnknownEffect(Schema.String)(output).pipe(
-                      Effect.mapError(
-                        (cause) =>
-                          new StateSecretServiceError({
-                            key: `${node.key.logicalId}/${outputKey}`,
-                            operation: "persist",
-                            cause,
-                          }),
-                      ),
-                      Effect.flatMap((secret) =>
-                        Effect.as(
-                          writeMacOSKeychainSecret(
-                            stateSecretReferenceFor(stack, node, outputKey),
-                            secret,
-                          ),
-                          Option.some<StateSecretOutputUpdate>({
-                            output: stateSecretReferenceFor(
-                              stack,
-                              node,
-                              outputKey,
-                            ),
-                            outputKey,
-                          }),
-                        ),
-                      ),
-                    ),
-                  onSome: () =>
-                    Effect.succeed(
-                      Option.some<StateSecretOutputUpdate>({
-                        output,
-                        outputKey,
-                      }),
-                    ),
-                }),
-              ),
-          }),
-        ),
-    ).pipe(
-      Effect.map((outputUpdates) =>
-        resourceNodeWithOutputs(
-          node,
-          Arr.reduce(outputUpdates, outputs, (currentOutputs, outputUpdate) =>
-            Option.match(outputUpdate, {
-              onNone: () => currentOutputs,
-              onSome: ({ output, outputKey }) =>
-                Record.set(currentOutputs, outputKey, output),
-            }),
+const persistStateSecretOutput = Effect.fn(
+  "StateSecretService.persistStateSecretOutput",
+)(function* (
+  stack: string,
+  node: ResourceNode,
+  outputKey: string,
+  output: Schema.Json,
+) {
+  const reference = Schema.decodeUnknownOption(StateSecretReferenceSchema)(
+    output,
+  );
+
+  return yield* Option.match(reference, {
+    onNone: () =>
+      Effect.gen(function* () {
+        const secret = yield* Schema.decodeUnknownEffect(Schema.String)(
+          output,
+        ).pipe(
+          Effect.mapError(
+            (cause) =>
+              new StateSecretServiceError({
+                key: `${node.key.logicalId}/${outputKey}`,
+                operation: "persist",
+                cause,
+              }),
           ),
-        ),
-      ),
-    );
-
-    return persistedResourceNode;
-  });
-
-const restoreResourceNodeSecrets = (node: ResourceNode) =>
-  Effect.gen(function* () {
-    const outputs = yield* Schema.decodeUnknownEffect(
-      ResourceOutputRecordSchema,
-    )(node.outputs).pipe(
-      Effect.mapError(
-        (cause) =>
-          new StateSecretServiceError({
-            key: node.key.logicalId,
-            operation: "restore",
-            cause,
-          }),
-      ),
-    );
-    const restoredResourceNode: ResourceNode = yield* Effect.forEach(
-      node.schema.stateSecretOutputKeys,
-      (outputKey) =>
-        Option.fromUndefinedOr(outputs[outputKey]).pipe(
-          Option.match({
-            onNone: () =>
-              Effect.succeed(Option.none<StateSecretOutputUpdate>()),
-            onSome: (output) =>
-              Schema.decodeUnknownOption(StateSecretReferenceSchema)(
-                output,
-              ).pipe(
-                Option.match({
-                  onNone: () =>
-                    Schema.decodeUnknownEffect(Schema.String)(output).pipe(
-                      Effect.mapError(
-                        (cause) =>
-                          new StateSecretServiceError({
-                            key: `${node.key.logicalId}/${outputKey}`,
-                            operation: "restore",
-                            cause,
-                          }),
-                      ),
-                      Effect.as(
-                        Option.some<StateSecretOutputUpdate>({
-                          output,
-                          outputKey,
-                        }),
-                      ),
-                    ),
-                  onSome: (reference) =>
-                    Effect.map(readMacOSKeychainSecret(reference), (secret) =>
-                      Option.some<StateSecretOutputUpdate>({
-                        output: secret,
-                        outputKey,
-                      }),
-                    ),
-                }),
-              ),
-          }),
-        ),
-    ).pipe(
-      Effect.map((outputUpdates) =>
-        resourceNodeWithOutputs(
+        );
+        const persistedReference = stateSecretReferenceFor(
+          stack,
           node,
-          Arr.reduce(outputUpdates, outputs, (currentOutputs, outputUpdate) =>
-            Option.match(outputUpdate, {
-              onNone: () => currentOutputs,
-              onSome: ({ output, outputKey }) =>
-                Record.set(currentOutputs, outputKey, output),
+          outputKey,
+        );
+
+        yield* writeMacOSKeychainSecret(persistedReference, secret);
+
+        return Option.some<StateSecretOutputUpdate>({
+          output: persistedReference,
+          outputKey,
+        });
+      }),
+    onSome: () =>
+      Effect.succeed(
+        Option.some<StateSecretOutputUpdate>({ output, outputKey }),
+      ),
+  });
+});
+
+const restoreStateSecretOutput = Effect.fn(
+  "StateSecretService.restoreStateSecretOutput",
+)(function* (node: ResourceNode, outputKey: string, output: Schema.Json) {
+  const reference = Schema.decodeUnknownOption(StateSecretReferenceSchema)(
+    output,
+  );
+
+  return yield* Option.match(reference, {
+    onNone: () =>
+      Schema.decodeUnknownEffect(Schema.String)(output).pipe(
+        Effect.mapError(
+          (cause) =>
+            new StateSecretServiceError({
+              key: `${node.key.logicalId}/${outputKey}`,
+              operation: "restore",
+              cause,
             }),
-          ),
+        ),
+        Effect.map(() =>
+          Option.some<StateSecretOutputUpdate>({ output, outputKey }),
         ),
       ),
-    );
-
-    return restoredResourceNode;
+    onSome: (reference) =>
+      Effect.map(readMacOSKeychainSecret(reference), (secret) =>
+        Option.some<StateSecretOutputUpdate>({ output: secret, outputKey }),
+      ),
   });
+});
+
+const persistResourceNodeSecrets = Effect.fn(
+  "StateSecretService.persistResourceNodeSecrets",
+)(function* (stack: string, node: ResourceNode) {
+  const outputs = yield* Schema.decodeUnknownEffect(ResourceOutputRecordSchema)(
+    node.outputs,
+  ).pipe(
+    Effect.mapError(
+      (cause) =>
+        new StateSecretServiceError({
+          key: node.key.logicalId,
+          operation: "persist",
+          cause,
+        }),
+    ),
+  );
+  const persistedResourceNode: ResourceNode = yield* Effect.forEach(
+    node.schema.stateSecretOutputKeys,
+    (outputKey) =>
+      Option.fromUndefinedOr(outputs[outputKey]).pipe(
+        Option.match({
+          onNone: () => Effect.succeed(Option.none<StateSecretOutputUpdate>()),
+          onSome: (output) =>
+            persistStateSecretOutput(stack, node, outputKey, output),
+        }),
+      ),
+  ).pipe(
+    Effect.map((outputUpdates) =>
+      resourceNodeWithOutputs(
+        node,
+        Arr.reduce(outputUpdates, outputs, (currentOutputs, outputUpdate) =>
+          Option.match(outputUpdate, {
+            onNone: () => currentOutputs,
+            onSome: ({ output, outputKey }) =>
+              Record.set(currentOutputs, outputKey, output),
+          }),
+        ),
+      ),
+    ),
+  );
+
+  return persistedResourceNode;
+});
+
+const restoreResourceNodeSecrets = Effect.fn(
+  "StateSecretService.restoreResourceNodeSecrets",
+)(function* (node: ResourceNode) {
+  const outputs = yield* Schema.decodeUnknownEffect(ResourceOutputRecordSchema)(
+    node.outputs,
+  ).pipe(
+    Effect.mapError(
+      (cause) =>
+        new StateSecretServiceError({
+          key: node.key.logicalId,
+          operation: "restore",
+          cause,
+        }),
+    ),
+  );
+  const restoredResourceNode: ResourceNode = yield* Effect.forEach(
+    node.schema.stateSecretOutputKeys,
+    (outputKey) =>
+      Option.fromUndefinedOr(outputs[outputKey]).pipe(
+        Option.match({
+          onNone: () => Effect.succeed(Option.none<StateSecretOutputUpdate>()),
+          onSome: (output) => restoreStateSecretOutput(node, outputKey, output),
+        }),
+      ),
+  ).pipe(
+    Effect.map((outputUpdates) =>
+      resourceNodeWithOutputs(
+        node,
+        Arr.reduce(outputUpdates, outputs, (currentOutputs, outputUpdate) =>
+          Option.match(outputUpdate, {
+            onNone: () => currentOutputs,
+            onSome: ({ output, outputKey }) =>
+              Record.set(currentOutputs, outputKey, output),
+          }),
+        ),
+      ),
+    ),
+  );
+
+  return restoredResourceNode;
+});
 
 const persistResourceStateSecrets = (
   stack: string,

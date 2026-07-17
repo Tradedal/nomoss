@@ -167,7 +167,7 @@ export class StripePriceLifecycle extends Context.Service<StripePriceLifecycle>(
           props: StripePriceProps,
         ) {
           const price = yield* PostPrices(props, {
-            apiVersion: StripeApiVersion,
+            apiVersion: StripeApiVersion.Dahlia,
           }).pipe(Effect.provideService(Credentials, stripeCredentials));
 
           return price;
@@ -180,7 +180,7 @@ export class StripePriceLifecycle extends Context.Service<StripePriceLifecycle>(
             price: priceId,
           };
           const price = yield* GetPricesPrice(input, {
-            apiVersion: StripeApiVersion,
+            apiVersion: StripeApiVersion.Dahlia,
           }).pipe(
             Effect.provideService(Credentials, stripeCredentials),
             Effect.flatMap((output) =>
@@ -208,7 +208,7 @@ export class StripePriceLifecycle extends Context.Service<StripePriceLifecycle>(
             };
 
             yield* PostPricesPrice(input, {
-              apiVersion: StripeApiVersion,
+              apiVersion: StripeApiVersion.Dahlia,
             }).pipe(Effect.provideService(Credentials, stripeCredentials));
           },
         ),

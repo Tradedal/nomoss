@@ -87,12 +87,10 @@ export const stripeProductOutputsFromProps = (
   logicalId: string,
   props: StripeProductProps,
 ): StripeProductOutputs => {
-  const outputs: StripeProductOutputs =
-    props.id === undefined
-      ? pendingStripeProductOutputs(logicalId)
-      : {
-          ProductId: props.id,
-        };
+  const outputs = Option.match(Option.fromUndefinedOr(props.id), {
+    onNone: () => pendingStripeProductOutputs(logicalId),
+    onSome: (productId): StripeProductOutputs => ({ ProductId: productId }),
+  });
 
   return outputs;
 };
@@ -107,7 +105,7 @@ export class StripeProductLifecycle extends Context.Service<StripeProductLifecyc
         createProduct: Effect.fn("StripeProductLifecycle.createProduct")(
           function* (props: StripeProductProps) {
             const product = yield* PostProducts(props, {
-              apiVersion: StripeApiVersion,
+              apiVersion: StripeApiVersion.Dahlia,
             }).pipe(Effect.provideService(Credentials, stripeCredentials));
 
             return product;
@@ -121,7 +119,7 @@ export class StripeProductLifecycle extends Context.Service<StripeProductLifecyc
             id: productId,
           };
           const product = yield* GetProductsId(input, {
-            apiVersion: StripeApiVersion,
+            apiVersion: StripeApiVersion.Dahlia,
           }).pipe(
             Effect.provideService(Credentials, stripeCredentials),
             Effect.flatMap((output) =>
@@ -138,7 +136,7 @@ export class StripeProductLifecycle extends Context.Service<StripeProductLifecyc
         updateProduct: Effect.fn("StripeProductLifecycle.updateProduct")(
           function* (input: StripeProductUpdateProps) {
             const product = yield* PostProductsId(input, {
-              apiVersion: StripeApiVersion,
+              apiVersion: StripeApiVersion.Dahlia,
             }).pipe(
               Effect.provideService(Credentials, stripeCredentials),
               Effect.catchCause((cause) =>
@@ -159,7 +157,7 @@ export class StripeProductLifecycle extends Context.Service<StripeProductLifecyc
           };
 
           yield* PostProductsId(input, {
-            apiVersion: StripeApiVersion,
+            apiVersion: StripeApiVersion.Dahlia,
           }).pipe(
             Effect.provideService(Credentials, stripeCredentials),
             Effect.catchCause((cause) =>

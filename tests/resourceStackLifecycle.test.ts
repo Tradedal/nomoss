@@ -1,6 +1,5 @@
-import { Array as Arr, Effect, Match } from "effect";
-
 import { assert, describe, it } from "@effect/vitest";
+import { Array as Arr, Effect, Match } from "effect";
 
 import {
   ResourceModel,
@@ -10,7 +9,10 @@ import {
 import { ResourceGraphStore } from "../src/core/resourceGraphStore.js";
 import { ResourceOutputResolver } from "../src/core/resourceOutputResolver.js";
 import { ResourceStackLifecycle } from "../src/core/resourceStackLifecycle.js";
-import { ResourceStateStore } from "../src/core/stateStore.js";
+import {
+  type ResourceState,
+  ResourceStateStore,
+} from "../src/core/stateStore.js";
 import {
   QueueOutputsSchema,
   QueuePropsSchema,
@@ -783,56 +785,38 @@ describe("ResourceStackLifecycle", () => {
           "update stripe product prod_test_starter Example Starter Plus",
           "update stripe product prod_test_starter Example Starter Plus",
         ]);
-        const failedStateSummary = yield* Effect.forEach(
-          failedStates,
-          (state) =>
-            Match.value(state).pipe(
-              Match.when({ _tag: "Updating" }, (updating) =>
-                Effect.gen(function* () {
-                  const desiredProps = yield* model.decodeProps(
-                    updating.node,
-                    StripeProductPropsSchema,
-                  );
-                  const previousProps = yield* model.decodeProps(
-                    updating.previous,
-                    StripeProductPropsSchema,
-                  );
-                  const previousOutputs = yield* model.decodeOutputs(
-                    updating.previous,
-                    StripeProductOutputsSchema,
-                  );
-
-                  return {
-                    desiredName: desiredProps.name,
-                    failureTag: updating.lastFailure?.errorTag,
-                    phase: updating._tag,
-                    previousName: previousProps.name,
-                    productId: previousOutputs.ProductId,
-                  };
-                }),
-              ),
-              Match.orElse((other) =>
-                Effect.gen(function* () {
-                  const props = yield* model.decodeProps(
-                    other.node,
-                    StripeProductPropsSchema,
-                  );
-                  const outputs = yield* model.decodeOutputs(
-                    other.node,
-                    StripeProductOutputsSchema,
-                  );
-
-                  return {
-                    desiredName: props.name,
-                    failureTag: undefined,
-                    phase: other._tag,
-                    previousName: undefined,
-                    productId: outputs.ProductId,
-                  };
-                }),
-              ),
-            ),
+        assert.strictEqual(failedStates.length, 1);
+        const failedState = failedStates.find(
+          (
+            state,
+          ): state is Extract<ResourceState, { readonly _tag: "Updating" }> =>
+            state._tag === "Updating",
         );
+        assert.ok(failedState);
+        const { desiredProps, previousOutputs, previousProps } =
+          yield* Effect.all({
+            desiredProps: model.decodeProps(
+              failedState.node,
+              StripeProductPropsSchema,
+            ),
+            previousOutputs: model.decodeOutputs(
+              failedState.previous,
+              StripeProductOutputsSchema,
+            ),
+            previousProps: model.decodeProps(
+              failedState.previous,
+              StripeProductPropsSchema,
+            ),
+          });
+        const failedStateSummary = [
+          {
+            desiredName: desiredProps.name,
+            failureTag: failedState.lastFailure?.errorTag,
+            phase: failedState._tag,
+            previousName: previousProps.name,
+            productId: previousOutputs.ProductId,
+          },
+        ];
         assert.deepStrictEqual(failedStateSummary, [
           {
             desiredName: "Example Starter Plus",
@@ -845,22 +829,19 @@ describe("ResourceStackLifecycle", () => {
         const recoveredStateSummary = yield* Effect.forEach(
           recoveredStates,
           (state) =>
-            Effect.gen(function* () {
-              const props = yield* model.decodeProps(
-                state.node,
-                StripeProductPropsSchema,
-              );
-              const outputs = yield* model.decodeOutputs(
+            Effect.all({
+              outputs: model.decodeOutputs(
                 state.node,
                 StripeProductOutputsSchema,
-              );
-
-              return {
+              ),
+              props: model.decodeProps(state.node, StripeProductPropsSchema),
+            }).pipe(
+              Effect.map(({ outputs, props }) => ({
                 name: props.name,
                 phase: state._tag,
                 productId: outputs.ProductId,
-              };
-            }),
+              })),
+            ),
         );
         assert.deepStrictEqual(recoveredStateSummary, [
           {
@@ -938,40 +919,25 @@ describe("ResourceStackLifecycle", () => {
           "destroy stripe product prod_test_destroy_retry",
           "destroy stripe product prod_test_destroy_retry",
         ]);
-        const failedDestroyStateSummary = yield* Effect.forEach(
-          failedStates,
-          (state) =>
-            Match.value(state).pipe(
-              Match.when({ _tag: "Deleting" }, (deleting) =>
-                Effect.gen(function* () {
-                  const outputs = yield* model.decodeOutputs(
-                    deleting.node,
-                    StripeProductOutputsSchema,
-                  );
-
-                  return {
-                    failureTag: deleting.lastFailure?.errorTag,
-                    phase: deleting._tag,
-                    productId: outputs.ProductId,
-                  };
-                }),
-              ),
-              Match.orElse((other) =>
-                Effect.gen(function* () {
-                  const outputs = yield* model.decodeOutputs(
-                    other.node,
-                    StripeProductOutputsSchema,
-                  );
-
-                  return {
-                    failureTag: undefined,
-                    phase: other._tag,
-                    productId: outputs.ProductId,
-                  };
-                }),
-              ),
-            ),
+        assert.strictEqual(failedStates.length, 1);
+        const failedState = failedStates.find(
+          (
+            state,
+          ): state is Extract<ResourceState, { readonly _tag: "Deleting" }> =>
+            state._tag === "Deleting",
         );
+        assert.ok(failedState);
+        const failedDestroyOutputs = yield* model.decodeOutputs(
+          failedState.node,
+          StripeProductOutputsSchema,
+        );
+        const failedDestroyStateSummary = [
+          {
+            failureTag: failedState.lastFailure?.errorTag,
+            phase: failedState._tag,
+            productId: failedDestroyOutputs.ProductId,
+          },
+        ];
         assert.deepStrictEqual(failedDestroyStateSummary, [
           {
             failureTag: "StripeProductDestroyFailed",
@@ -1038,14 +1004,13 @@ describe("ResourceStackLifecycle", () => {
         const savedStates =
           yield* stateStore.loadResourceStates("billing-stack");
 
-        yield* Match.value(error).pipe(
+        const failedCommand = yield* Match.value(error).pipe(
           Match.when({ _tag: "ResourceCommandExecutionFailed" }, (failed) =>
-            Effect.sync(() =>
-              assert.ok(failed.cause instanceof StripeCustomerCreateFailed),
-            ),
+            Effect.succeed(failed),
           ),
           Match.orElse((unexpected) => Effect.fail(unexpected)),
         );
+        assert.ok(failedCommand.cause instanceof StripeCustomerCreateFailed);
         assert.deepStrictEqual(yield* capture.snapshot, [
           "create aws queue",
           "create stripe customer",

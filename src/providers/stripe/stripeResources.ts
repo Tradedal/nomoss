@@ -8,10 +8,10 @@ import {
 } from "./stripeBillingConfigurationExport.js";
 import {
   pendingStripeBillingPortalConfigurationOutputs,
-  type StripeBillingPortalConfigurationSubscriptionUpdateProductDeclaration,
   StripeBillingPortalConfigurationOutputsSchema,
   type StripeBillingPortalConfigurationProps,
   StripeBillingPortalConfigurationPropsSchema,
+  type StripeBillingPortalConfigurationSubscriptionUpdateProductDeclaration,
 } from "./stripeBillingPortalConfiguration.js";
 import {
   pendingStripeCustomerOutputs,
@@ -36,8 +36,8 @@ import {
 import {
   pendingStripeWebhookEndpointOutputs,
   StripeWebhookEndpointOutputsSchema,
-  type StripeWebhookEndpointRequestProps,
   StripeWebhookEndpointPropsSchema,
+  type StripeWebhookEndpointRequestProps,
 } from "./stripeWebhookEndpoint.js";
 
 /**
@@ -228,9 +228,7 @@ export class StripeResources extends Context.Service<StripeResources>()(
           function* (input: StripeWebhookEndpointInput) {
             const key = { logicalId: input.logicalId };
             const declaration = yield* graph.resource(key);
-            const props = yield* Option.fromUndefinedOr(
-              input.rotationKey,
-            ).pipe(
+            const props = yield* Option.fromUndefinedOr(input.rotationKey).pipe(
               Option.match({
                 onNone: () =>
                   StripeWebhookEndpointPropsSchema.makeEffect({
@@ -269,19 +267,19 @@ export class StripeResources extends Context.Service<StripeResources>()(
         )(function* (input: StripeBillingPortalConfigurationInput) {
           const key = { logicalId: input.logicalId };
           const declaration = yield* graph.resource(key);
-          const props = yield* Option.fromUndefinedOr(
-            input.subscriptionUpdateProducts,
-          ).pipe(
-            Option.match({
+          const props = yield* Option.match(
+            Option.fromUndefinedOr(input.subscriptionUpdateProducts),
+            {
               onNone: () =>
                 StripeBillingPortalConfigurationPropsSchema.makeEffect(
                   input.props,
                 ),
               onSome: (products) =>
-                Option.fromUndefinedOr(
-                  input.props.features.subscription_update,
-                ).pipe(
-                  Option.match({
+                Option.match(
+                  Option.fromUndefinedOr(
+                    input.props.features.subscription_update,
+                  ),
+                  {
                     onNone: () =>
                       Effect.fail(
                         new BillingPortalSubscriptionUpdateConfigurationMissing(
@@ -291,30 +289,21 @@ export class StripeResources extends Context.Service<StripeResources>()(
                         ),
                       ),
                     onSome: (subscriptionUpdate) =>
-                      Effect.forEach(
-                        products,
-                        (product, productIndex) =>
-                          declaration
-                            .stringFrom(
-                              product.product,
-                              `features.subscription_update.products.${productIndex}.product`,
-                            )
-                            .pipe(
-                              Effect.zip(
-                                Effect.forEach(
-                                  product.prices,
-                                  (price, priceIndex) =>
-                                    declaration.stringFrom(
-                                      price,
-                                      `features.subscription_update.products.${productIndex}.prices.${priceIndex}`,
-                                    ),
-                                ),
+                      Effect.forEach(products, (product, productIndex) =>
+                        Effect.all({
+                          product: declaration.stringFrom(
+                            product.product,
+                            `features.subscription_update.products.${productIndex}.product`,
+                          ),
+                          prices: Effect.forEach(
+                            product.prices,
+                            (price, priceIndex) =>
+                              declaration.stringFrom(
+                                price,
+                                `features.subscription_update.products.${productIndex}.prices.${priceIndex}`,
                               ),
-                              Effect.map(([productId, prices]) => ({
-                                prices,
-                                product: productId,
-                              })),
-                            ),
+                          ),
+                        }),
                       ).pipe(
                         Effect.flatMap((subscriptionUpdateProducts) =>
                           StripeBillingPortalConfigurationPropsSchema.makeEffect(
@@ -322,30 +311,36 @@ export class StripeResources extends Context.Service<StripeResources>()(
                               business_profile: input.props.business_profile,
                               default_return_url:
                                 input.props.default_return_url,
-                              features: Record.filter({
-                                customer_update:
-                                  input.props.features.customer_update,
-                                invoice_history:
-                                  input.props.features.invoice_history,
-                                payment_method_update:
-                                  input.props.features.payment_method_update,
-                                subscription_cancel:
-                                  input.props.features.subscription_cancel,
-                                subscription_update: Record.filter({
-                                  billing_cycle_anchor:
-                                    subscriptionUpdate.billing_cycle_anchor,
-                                  default_allowed_updates:
-                                    subscriptionUpdate.default_allowed_updates,
-                                  enabled: subscriptionUpdate.enabled,
-                                  products: subscriptionUpdateProducts,
-                                  proration_behavior:
-                                    subscriptionUpdate.proration_behavior,
-                                  schedule_at_period_end:
-                                    subscriptionUpdate.schedule_at_period_end,
-                                  trial_update_behavior:
-                                    subscriptionUpdate.trial_update_behavior,
-                                }, (value) => value !== undefined),
-                              }, (value) => value !== undefined),
+                              features: Record.filter(
+                                {
+                                  customer_update:
+                                    input.props.features.customer_update,
+                                  invoice_history:
+                                    input.props.features.invoice_history,
+                                  payment_method_update:
+                                    input.props.features.payment_method_update,
+                                  subscription_cancel:
+                                    input.props.features.subscription_cancel,
+                                  subscription_update: Record.filter(
+                                    {
+                                      billing_cycle_anchor:
+                                        subscriptionUpdate.billing_cycle_anchor,
+                                      default_allowed_updates:
+                                        subscriptionUpdate.default_allowed_updates,
+                                      enabled: subscriptionUpdate.enabled,
+                                      products: subscriptionUpdateProducts,
+                                      proration_behavior:
+                                        subscriptionUpdate.proration_behavior,
+                                      schedule_at_period_end:
+                                        subscriptionUpdate.schedule_at_period_end,
+                                      trial_update_behavior:
+                                        subscriptionUpdate.trial_update_behavior,
+                                    },
+                                    (value) => value !== undefined,
+                                  ),
+                                },
+                                (value) => value !== undefined,
+                              ),
                               login_page: input.props.login_page,
                               metadata: input.props.metadata,
                               name: input.props.name,
@@ -353,9 +348,9 @@ export class StripeResources extends Context.Service<StripeResources>()(
                           ),
                         ),
                       ),
-                  }),
+                  },
                 ),
-            }),
+            },
           );
           const outputs = pendingStripeBillingPortalConfigurationOutputs(
             input.logicalId,

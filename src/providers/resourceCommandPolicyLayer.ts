@@ -2,13 +2,13 @@ import { Context, Effect, Layer, Match, Option } from "effect";
 
 import {
   type ResourceCommand,
-  type ResourceCommandResult,
   ResourceCommandUnsupported,
 } from "../core/lifecycle.js";
 import type { ResourceSchemaAnnotation } from "../core/model.js";
 import { resourceSchemaString } from "../core/model.js";
 import {
   ResourceCommandExecutionFailed,
+  type ResourceCommandFailure,
   ResourceCommandPolicy,
 } from "../core/resourceCommandPolicy.js";
 import { QueueResourcePolicy } from "./aws/awsQueueResourcePolicy.js";
@@ -28,10 +28,7 @@ import { StripeWebhookEndpointResourcePolicy } from "./stripe/stripeWebhookEndpo
 type ProviderResourceCommandPolicy = {
   readonly execute: (
     command: ResourceCommand,
-  ) => Effect.Effect<
-    ResourceCommandResult,
-    ResourceCommandUnsupported | ResourceCommandExecutionFailed
-  >;
+  ) => ReturnType<(typeof ResourceCommandPolicy)["Service"]["execute"]>;
 };
 
 /**
@@ -91,44 +88,21 @@ const providerCommandPolicyTag = (schema: ResourceSchemaAnnotation) =>
     `nomoss/providers/resourceCommandPolicyLayer/${resourceSchemaString(schema)}`,
   );
 
-const providerCommandError = (command: ResourceCommand, cause: unknown) =>
-  Match.value(cause).pipe(
-    Match.when(
-      (error: unknown) => error instanceof ResourceCommandUnsupported,
-      (error) => error,
-    ),
-    Match.orElse(
-      () =>
-        new ResourceCommandExecutionFailed({
-          command,
-          cause,
-        }),
-    ),
-  );
-
-/**
- * Provider policies keep provider-specific failure types inside their own
- * services. The metadata binding exposes the stack lifecycle command contract:
- * a command result, an explicit missing-operation failure, or an execution
- * failure carrying the provider cause.
- *
- * The binding is what makes provider additions local: adding a provider command
- * path means providing a resource policy service with a schema and `execute`,
- * then adding its metadata layer to the provider runtime assembly.
- */
-const bindProviderCommandPolicy = <CommandError>(policy: {
-  readonly schema: ResourceSchemaAnnotation;
-  readonly execute: (
-    command: ResourceCommand,
-  ) => Effect.Effect<ResourceCommandResult, CommandError>;
-}) =>
-  Layer.succeed(providerCommandPolicyTag(policy.schema), {
-    execute: (command) =>
-      policy
-        .execute(command)
-        .pipe(Effect.mapError((cause) => providerCommandError(command, cause))),
+const providerCommandError = (
+  command: ResourceCommand,
+  cause: ResourceCommandFailure,
+) =>
+  new ResourceCommandExecutionFailed({
+    command,
+    cause,
   });
 
+/**
+ * Provider policy metadata preserves the provider's own service method and
+ * changes only its error at the runtime registration point. Stack lifecycle
+ * receives one command contract while provider policies retain their local
+ * implementation and failure types.
+ */
 /**
  * Provider modules contribute schema-keyed command metadata beside their normal
  * resource policy services. Maintaining this list explicitly keeps provider
@@ -140,30 +114,71 @@ const bindProviderCommandPolicy = <CommandError>(policy: {
  * matching metadata-provided service; no command-name switch is needed.
  */
 export const awsQueueResourceCommandMetadataLayer = Layer.unwrap(
-  Effect.map(QueueResourcePolicy, bindProviderCommandPolicy),
+  Effect.map(QueueResourcePolicy, ({ schema, execute }) =>
+    Layer.succeed(providerCommandPolicyTag(schema), {
+      execute: (command) =>
+        execute(command).pipe(
+          Effect.mapError((cause) => providerCommandError(command, cause)),
+        ),
+    }),
+  ),
 );
 
 export const stripeCustomerResourceCommandMetadataLayer = Layer.unwrap(
-  Effect.map(StripeCustomerResourcePolicy, bindProviderCommandPolicy),
+  Effect.map(StripeCustomerResourcePolicy, ({ schema, execute }) =>
+    Layer.succeed(providerCommandPolicyTag(schema), {
+      execute: (command) =>
+        execute(command).pipe(
+          Effect.mapError((cause) => providerCommandError(command, cause)),
+        ),
+    }),
+  ),
 );
 
 export const stripeProductResourceCommandMetadataLayer = Layer.unwrap(
-  Effect.map(StripeProductResourcePolicy, bindProviderCommandPolicy),
+  Effect.map(StripeProductResourcePolicy, ({ schema, execute }) =>
+    Layer.succeed(providerCommandPolicyTag(schema), {
+      execute: (command) =>
+        execute(command).pipe(
+          Effect.mapError((cause) => providerCommandError(command, cause)),
+        ),
+    }),
+  ),
 );
 
 export const stripePriceResourceCommandMetadataLayer = Layer.unwrap(
-  Effect.map(StripePriceResourcePolicy, bindProviderCommandPolicy),
+  Effect.map(StripePriceResourcePolicy, ({ schema, execute }) =>
+    Layer.succeed(providerCommandPolicyTag(schema), {
+      execute: (command) =>
+        execute(command).pipe(
+          Effect.mapError((cause) => providerCommandError(command, cause)),
+        ),
+    }),
+  ),
 );
 
 export const stripeWebhookEndpointResourceCommandMetadataLayer = Layer.unwrap(
-  Effect.map(StripeWebhookEndpointResourcePolicy, bindProviderCommandPolicy),
+  Effect.map(StripeWebhookEndpointResourcePolicy, ({ schema, execute }) =>
+    Layer.succeed(providerCommandPolicyTag(schema), {
+      execute: (command) =>
+        execute(command).pipe(
+          Effect.mapError((cause) => providerCommandError(command, cause)),
+        ),
+    }),
+  ),
 );
 
 export const stripeBillingPortalConfigurationResourceCommandMetadataLayer =
   Layer.unwrap(
     Effect.map(
       StripeBillingPortalConfigurationResourcePolicy,
-      bindProviderCommandPolicy,
+      ({ schema, execute }) =>
+        Layer.succeed(providerCommandPolicyTag(schema), {
+          execute: (command) =>
+            execute(command).pipe(
+              Effect.mapError((cause) => providerCommandError(command, cause)),
+            ),
+        }),
     ),
   );
 
@@ -171,7 +186,13 @@ export const stripeBillingConfigurationExportResourceCommandMetadataLayer =
   Layer.unwrap(
     Effect.map(
       StripeBillingConfigurationExportResourcePolicy,
-      bindProviderCommandPolicy,
+      ({ schema, execute }) =>
+        Layer.succeed(providerCommandPolicyTag(schema), {
+          execute: (command) =>
+            execute(command).pipe(
+              Effect.mapError((cause) => providerCommandError(command, cause)),
+            ),
+        }),
     ),
   );
 
@@ -202,7 +223,12 @@ export const providerResourceCommandPolicyLayerLive = Layer.effect(
 
           const policy = yield* Option.match(policyOption, {
             onNone: () =>
-              Effect.fail(new ResourceCommandUnsupported({ command })),
+              Effect.fail(
+                new ResourceCommandExecutionFailed({
+                  command,
+                  cause: new ResourceCommandUnsupported({ command }),
+                }),
+              ),
             onSome: Effect.succeed,
           });
 

@@ -21,6 +21,11 @@ type PhysicalNameFile = Schema.Schema.Type<typeof PhysicalNameFileSchema>;
 
 const PhysicalNameJsonSchema = Schema.fromJsonString(PhysicalNameFileSchema);
 
+type SanitizedNameState = {
+  readonly pendingSeparator: boolean;
+  readonly text: string;
+};
+
 /**
  * Generated provider names must remain stable across local runs when callers
  * omit explicit names. Destroy clears those mappings so recreated stacks do not
@@ -35,18 +40,24 @@ export class PhysicalNameStore extends Context.Service<PhysicalNameStore>()(
         schemaVersion: 1,
         names: {},
       });
+      const appendSanitizedNameCharacter = (
+        nameState: SanitizedNameState,
+        nameCharacter: string,
+      ): SanitizedNameState => ({
+        pendingSeparator: false,
+        text: `${nameState.text}${Match.value(nameState.pendingSeparator).pipe(
+          Match.when(true, () => "-"),
+          Match.orElse(() => ""),
+        )}${nameCharacter}`,
+      });
       const readState = Effect.fn("PhysicalNameStore.readState")(function* () {
-        const exists = yield* fs.exists("./.nomoss/physical-names.json");
-        const readExisting = fs
+        return yield* fs
           .readFileString("./.nomoss/physical-names.json")
           .pipe(
             Effect.flatMap(Schema.decodeUnknownEffect(PhysicalNameJsonSchema)),
+            Effect.when(fs.exists("./.nomoss/physical-names.json")),
+            Effect.map(Option.getOrElse(() => emptyState)),
           );
-
-        return yield* Match.value(exists).pipe(
-          Match.when(true, () => readExisting),
-          Match.orElse(() => Effect.succeed(emptyState)),
-        );
       });
       const writeState = Effect.fn("PhysicalNameStore.writeState")(function* (
         state: PhysicalNameFile,
@@ -82,11 +93,11 @@ export class PhysicalNameStore extends Context.Service<PhysicalNameStore>()(
                   Str.includes(candidate)(
                     "abcdefghijklmnopqrstuvwxyz0123456789",
                   ),
-                Option.some,
+                (candidate) => Option.some<string>(candidate),
               ),
               Match.when(
                 (candidate) => Str.includes(candidate)("-"),
-                Option.some,
+                (candidate) => Option.some<string>(candidate),
               ),
               Match.orElse(() => Option.none<string>()),
               Option.match({
@@ -94,15 +105,8 @@ export class PhysicalNameStore extends Context.Service<PhysicalNameStore>()(
                   pendingSeparator: Str.isNonEmpty(nameState.text),
                   text: nameState.text,
                 }),
-                onSome: (nameCharacter) => ({
-                  pendingSeparator: false,
-                  text: `${nameState.text}${Match.value(
-                    nameState.pendingSeparator,
-                  ).pipe(
-                    Match.when(true, () => "-"),
-                    Match.orElse(() => ""),
-                  )}${nameCharacter}`,
-                }),
+                onSome: (nameCharacter) =>
+                  appendSanitizedNameCharacter(nameState, nameCharacter),
               }),
             ),
         ).text;
@@ -140,11 +144,11 @@ export class PhysicalNameStore extends Context.Service<PhysicalNameStore>()(
                   Str.includes(candidate)(
                     "abcdefghijklmnopqrstuvwxyz0123456789",
                   ),
-                Option.some,
+                (candidate) => Option.some<string>(candidate),
               ),
               Match.when(
                 (candidate) => Str.includes(candidate)("_-"),
-                Option.some,
+                (candidate) => Option.some<string>(candidate),
               ),
               Match.orElse(() => Option.none<string>()),
               Option.match({
@@ -152,15 +156,8 @@ export class PhysicalNameStore extends Context.Service<PhysicalNameStore>()(
                   pendingSeparator: Str.isNonEmpty(nameState.text),
                   text: nameState.text,
                 }),
-                onSome: (nameCharacter) => ({
-                  pendingSeparator: false,
-                  text: `${nameState.text}${Match.value(
-                    nameState.pendingSeparator,
-                  ).pipe(
-                    Match.when(true, () => "-"),
-                    Match.orElse(() => ""),
-                  )}${nameCharacter}`,
-                }),
+                onSome: (nameCharacter) =>
+                  appendSanitizedNameCharacter(nameState, nameCharacter),
               }),
             ),
         ).text;
