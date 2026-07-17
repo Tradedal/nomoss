@@ -11,7 +11,7 @@ import {
   PostProductsInput,
   PostProductsOutput,
 } from "@distilled.cloud/stripe/Operations";
-import { type Cause, Context, Data, Effect, Option, Schema } from "effect";
+import { type Cause, Context, Data, Effect, Match, Option, Schema } from "effect";
 
 import { annotateResourceSchema } from "../../core/model.js";
 import { StripeApiVersion } from "./stripeAccount.js";
@@ -86,16 +86,11 @@ export const pendingStripeProductOutputs = (
 export const stripeProductOutputsFromProps = (
   logicalId: string,
   props: StripeProductProps,
-): StripeProductOutputs => {
-  const outputs: StripeProductOutputs =
-    props.id === undefined
-      ? pendingStripeProductOutputs(logicalId)
-      : {
-          ProductId: props.id,
-        };
-
-  return outputs;
-};
+): StripeProductOutputs =>
+  Match.value(props.id).pipe(
+    Match.when(undefined, () => pendingStripeProductOutputs(logicalId)),
+    Match.orElse((productId) => ({ ProductId: productId })),
+  );
 
 export class StripeProductLifecycle extends Context.Service<StripeProductLifecycle>()(
   "nomoss/providers/stripe/stripeProduct/StripeProductLifecycle",
