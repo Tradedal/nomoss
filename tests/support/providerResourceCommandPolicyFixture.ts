@@ -176,7 +176,7 @@ const awsSqsTransportFixtureLayer = Layer.effect(
   }),
 );
 
-const queueLifecycleFixtureLayer = Layer.effect(
+const awsQueueLifecycleFixtureLayer = Layer.effect(
   QueueLifecycleService,
   QueueLifecycleService.make,
 ).pipe(Layer.provide(awsSqsTransportFixtureLayer));
@@ -185,7 +185,7 @@ const awsQueueResourcePolicyFixtureLayer = Layer.effect(
   QueueResourcePolicy,
   QueueResourcePolicy.make,
 ).pipe(
-  Layer.provideMerge(queueLifecycleFixtureLayer),
+  Layer.provideMerge(awsQueueLifecycleFixtureLayer),
   Layer.provideMerge(
     Layer.succeed(AwsTagging, {
       reconcile: () => Effect.void,
