@@ -1,5 +1,12 @@
-import { javascript, JsonFile, TextFile } from "projen";
+import fs from "node:fs";
+import { javascript, JsonFile, ReleasableCommits, TextFile } from "projen";
 import { YarnNodeLinker } from "projen/lib/javascript";
+import { ReleaseTrigger } from "projen/lib/release";
+
+const packageManifestPath = "package.json";
+const currentPackageVersion = fs.existsSync(packageManifestPath)
+  ? JSON.parse(fs.readFileSync(packageManifestPath, "utf8")).version ?? "0.0.0"
+  : "0.0.0";
 
 const project = new javascript.NodeProject({
   defaultReleaseBranch: "main",
@@ -24,7 +31,7 @@ const project = new javascript.NodeProject({
     "vitest@^4.1.4",
   ],
   entrypoint: "",
-  github: false,
+  github: true,
   jest: false,
   license: "MIT",
   licensed: true,
@@ -32,8 +39,13 @@ const project = new javascript.NodeProject({
   npmAccess: javascript.NpmAccess.PUBLIC,
   packageManager: javascript.NodePackageManager.YARN_BERRY,
   prettier: false,
-  release: false,
+  releaseToNpm: true,
+  release: true,
+  releaseTrigger: ReleaseTrigger.workflowDispatch(),
+  releasableCommits: ReleasableCommits.featuresAndFixes(),
+  repository: "https://github.com/Tradedal/nomoss.git",
   sampleCode: false,
+  workflowNodeVersion: "24.11.1",
   yarnBerryOptions: {
     version: "4.17.1",
     zeroInstalls: false,
@@ -44,8 +56,12 @@ const project = new javascript.NodeProject({
   },
 });
 
+project.release?.publisher?.publishToNpm({
+  trustedPublishing: true,
+});
+
+project.package.addVersion(currentPackageVersion);
 project.package.addField("type", "module");
-project.package.addField("version", "0.0.1"); // x-release-please-version
 project.package.addField("engines", { node: ">=24" });
 project.package.addField("bin", { nomoss: "bin/nomoss" });
 project.package.addField("exports", {
