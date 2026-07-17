@@ -70,7 +70,8 @@ project.package.addField("scripts", {
   check: "yarn lint && yarn typecheck:tsgo && vitest run --pool forks --passWithNoTests --exclude 'tests/**/*.integration.test.ts'",
   lint: "biome lint --reporter=summary",
   "lint:fix": "biome check --write",
-  "typecheck:tsgo": "effect-tsgo patch && tsc -b .",
+  "tsgo:patch": "effect-tsgo patch",
+  "typecheck:tsgo": "tsc -b .",
   projen: "tsx .projenrc.ts",
 });
 project.gitignore.addPatterns(".nomoss/");
