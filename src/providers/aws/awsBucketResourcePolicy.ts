@@ -1,11 +1,4 @@
-import {
-  Array as Arr,
-  Context,
-  Effect,
-  Match,
-  Option,
-  type Schema,
-} from "effect";
+import { Array as Arr, Context, Effect, Match, Option } from "effect";
 
 import {
   PlanDecision,
@@ -26,6 +19,37 @@ import {
 } from "./awsBucket.js";
 import { AwsTagging } from "./awsTagging.js";
 
+const formatTagValue = (value: string | undefined) =>
+  Match.value(value).pipe(
+    Match.when(undefined, () => "undefined"),
+    Match.orElse((defined) => `"${defined}"`),
+  );
+
+const bucketTagDecision = (
+  node: ResourceNode,
+  observedTags: ReadonlyArray<{
+    readonly Key: string;
+    readonly Value?: string;
+  }>,
+) =>
+  Option.match(
+    Option.liftPredicate(observedTags, (tags) => tags.length > 0),
+    {
+      onNone: () => PlanDecision.NoOp({ node }),
+      onSome: (tags) =>
+        PlanDecision.Repair({
+          node,
+          reason: "bucket tags differ from desired state",
+          changes: Arr.map(tags, (tag) =>
+            PlanRepairChange.Removed({
+              path: ["aws", "s3", "bucket", "tags", tag.Key],
+              before: formatTagValue(tag.Value),
+            }),
+          ),
+        }),
+    },
+  );
+
 /**
  * The AWS resource dispatcher reaches bucket behavior through this policy so
  * tag reconciliation and force-destroy semantics stay bucket-specific.
@@ -39,44 +63,6 @@ export class BucketResourcePolicy extends Context.Service<BucketResourcePolicy>(
       const model = yield* ResourceModel;
       const resourcePolicy = yield* ResourcePolicy;
 
-      const formatTagValue = (value: string | undefined) =>
-        Match.value(value).pipe(
-          Match.when(undefined, () => "undefined"),
-          Match.orElse((defined) => `"${defined}"`),
-        );
-
-      const decidePresent = Effect.fn("BucketResourcePolicy.decidePresent")(
-        function* (node: ResourceNode, observed: Schema.Json) {
-          const state = yield* model.decodeJson(
-            BucketObservedStateSchema,
-            observed,
-          );
-          const observedTags = Option.match(
-            Option.fromUndefinedOr(state.tagging),
-            {
-              onNone: () => [],
-              onSome: (tagging) => tagging.TagSet,
-            },
-          );
-          const decision = Match.value(observedTags.length > 0).pipe(
-            Match.when(true, () =>
-              PlanDecision.Repair({
-                node,
-                reason: "bucket tags differ from desired state",
-                changes: Arr.map(observedTags, (tag) =>
-                  PlanRepairChange.Removed({
-                    path: ["aws", "s3", "bucket", "tags", tag.Key],
-                    before: formatTagValue(tag.Value),
-                  }),
-                ),
-              }),
-            ),
-            Match.orElse(() => PlanDecision.NoOp({ node })),
-          );
-
-          return decision;
-        },
-      );
       const read = Effect.fn("BucketResourcePolicy.read")(function* (
         node: ResourceNode,
       ) {
@@ -106,7 +92,18 @@ export class BucketResourcePolicy extends Context.Service<BucketResourcePolicy>(
               Effect.succeed(PlanDecision.Repair({ node, reason })),
             Drifted: ({ reason }) =>
               Effect.succeed(PlanDecision.Repair({ node, reason })),
-            Present: ({ observed }) => decidePresent(node, observed),
+            Present: ({ observed }) =>
+              Effect.map(
+                model.decodeJson(BucketObservedStateSchema, observed),
+                (state) =>
+                  bucketTagDecision(
+                    node,
+                    Option.match(Option.fromUndefinedOr(state.tagging), {
+                      onNone: () => [],
+                      onSome: (tagging) => tagging.TagSet,
+                    }),
+                  ),
+              ),
           }),
         );
 

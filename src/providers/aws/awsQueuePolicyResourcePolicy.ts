@@ -19,6 +19,39 @@ import {
   queuePoliciesEqual,
 } from "./awsQueuePolicy.js";
 
+const queuePolicyDecision = (
+  node: ResourceNode,
+  desiredPolicy: string,
+  observedPolicy: string | undefined,
+) => {
+  const policyChanges = Option.match(Option.fromUndefinedOr(observedPolicy), {
+    onNone: () => [
+      PlanRepairChange.Added({
+        path: ["aws", "sqs", "queue-policy", "attributes", "Policy"],
+        after: desiredPolicy,
+      }),
+    ],
+    onSome: (policy) => [
+      PlanRepairChange.Updated({
+        path: ["aws", "sqs", "queue-policy", "attributes", "Policy"],
+        before: policy,
+        after: desiredPolicy,
+      }),
+    ],
+  });
+
+  return Match.value(queuePoliciesEqual(desiredPolicy, observedPolicy)).pipe(
+    Match.when(true, () => PlanDecision.NoOp({ node })),
+    Match.orElse(() =>
+      PlanDecision.Repair({
+        node,
+        reason: "queue policy differs from desired state",
+        changes: policyChanges,
+      }),
+    ),
+  );
+};
+
 /**
  * The AWS resource dispatcher reaches queue policy behavior through this
  * policy, keeping graph commands separate from SQS policy attributes.
@@ -31,58 +64,24 @@ export class QueuePolicyResourcePolicy extends Context.Service<QueuePolicyResour
       const model = yield* ResourceModel;
       const resourcePolicy = yield* ResourcePolicy;
 
-      const decidePresent = Effect.fn(
-        "QueuePolicyResourcePolicy.decidePresent",
-      )(function* (node: ResourceNode, observed: Schema.Json) {
-        const props = yield* model.decodeProps(node, QueuePolicyPropsSchema);
-        const state = yield* model.decodeJson(
-          QueuePolicyObservedStateSchema,
-          observed,
-        );
-        const resolved = yield* lifecycle.resolve(props);
-        const desiredPolicy = resolved.policy;
-        const observedPolicy = state.attributes.Attributes?.Policy;
-        const decision = Match.value(
-          queuePoliciesEqual(desiredPolicy, observedPolicy),
-        ).pipe(
-          Match.when(true, () => PlanDecision.NoOp({ node })),
-          Match.orElse(() =>
-            PlanDecision.Repair({
-              node,
-              reason: "queue policy differs from desired state",
-              changes: Option.match(Option.fromUndefinedOr(observedPolicy), {
-                onNone: () => [
-                  PlanRepairChange.Added({
-                    path: [
-                      "aws",
-                      "sqs",
-                      "queue-policy",
-                      "attributes",
-                      "Policy",
-                    ],
-                    after: desiredPolicy,
-                  }),
-                ],
-                onSome: (policy) => [
-                  PlanRepairChange.Updated({
-                    path: [
-                      "aws",
-                      "sqs",
-                      "queue-policy",
-                      "attributes",
-                      "Policy",
-                    ],
-                    before: policy,
-                    after: desiredPolicy,
-                  }),
-                ],
-              }),
-            }),
-          ),
-        );
-
-        return decision;
-      });
+      const decidePresent = (node: ResourceNode, observed: Schema.Json) =>
+        model
+          .decodeProps(node, QueuePolicyPropsSchema)
+          .pipe(
+            Effect.flatMap((props) =>
+              Effect.flatMap(
+                model.decodeJson(QueuePolicyObservedStateSchema, observed),
+                (state) =>
+                  Effect.map(lifecycle.resolve(props), (resolved) =>
+                    queuePolicyDecision(
+                      node,
+                      resolved.policy,
+                      state.attributes.Attributes?.Policy,
+                    ),
+                  ),
+              ),
+            ),
+          );
       const read = Effect.fn("QueuePolicyResourcePolicy.read")(function* (
         node: ResourceNode,
       ) {

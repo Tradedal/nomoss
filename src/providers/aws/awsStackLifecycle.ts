@@ -1,11 +1,4 @@
-import {
-  Array as Arr,
-  Context,
-  Duration,
-  Effect,
-  Graph,
-  Match,
-} from "effect";
+import { Array as Arr, Context, Duration, Effect, Graph, Option } from "effect";
 
 import type { PlanDecision } from "../../core/lifecycle.js";
 import type { ResourceNode } from "../../core/model.js";
@@ -13,7 +6,7 @@ import { PhysicalNameStore } from "../../core/physicalNameStore.js";
 import type { ResourceDependencyGraph } from "../../core/planner.js";
 import { ResourceGraphStore } from "../../core/resourceGraphStore.js";
 import { ResourceStateStore } from "../../core/stateStore.js";
-import { AwsApply, type AppliedResource } from "./awsApply.js";
+import { type AppliedResource, AwsApply } from "./awsApply.js";
 import { AwsProviderRuntime } from "./awsProviderLayer.js";
 import { AwsReconciliation } from "./awsReconciliation.js";
 import { AwsRefresh } from "./awsRefresh.js";
@@ -137,6 +130,7 @@ export class AwsStackLifecycle extends Context.Service<AwsStackLifecycle>()(
       ) {
         const stack = yield* catalog.get(stackName);
 
+        yield* graphStore.reset;
         yield* stack.graph.pipe(Effect.provideService(AwsResources, resources));
         const desired = yield* graphStore.snapshot;
         const prepared: PreparedStack = {
@@ -197,28 +191,36 @@ export class AwsStackLifecycle extends Context.Service<AwsStackLifecycle>()(
             Effect.provide(decisionLayer),
           );
           const report = reportFor(prepared.stackName, decisions);
-          const applyChanges = applyDecisions({
-            desired: prepared.desired,
-            decisions,
-            stackName: prepared.stackName,
-            desiredResources,
-          }).pipe(Effect.provide(decisionLayer));
-          const shouldApply = report.changed.length > 0;
-          const [duration, resources] = yield* Match.value(shouldApply).pipe(
-            Match.when(true, () => applyChanges.pipe(Effect.timed)),
-            Match.orElse(() =>
-              Effect.succeed([Duration.zero, [] as Array<AppliedResource>] as const),
-            ),
+          return yield* Option.match(
+            Option.liftPredicate(report, (value) => value.changed.length > 0),
+            {
+              onNone: () =>
+                Effect.succeed({
+                  report,
+                  applied: false,
+                  resources: [],
+                  durationMillis: 0,
+                }),
+              onSome: () =>
+                applyDecisions({
+                  desired: prepared.desired,
+                  decisions,
+                  stackName: prepared.stackName,
+                  desiredResources,
+                }).pipe(
+                  Effect.provide(decisionLayer),
+                  Effect.timed,
+                  Effect.map(
+                    ([duration, resources]): StackApplyResult => ({
+                      report,
+                      applied: true,
+                      resources,
+                      durationMillis: Duration.toMillis(duration),
+                    }),
+                  ),
+                ),
+            },
           );
-
-          const result: StackApplyResult = {
-            report,
-            applied: shouldApply,
-            resources,
-            durationMillis: Duration.toMillis(duration),
-          };
-
-          return result;
         }),
 
         destroyLive: Effect.fn("AwsStackLifecycle.destroyLive")(

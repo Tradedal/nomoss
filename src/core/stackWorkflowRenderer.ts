@@ -23,29 +23,106 @@ const renderResourceOutputSummary = (node: {
   readonly outputs: unknown;
   readonly schema: { readonly provider: string; readonly resource: string };
 }) =>
-  Schema.decodeUnknownOption(ResourceOutputSummarySchema)(node.outputs).pipe(
-    Option.map((outputs) =>
-      Arr.map(EffectRecord.toEntries(outputs), ([key, value]) =>
-        Match.value({
-          key,
-          provider: node.schema.provider,
-          resource: node.schema.resource,
-        }).pipe(
-          Match.when(
-            {
-              key: "WebhookSigningSecret",
-              provider: "stripe",
-              resource: "webhook-endpoint",
-            },
-            () => "WebhookSigningSecret=<redacted>",
-          ),
-          Match.orElse(() => `${key}=${Formatter.format(value)}`),
-        ),
-      ).join(" "),
+  Option.getOrElse(
+    Option.filter(
+      Option.map(
+        Schema.decodeUnknownOption(ResourceOutputSummarySchema)(node.outputs),
+        (outputs) =>
+          Arr.map(EffectRecord.toEntries(outputs), ([key, value]) =>
+            Match.value({
+              key,
+              provider: node.schema.provider,
+              resource: node.schema.resource,
+            }).pipe(
+              Match.when(
+                {
+                  key: "WebhookSigningSecret",
+                  provider: "stripe",
+                  resource: "webhook-endpoint",
+                },
+                () => "WebhookSigningSecret=<redacted>",
+              ),
+              Match.orElse(() => `${key}=${Formatter.format(value)}`),
+            ),
+          ).join(" "),
+      ),
+      (summary) => summary.length > 0,
     ),
-    Option.filter((summary) => summary.length > 0),
-    Option.getOrElse(() => ""),
+    () => "",
   );
+
+const resourceOutputLabel = (
+  resourcesByKey: ReadonlyMap<
+    string,
+    {
+      readonly outputs: unknown;
+      readonly schema: { readonly provider: string; readonly resource: string };
+    }
+  >,
+  key: string,
+) =>
+  Option.getOrElse(
+    Option.map(
+      Option.fromUndefinedOr(resourcesByKey.get(key)),
+      renderResourceOutputSummary,
+    ),
+    () => "",
+  );
+
+const renderApplyAction = (
+  action: ResourceApplyResult["plan"]["createOrUpdate"][number][number],
+  resourcesByKey: ReadonlyMap<
+    string,
+    {
+      readonly outputs: unknown;
+      readonly schema: { readonly provider: string; readonly resource: string };
+    }
+  >,
+) => {
+  const label = resourceOutputLabel(resourcesByKey, keyString(action.node.key));
+
+  return Match.value(action).pipe(
+    Match.when(
+      { _tag: "Create" },
+      ({ node }) =>
+        `\u001b[32m[+] ${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId} created ${label}\u001b[0m`,
+    ),
+    Match.when(
+      { _tag: "Update" },
+      ({ node }) =>
+        `\u001b[33m[~] ${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId} updated ${label}\u001b[0m`,
+    ),
+    Match.orElse(
+      ({ node }) =>
+        `\u001b[31m[-] ${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId}\u001b[0m`,
+    ),
+  );
+};
+
+const renderDestroyAction = (
+  action: ResourceDestroyResult["plan"]["destroy"][number][number],
+  resourcesByKey: ReadonlyMap<
+    string,
+    {
+      readonly outputs: unknown;
+      readonly schema: { readonly provider: string; readonly resource: string };
+    }
+  >,
+) => {
+  const label = resourceOutputLabel(resourcesByKey, keyString(action.node.key));
+
+  return Match.value(action).pipe(
+    Match.when(
+      { _tag: "Destroy" },
+      ({ node }) =>
+        `\u001b[31m[-] ${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId} destroyed ${label}\u001b[0m`,
+    ),
+    Match.orElse(
+      ({ node }) =>
+        `\u001b[31m[-] ${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId}\u001b[0m`,
+    ),
+  );
+};
 
 /**
  * Resource applications use this service for operator output after the core
@@ -75,8 +152,8 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
           yield* Effect.forEach(
             actions,
             (action) =>
-              Effect.gen(function* () {
-                const line = Match.value(action).pipe(
+              Console.log(
+                Match.value(action).pipe(
                   Match.tagsExhaustive({
                     Create: ({ node }) =>
                       `\u001b[32m[+] ${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId}\u001b[0m`,
@@ -87,17 +164,19 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
                     Destroy: ({ node }) =>
                       `\u001b[31m[-] ${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId}\u001b[0m`,
                   }),
-                );
-
-                yield* Console.log(line);
-              }),
+                ),
+              ),
             {
               discard: true,
             },
           );
-          yield* Effect.when(
-            Console.log(`no changes for stack ${input.stackName}`),
-            Effect.succeed(actions.length === 0),
+          yield* Option.match(
+            Option.liftPredicate(actions, (value) => value.length === 0),
+            {
+              onNone: () => Effect.void,
+              onSome: () =>
+                Console.log(`no changes for stack ${input.stackName}`),
+            },
           );
         },
       ),
@@ -113,42 +192,18 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
           yield* Console.log("Resources");
           yield* Effect.forEach(
             actions,
-            (action) =>
-              Effect.gen(function* () {
-                const label = Option.fromUndefinedOr(
-                  resourcesByKey.get(keyString(action.node.key)),
-                ).pipe(
-                  Option.map((node) =>
-                    renderResourceOutputSummary(node),
-                  ),
-                  Option.getOrElse(() => ""),
-                );
-                const line = Match.value(action).pipe(
-                  Match.when(
-                    { _tag: "Create" },
-                    ({ node }) =>
-                      `\u001b[32m[+] ${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId} created ${label}\u001b[0m`,
-                  ),
-                  Match.when(
-                    { _tag: "Update" },
-                    ({ node }) =>
-                      `\u001b[33m[~] ${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId} updated ${label}\u001b[0m`,
-                  ),
-                  Match.orElse(
-                    ({ node }) =>
-                      `\u001b[31m[-] ${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId}\u001b[0m`,
-                  ),
-                );
-
-                yield* Console.log(line);
-              }),
+            (action) => Console.log(renderApplyAction(action, resourcesByKey)),
             {
               discard: true,
             },
           );
-          yield* Effect.when(
-            Console.log(`no changes for stack ${result.stackName}`),
-            Effect.succeed(actions.length === 0),
+          yield* Option.match(
+            Option.liftPredicate(actions, (value) => value.length === 0),
+            {
+              onNone: () => Effect.void,
+              onSome: () =>
+                Console.log(`no changes for stack ${result.stackName}`),
+            },
           );
         },
       ),
@@ -165,37 +220,18 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
         yield* Console.log("Resources");
         yield* Effect.forEach(
           actions,
-          (action) =>
-            Effect.gen(function* () {
-              const label = Option.fromUndefinedOr(
-                resourcesByKey.get(keyString(action.node.key)),
-              ).pipe(
-                  Option.map((node) =>
-                    renderResourceOutputSummary(node),
-                ),
-                Option.getOrElse(() => ""),
-              );
-              const line = Match.value(action).pipe(
-                Match.when(
-                  { _tag: "Destroy" },
-                  ({ node }) =>
-                    `\u001b[31m[-] ${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId} destroyed ${label}\u001b[0m`,
-                ),
-                Match.orElse(
-                  ({ node }) =>
-                    `\u001b[31m[-] ${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId}\u001b[0m`,
-                ),
-              );
-
-              yield* Console.log(line);
-            }),
+          (action) => Console.log(renderDestroyAction(action, resourcesByKey)),
           {
             discard: true,
           },
         );
-        yield* Effect.when(
-          Console.log(`no changes for stack ${result.stackName}`),
-          Effect.succeed(actions.length === 0),
+        yield* Option.match(
+          Option.liftPredicate(actions, (value) => value.length === 0),
+          {
+            onNone: () => Effect.void,
+            onSome: () =>
+              Console.log(`no changes for stack ${result.stackName}`),
+          },
         );
       }),
     }),

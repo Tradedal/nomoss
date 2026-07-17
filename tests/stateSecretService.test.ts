@@ -1,10 +1,8 @@
 import { randomUUID } from "node:crypto";
-
-import { ConfigProvider, Effect, FileSystem, Layer, Schema } from "effect";
-
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
+import { ConfigProvider, Effect, FileSystem, Layer, Schema } from "effect";
 import { ChildProcess } from "effect/unstable/process";
 
 import { ResourceNodeSchema } from "../src/core/model.js";
@@ -33,7 +31,7 @@ const stateStoreLayer = Layer.effect(
 );
 
 describe("StateSecretService", () => {
-  it.effect(
+  it.effect.skipIf(process.platform !== "darwin")(
     "keeps a Stripe signing secret outside the state file and restores it for lifecycle processing",
     () =>
       Effect.gen(function* () {
@@ -61,53 +59,48 @@ describe("StateSecretService", () => {
         });
 
         yield* stateStore.saveResources(stack, [webhook]);
-        yield* Effect.gen(function* () {
-          const persisted = yield* Schema.decodeUnknownEffect(
-            EnvironmentStateFileSchema,
-          )(yield* fs.readFileString(stateFile));
-          const resources = yield* stateStore.loadResources(stack);
-          const [persistedResource] = yield* Schema.decodeUnknownEffect(
-            Schema.Tuple([ResourceStateSchema]),
-          )(persisted.resources);
-          const [restoredResource] = yield* Schema.decodeUnknownEffect(
-            Schema.Tuple([ResourceNodeSchema]),
-          )(resources);
-
-          assert.deepStrictEqual(persistedResource.node.outputs, {
-            WebhookEndpointId: "we_test",
-            WebhookSigningSecret: {
-              _tag: "NomossStateSecretRef",
+        yield* Effect.acquireRelease(Effect.void, () =>
+          Effect.andThen(fs.remove(stateFile), () =>
+            ChildProcess.make("security", [
+              "delete-generic-password",
+              "-a",
               key,
-              store: "macos-keychain",
-            },
-          });
-          assert.strictEqual(
-            (yield* fs.readFileString(stateFile)).includes(signingSecret),
-            false,
-          );
-          assert.deepStrictEqual(restoredResource.outputs, {
-            WebhookEndpointId: "we_test",
-            WebhookSigningSecret: signingSecret,
-          });
-        }).pipe(
-          Effect.ensuring(
-            Effect.gen(function* () {
-              yield* fs.remove(stateFile);
-              const process = yield* ChildProcess.make("security", [
-                "delete-generic-password",
-                "-a",
-                key,
-                "-s",
-                "com.nomoss.state",
-              ]);
-              yield* process.exitCode;
-            }).pipe(
+              "-s",
+              "com.nomoss.state",
+            ]).pipe(
               Effect.scoped,
               Effect.provide(NodeServices.layer),
-              Effect.ignore,
+              Effect.andThen((process) => process.exitCode),
             ),
-          ),
+          ).pipe(Effect.ignore),
         );
+        const persisted = yield* Schema.decodeUnknownEffect(
+          EnvironmentStateFileSchema,
+        )(yield* fs.readFileString(stateFile));
+        const resources = yield* stateStore.loadResources(stack);
+        const [persistedResource] = yield* Schema.decodeUnknownEffect(
+          Schema.Tuple([ResourceStateSchema]),
+        )(persisted.resources);
+        const [restoredResource] = yield* Schema.decodeUnknownEffect(
+          Schema.Tuple([ResourceNodeSchema]),
+        )(resources);
+
+        assert.deepStrictEqual(persistedResource.node.outputs, {
+          WebhookEndpointId: "we_test",
+          WebhookSigningSecret: {
+            _tag: "NomossStateSecretRef",
+            key,
+            store: "macos-keychain",
+          },
+        });
+        assert.strictEqual(
+          (yield* fs.readFileString(stateFile)).includes(signingSecret),
+          false,
+        );
+        assert.deepStrictEqual(restoredResource.outputs, {
+          WebhookEndpointId: "we_test",
+          WebhookSigningSecret: signingSecret,
+        });
       }).pipe(Effect.provide(stateStoreLayer)),
   );
 });

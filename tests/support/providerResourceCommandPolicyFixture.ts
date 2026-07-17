@@ -242,20 +242,14 @@ const stripeCustomerLayer = (scenario: ProviderCommandFixtureScenario) =>
 
       return {
         createCustomer: (_props: StripeCustomerProps) =>
-          capture.append("create stripe customer").pipe(
-            Effect.andThen(
-              Match.value(scenario).pipe(
-                Match.when("customerCreateFailure", () =>
-                  Effect.fail(
-                    new StripeCustomerCreateFailed({
-                      cause: Cause.fail(
-                        "fixture stripe customer create failed",
-                      ),
-                    }),
-                  ),
-                ),
-                Match.orElse(() => Effect.succeed(createdCustomer)),
-              ),
+          Effect.andThen(capture.append("create stripe customer"), () =>
+            Effect.filterOrFail(
+              Effect.succeed(createdCustomer),
+              () => scenario !== "customerCreateFailure",
+              () =>
+                new StripeCustomerCreateFailed({
+                  cause: Cause.fail("fixture stripe customer create failed"),
+                }),
             ),
           ),
         readCustomer: () => Effect.succeedNone,
@@ -277,6 +271,14 @@ const stripeProductLayer = (scenario: ProviderCommandFixtureScenario) =>
       const capture = yield* ProviderCommandFixtureCapture;
       const productUpdateAttempts = yield* Ref.make(0);
       const productDestroyAttempts = yield* Ref.make(0);
+      const productDestroyEvent = (productId: string) =>
+        Match.value(scenario).pipe(
+          Match.when(
+            "productDestroyFailsOnce",
+            () => `destroy stripe product ${productId}`,
+          ),
+          Match.orElse(() => "destroy stripe product"),
+        );
 
       return {
         createProduct: (_props: StripeProductProps) =>
@@ -299,54 +301,42 @@ const stripeProductLayer = (scenario: ProviderCommandFixtureScenario) =>
                 ]),
               ),
               Effect.flatMap((attempts) =>
-                Match.value({ scenario, attempts }).pipe(
-                  Match.when(
-                    { scenario: "productUpdateFailsOnce", attempts: 0 },
-                    () =>
-                      Effect.fail(
-                        new StripeProductUpdateFailed({
-                          cause: Cause.fail("fixture product update failed"),
-                        }),
-                      ),
-                  ),
-                  Match.orElse(() =>
-                    Effect.succeed(
-                      productState(
-                        input.id,
-                        input.name ?? "Example Starter",
-                        attempts + 1,
-                      ),
+                Effect.filterOrFail(
+                  Effect.succeed(
+                    productState(
+                      input.id,
+                      input.name ?? "Example Starter",
+                      attempts + 1,
                     ),
                   ),
+                  () => scenario !== "productUpdateFailsOnce" || attempts !== 0,
+                  () =>
+                    new StripeProductUpdateFailed({
+                      cause: Cause.fail("fixture product update failed"),
+                    }),
                 ),
               ),
             ),
         deactivateProduct: (productId: string) =>
-          Match.value(scenario).pipe(
-            Match.when("productDestroyFailsOnce", () =>
-              capture.append(`destroy stripe product ${productId}`),
-            ),
-            Match.orElse(() => capture.append("destroy stripe product")),
+          capture.append(productDestroyEvent(productId)).pipe(
             Effect.andThen(
               Ref.modify(productDestroyAttempts, (attempts) => [
                 attempts,
                 attempts + 1,
               ]),
             ),
-              Effect.flatMap((attempts) =>
-                Match.value({ scenario, attempts }).pipe(
-                  Match.when(
-                    { scenario: "productDestroyFailsOnce", attempts: 0 },
-                    () =>
-                      Effect.fail(
-                        new StripeProductDestroyFailed({
-                          cause: Cause.fail("fixture product destroy failed"),
-                        }),
-                      ),
-                    ),
-                  Match.orElse(() => Effect.void),
-                ),
+            Effect.flatMap((destroyAttempts) =>
+              Effect.filterOrFail(
+                Effect.void,
+                () =>
+                  scenario !== "productDestroyFailsOnce" ||
+                  destroyAttempts !== 0,
+                () =>
+                  new StripeProductDestroyFailed({
+                    cause: Cause.fail("fixture product destroy failed"),
+                  }),
               ),
+            ),
           ),
       };
     }),
@@ -430,6 +420,27 @@ const stripeWebhookEndpointSuccessLayer = Layer.effect(
     return {
       createWebhookEndpoint: (_props: StripeWebhookEndpointRequestProps) =>
         capture.append("create stripe webhook endpoint").pipe(
+          Effect.map(() => ({
+            api_version: "2026-06-24.dahlia",
+            application: null,
+            created: 1,
+            description: "Example dev billing webhook",
+            enabled_events: ["checkout.session.completed"],
+            id: "we_test_billing_events",
+            livemode: false,
+            metadata: {},
+            object: "webhook_endpoint" as const,
+            secret: "whsec_test_billing_events",
+            status: "enabled",
+            url: "https://example.test/api/stripe/webhook",
+          })),
+        ),
+      rotateWebhookEndpoint: (
+        _previousWebhookEndpointId: string,
+        _props: StripeWebhookEndpointRequestProps,
+      ) =>
+        capture.append("create stripe webhook endpoint").pipe(
+          Effect.andThen(capture.append("destroy stripe webhook endpoint")),
           Effect.map(() => ({
             api_version: "2026-06-24.dahlia",
             application: null,

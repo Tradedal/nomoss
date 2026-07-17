@@ -96,11 +96,7 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
         const nodeIndex = yield* indexFor(key, graphState);
         const graphNodes = Arr.getSomes(
           Arr.map(
-            Graph.neighborsDirected(
-              graphState.graph,
-              nodeIndex,
-              direction,
-            ),
+            Graph.neighborsDirected(graphState.graph, nodeIndex, direction),
             (index) =>
               Option.fromUndefinedOr(graphState.graph.nodes.get(index)),
           ),
@@ -111,6 +107,13 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
 
       return {
         /**
+         * Stack preparation replays a declaration graph into this store. Each
+         * preparation starts from an empty graph so status and inspection calls
+         * can safely follow apply in the same application runtime.
+         */
+        reset: Ref.set(state, initialState),
+
+        /**
          * Resource declaration services call this as each resource is declared.
          * The duplicate check keeps the planning graph deterministic before
          * dependency edges, topological planning, or lifecycle state are read.
@@ -120,23 +123,22 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
         ) {
           const graphState = yield* Ref.get(state);
           const stableKey = keyString(node.key);
-          const duplicateResource = Effect.fail(
-            new DuplicateResource({ key: node.key }),
+          yield* Effect.filterOrFail(
+            Effect.succeed(stableKey),
+            () => !graphState.indexByKey.has(stableKey),
+            () => new DuplicateResource({ key: node.key }),
           );
-          const resourceExists = Effect.succeed(
-            graphState.indexByKey.has(stableKey),
-          );
-          yield* Effect.when(duplicateResource, resourceExists);
 
           let nodeIndex: Graph.NodeIndex = -1;
           const nextGraph = Graph.mutate(graphState.graph, (mutable) => {
             nodeIndex = Graph.addNode(mutable, node);
           });
-          const indexEntries: ReadonlyArray<readonly [string, Graph.NodeIndex]> =
-            Arr.append(Arr.fromIterable(graphState.indexByKey), [
-              stableKey,
-              nodeIndex,
-            ]);
+          const indexEntries: ReadonlyArray<
+            readonly [string, Graph.NodeIndex]
+          > = Arr.append(Arr.fromIterable(graphState.indexByKey), [
+            stableKey,
+            nodeIndex,
+          ]);
           const nextState: ResourceGraphState = {
             graph: nextGraph,
             indexByKey: new Map(indexEntries),
@@ -190,35 +192,37 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
          * require resolution; the resolver does not rediscover refs by walking
          * arbitrary JSON props.
          */
-        dependencyEdgesOf: Effect.fn(
-          "ResourceGraphStore.dependencyEdgesOf",
-        )(function* (key: ResourceKey) {
-          const graphState = yield* Ref.get(state);
-          const targetIndex = yield* indexFor(key, graphState);
-          const dependencyEdgeIndexes =
-            graphState.graph.reverseAdjacency.get(targetIndex) ?? [];
-          const dependencies: ReadonlyArray<ResourceDependency> = Arr.getSomes(
-            Arr.map(dependencyEdgeIndexes, (edgeIndex) =>
-              Option.fromUndefinedOr(
-                graphState.graph.edges.get(edgeIndex),
-              ).pipe(
-                Option.flatMap((edge) =>
-                  Option.fromUndefinedOr(
-                    graphState.graph.nodes.get(edge.source),
-                  ).pipe(
-                    Option.map((sourceNode) => ({
-                      source: sourceNode.key,
-                      target: key,
-                      edge: edge.data,
-                    })),
+        dependencyEdgesOf: Effect.fn("ResourceGraphStore.dependencyEdgesOf")(
+          function* (key: ResourceKey) {
+            const graphState = yield* Ref.get(state);
+            const targetIndex = yield* indexFor(key, graphState);
+            const dependencyEdgeIndexes =
+              graphState.graph.reverseAdjacency.get(targetIndex) ?? [];
+            const dependencies: ReadonlyArray<ResourceDependency> =
+              Arr.getSomes(
+                Arr.map(dependencyEdgeIndexes, (edgeIndex) =>
+                  Option.flatMap(
+                    Option.fromUndefinedOr(
+                      graphState.graph.edges.get(edgeIndex),
+                    ),
+                    (dependencyEdge) =>
+                      Option.map(
+                        Option.fromUndefinedOr(
+                          graphState.graph.nodes.get(dependencyEdge.source),
+                        ),
+                        (sourceNode) => ({
+                          source: sourceNode.key,
+                          target: key,
+                          edge: dependencyEdge.data,
+                        }),
+                      ),
                   ),
                 ),
-              ),
-            ),
-          );
+              );
 
-          return dependencies;
-        }),
+            return dependencies;
+          },
+        ),
         /**
          * CLI and debugging surfaces render the declared graph with resource
          * labels and property mappings so humans can inspect the plan topology

@@ -46,6 +46,55 @@ const formatTagValue = (value: string | undefined) =>
   );
 
 /**
+ * A live SQS queue can exist with a tag set that differs from its stack
+ * declaration. The plan renderer uses these per-key changes to show what the
+ * queue repair command will reconcile through `AwsTagging`, including tags the
+ * declaration no longer contains.
+ */
+const queueTagDecision = (
+  node: ResourceNode,
+  desiredTags: Record<string, string>,
+  observedTags: Record<string, string>,
+) => {
+  const tagKeys: ReadonlyArray<string> = Arr.sort(
+    Arr.union(Record.keys(desiredTags), Record.keys(observedTags)),
+    Order.String,
+  );
+
+  return Match.value(Equal.equals(desiredTags, observedTags)).pipe(
+    Match.when(false, () =>
+      PlanDecision.Repair({
+        node,
+        reason: "queue tags differ from desired state",
+        changes: Arr.flatMap(
+          Arr.filter<string>(
+            tagKeys,
+            (key) => desiredTags[key] !== observedTags[key],
+          ),
+          (key): ReadonlyArray<PlanRepairChange> =>
+            Option.match(Option.fromUndefinedOr(desiredTags[key]), {
+              onNone: () => [
+                PlanRepairChange.Removed({
+                  path: ["aws", "sqs", "queue", "tags", key],
+                  before: formatTagValue(observedTags[key]),
+                }),
+              ],
+              onSome: (desiredTag) => [
+                PlanRepairChange.Updated({
+                  path: ["aws", "sqs", "queue", "tags", key],
+                  before: formatTagValue(observedTags[key]),
+                  after: formatTagValue(desiredTag),
+                }),
+              ],
+            }),
+        ),
+      }),
+    ),
+    Match.orElse(() => PlanDecision.NoOp({ node })),
+  );
+};
+
+/**
  * The AWS resource dispatcher reaches queue behavior through this policy so
  * SQS reads, writes, and tag reconciliation stay in the provider path.
  */
@@ -61,58 +110,23 @@ export class QueueResourcePolicy extends Context.Service<QueueResourcePolicy>()(
         Effect.fromOption,
       );
 
-      const decidePresent = Effect.fn("QueueResourcePolicy.decidePresent")(
-        function* (node: ResourceNode, observed: Schema.Json) {
-          const props = yield* model.decodeProps(node, QueuePropsSchema);
-          const state = yield* model.decodeJson(
-            QueueObservedStateSchema,
-            observed,
-          );
-          const desiredTags = definedTags(props.tags ?? {});
-          const observedTags = definedTags(state.tags.Tags ?? {});
-          const tagKeys: ReadonlyArray<string> = Arr.sort(
-            Arr.union(Record.keys(desiredTags), Record.keys(observedTags)),
-            Order.String,
-          );
-          const decision = Match.value(
-            Equal.equals(desiredTags, observedTags),
-          ).pipe(
-            Match.when(false, () =>
-              PlanDecision.Repair({
-                node,
-                reason: "queue tags differ from desired state",
-                changes: Arr.flatMap(
-                  tagKeys,
-                  (key): ReadonlyArray<PlanRepairChange> =>
-                    Match.value(desiredTags[key] === observedTags[key]).pipe(
-                      Match.when(true, () => []),
-                      Match.orElse(() =>
-                        Option.match(Option.fromUndefinedOr(desiredTags[key]), {
-                          onNone: () => [
-                            PlanRepairChange.Removed({
-                              path: ["aws", "sqs", "queue", "tags", key],
-                              before: formatTagValue(observedTags[key]),
-                            }),
-                          ],
-                          onSome: (desiredTag) => [
-                            PlanRepairChange.Updated({
-                              path: ["aws", "sqs", "queue", "tags", key],
-                              before: formatTagValue(observedTags[key]),
-                              after: formatTagValue(desiredTag),
-                            }),
-                          ],
-                        }),
-                      ),
-                    ),
-                ),
-              }),
+      const decidePresent = (node: ResourceNode, observed: Schema.Json) =>
+        model
+          .decodeProps(node, QueuePropsSchema)
+          .pipe(
+            Effect.flatMap((props) =>
+              Effect.map(
+                model.decodeJson(QueueObservedStateSchema, observed),
+                (state) =>
+                  queueTagDecision(
+                    node,
+                    definedTags(props.tags ?? {}),
+                    definedTags(state.tags.Tags ?? {}),
+                  ),
+              ),
             ),
-            Match.orElse(() => PlanDecision.NoOp({ node })),
           );
 
-          return decision;
-        },
-      );
       const read = Effect.fn("QueueResourcePolicy.read")(function* (
         node: ResourceNode,
       ) {
