@@ -1,4 +1,4 @@
-import { Context, Data, Effect, Match } from "effect";
+import { type Cause, Context, Data, Effect, Match } from "effect";
 
 import type { ResourceCommandResult as ResourceCommandResultValue } from "./lifecycle.js";
 import {
@@ -8,15 +8,19 @@ import {
   ResourceCommandUnsupported,
 } from "./lifecycle.js";
 
+export type ResourceCommandFailure = Cause.YieldableError & {
+  readonly _tag: string;
+};
+
 /**
- * Provider dispatch preserves provider failures as Effect failures while
- * giving the core lifecycle a stable error type for state recording.
+ * Provider dispatch preserves a typed provider failure for lifecycle state
+ * recording instead of reducing it to an unstructured cause.
  */
 export class ResourceCommandExecutionFailed extends Data.TaggedError(
   "ResourceCommandExecutionFailed",
 )<{
   readonly command: ResourceCommand;
-  readonly cause: unknown;
+  readonly cause: ResourceCommandFailure;
 }> {}
 
 /**
@@ -31,17 +35,6 @@ export class ResourceCommandPolicy extends Context.Service<ResourceCommandPolicy
       execute: Effect.fn("ResourceCommandPolicy.execute")(function* (
         command: ResourceCommand,
       ) {
-        yield* Match.value(Boolean(false)).pipe(
-          Match.when(true, () =>
-            Effect.fail(
-              new ResourceCommandExecutionFailed({
-                command,
-                cause: "provider command policy not configured",
-              }),
-            ),
-          ),
-          Match.orElse(() => Effect.void),
-        );
         const fallbackResult = Match.value(command).pipe(
           Match.tagsExhaustive({
             Read: ({ node: readNode }) =>
@@ -71,7 +64,11 @@ export class ResourceCommandPolicy extends Context.Service<ResourceCommandPolicy
         const result = yield* Effect.succeed(commandResult).pipe(
           Effect.filterOrFail(
             () => false,
-            () => new ResourceCommandUnsupported({ command }),
+            () =>
+              new ResourceCommandExecutionFailed({
+                command,
+                cause: new ResourceCommandUnsupported({ command }),
+              }),
           ),
         );
 

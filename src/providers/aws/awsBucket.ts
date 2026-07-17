@@ -252,19 +252,24 @@ export class BucketLifecycleService extends Context.Service<BucketLifecycleServi
             bucket: string,
             objects: ReadonlyArray<S3.ObjectIdentifier>,
           ) {
-            const deleteEffect = deleteObjects({
-              Bucket: bucket,
-              Delete: {
-                Objects: Arr.fromIterable(objects),
+            return yield* Option.match(
+              Option.liftPredicate(objects, (value) => value.length > 0),
+              {
+                onNone: () => Effect.succeed(false),
+                onSome: (presentObjects) =>
+                  deleteObjects({
+                    Bucket: bucket,
+                    Delete: {
+                      Objects: Arr.fromIterable(presentObjects),
+                    },
+                  }).pipe(
+                    Effect.mapError(
+                      (cause) => new BucketEmptyFailed({ cause }),
+                    ),
+                    Effect.map(() => true),
+                  ),
               },
-            }).pipe(
-              Effect.mapError((cause) => new BucketEmptyFailed({ cause })),
             );
-            const shouldDelete = Effect.succeed(objects.length > 0);
-
-            yield* Effect.when(deleteEffect, shouldDelete);
-
-            return objects.length > 0;
           });
           const emptyBucketCurrentObjects = Effect.fn(
             "BucketLifecycleService.destroy/emptyBucketCurrentObjects",
@@ -294,20 +299,24 @@ export class BucketLifecycleService extends Context.Service<BucketLifecycleServi
 
             return yield* deleteBucketObjects(bucket, objects);
           });
-
-          const cleanup = emptyBucketVersions(props.Bucket).pipe(
-            Effect.repeat({ while: (deletedObjects) => deletedObjects }),
-            Effect.andThen(
-              emptyBucketCurrentObjects(props.Bucket).pipe(
-                Effect.repeat({ while: (deletedObjects) => deletedObjects }),
+          const emptyBucketContents = (bucket: string) =>
+            Effect.repeat(emptyBucketVersions(bucket), {
+              while: (deletedObjects) => deletedObjects,
+            }).pipe(
+              Effect.andThen(() =>
+                Effect.repeat(emptyBucketCurrentObjects(bucket), {
+                  while: (deletedObjects) => deletedObjects,
+                }),
               ),
-            ),
-          );
-          const shouldCleanup = Effect.succeed(
-            bucketForceDestroyEnabled(props),
-          );
+            );
 
-          yield* Effect.when(cleanup, shouldCleanup);
+          yield* Option.match(
+            Option.liftPredicate(props, bucketForceDestroyEnabled),
+            {
+              onNone: () => Effect.void,
+              onSome: () => emptyBucketContents(props.Bucket),
+            },
+          );
 
           yield* deleteBucket({ Bucket: props.Bucket }).pipe(
             Effect.catchTag("NoSuchBucket", () => Effect.void),

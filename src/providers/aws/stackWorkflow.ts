@@ -13,13 +13,13 @@ import type { PlanDecision, PlanRepairChange } from "../../core/lifecycle.js";
 import { ResourceModel, type ResourcePlan } from "../../core/model.js";
 import { ResourcePlanner } from "../../core/planner.js";
 import { ResourceStateStore } from "../../core/stateStore.js";
+import type { AppliedResource } from "./awsApply.js";
 import {
   AwsStackLifecycle,
   type DecisionReport,
   type ResourceListing,
   type StackApplyResult,
 } from "./awsStackLifecycle.js";
-import type { AppliedResource } from "./awsApply.js";
 import type { StackName } from "./sampleStack.js";
 
 export type ResourceOutputFormat =
@@ -53,6 +53,12 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
             Destroyed: () => "destroyed",
           }),
         );
+      const appliedResourceColor = (resource: AppliedResource) =>
+        Match.value(resource.result).pipe(
+          Match.when({ _tag: "Created" }, () => ansi.green),
+          Match.when({ _tag: "Updated" }, () => ansi.yellow),
+          Match.orElse(() => ansi.red),
+        );
       const resourceType = (resource: AppliedResource) => {
         const { node } = resource.result;
 
@@ -80,12 +86,7 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
             const status = Match.value(colors).pipe(
               Match.when(
                 true,
-                () =>
-                  `${Match.value(resource.result).pipe(
-                    Match.when({ _tag: "Created" }, () => ansi.green),
-                    Match.when({ _tag: "Updated" }, () => ansi.yellow),
-                    Match.orElse(() => ansi.red),
-                  )}${label}${ansi.reset}`,
+                () => `${appliedResourceColor(resource)}${label}${ansi.reset}`,
               ),
               Match.orElse(() => label),
             );
@@ -218,14 +219,14 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
             { discard: true },
           );
 
-          const logNoChanges = Console.log(
-            `no changes for stack ${report.stackName}`,
+          yield* Option.match(
+            Option.liftPredicate(report, (value) => value.changed.length === 0),
+            {
+              onNone: () => Effect.void,
+              onSome: () =>
+                Console.log(`no changes for stack ${report.stackName}`),
+            },
           );
-          const shouldLogNoChanges = Effect.succeed(
-            report.changed.length === 0,
-          );
-
-          yield* Effect.when(logNoChanges, shouldLogNoChanges);
         }),
 
         renderApplyResult: Effect.fn("StackWorkflowRenderer.renderApplyResult")(
@@ -267,14 +268,17 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
               { discard: true },
             );
 
-            const logNoChanges = Console.log(
-              `no changes for stack ${input.stackName}`,
+            yield* Option.match(
+              Option.liftPredicate(
+                hasCreateChanges,
+                (value) => value === false,
+              ),
+              {
+                onNone: () => Effect.void,
+                onSome: () =>
+                  Console.log(`no changes for stack ${input.stackName}`),
+              },
             );
-            const shouldLogNoChanges = Effect.succeed(
-              hasCreateChanges === false,
-            );
-
-            yield* Effect.when(logNoChanges, shouldLogNoChanges);
           },
         ),
       };

@@ -260,31 +260,31 @@ export class QueuePolicyLifecycleService extends Context.Service<QueuePolicyLife
             queueArnFromAttributes(queueUrl, attributes),
           ),
         );
-      const resolveQueueArn = Effect.fn(
-        "QueuePolicyLifecycleService.resolveQueueArn",
-      )(function* (queueUrl: string, policy: QueuePolicyDocument) {
-        const currentResource = policy.Statement[0]?.Resource;
-        const pendingQueueName = Option.fromUndefinedOr(currentResource).pipe(
-          Option.flatMap(decodePendingQueueArnPlaceholder),
-        );
-
-        return yield* Match.value(pendingQueueName).pipe(
-          Match.when({ _tag: "None" }, () => Effect.succeed(currentResource)),
-          Match.when({ _tag: "Some" }, () => pendingQueueArnEffect(queueUrl)),
-          Match.exhaustive,
-        );
-      });
       const resolveQueuePolicyAttributes = Effect.fn(
         "QueuePolicyLifecycleService.resolveQueuePolicyAttributes",
       )(function* (props: QueuePolicyProps) {
         const encodedPolicy = props.Attributes.Policy ?? "";
+
         const policy = yield* Schema.decodeUnknownEffect(
           QueuePolicyDocumentStringSchema,
         )(encodedPolicy);
+
         const queueUrl = yield* resolveQueueUrl(props.QueueUrl);
-        const queueArn = yield* resolveQueueArn(queueUrl, policy);
+        const currentResource = policy.Statement[0]?.Resource;
+
+        const queueArn = yield* Match.value(
+          Option.fromUndefinedOr(currentResource).pipe(
+            Option.flatMap(decodePendingQueueArnPlaceholder),
+          ),
+        ).pipe(
+          Match.when({ _tag: "None" }, () => Effect.succeed(currentResource)),
+          Match.when({ _tag: "Some" }, () => pendingQueueArnEffect(queueUrl)),
+          Match.exhaustive,
+        );
+
         const sourceArn =
           policy.Statement[0]?.Condition.ArnLike["aws:SourceArn"];
+
         const statement = QueuePolicyDocumentStatementSchema.make({
           Sid: policy.Statement[0]?.Sid ?? "AllowS3BucketNotifications",
           Effect: "Allow",

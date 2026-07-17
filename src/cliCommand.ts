@@ -58,85 +58,80 @@ const nomoss = Command.make("nomoss").pipe(
   Command.withDescription("Effect-native infrastructure graph prototype"),
 );
 
-const graph = Command.make("graph", { stack: stackFlag }, (flags) =>
-  Effect.gen(function* () {
-    const stackName = yield* decodeStackName(flags.stack);
+export const nomossCliCommand = Command.withSubcommands(nomoss, [
+  Command.withDescription(
+    Command.make("graph", { stack: stackFlag }, (flags) =>
+      Effect.gen(function* () {
+        const stackName = yield* decodeStackName(flags.stack);
 
-    yield* printGraph(stackName);
-  }),
-).pipe(
-  Command.withDescription("Print the discovered resource graph as Mermaid"),
-);
-
-const plan = Command.make("plan", { stack: stackFlag }, (flags) =>
-  Effect.gen(function* () {
-    const stackName = yield* decodeStackName(flags.stack);
-
-    yield* printPlan(stackName);
-  }),
-).pipe(Command.withDescription("Print create batches for a stack"));
-
-const list = Command.make(
-  "list",
-  { stack: stackFlag, format: resourceFormatFlag },
-  (flags) =>
+        yield* printGraph(stackName);
+      }),
+    ),
+    "Print the discovered resource graph as Mermaid",
+  ),
+  Command.make("plan", { stack: stackFlag }, (flags) =>
     Effect.gen(function* () {
       const stackName = yield* decodeStackName(flags.stack);
-      const output = listStackResources({
-        stackName,
-        format: flags.format,
-      });
 
-      yield* Match.value(flags.format).pipe(
-        Match.when("logfmt", () =>
-          Effect.provide(output, resourceLoggerLayer(flags.format)),
-        ),
-        Match.when("logger-json", () =>
-          Effect.provide(output, resourceLoggerLayer(flags.format)),
-        ),
-        Match.when("structured", () =>
-          Effect.provide(output, resourceLoggerLayer(flags.format)),
-        ),
-        Match.orElse(() => output),
-      );
+      yield* printPlan(stackName);
     }),
-).pipe(Command.withDescription("List stack resources"));
+  ).pipe(Command.withDescription("Print create batches for a stack")),
+  Command.make(
+    "list",
+    { stack: stackFlag, format: resourceFormatFlag },
+    (flags) =>
+      Effect.gen(function* () {
+        const stackName = yield* decodeStackName(flags.stack);
+        const output = listStackResources({
+          stackName,
+          format: flags.format,
+        });
 
-const show = Command.make(
-  "show",
-  {
-    stack: stackFlag,
-    format: resourceFormatFlag,
-    logicalId: logicalIdArgument,
-  },
-  (flags) =>
-    Effect.gen(function* () {
-      const stackName = yield* decodeStackName(flags.stack);
-      const output = showStackResource({
-        stackName,
-        logicalId: flags.logicalId,
-        format: flags.format,
-      });
+        yield* Match.value(flags.format).pipe(
+          Match.when("logfmt", () =>
+            Effect.provide(output, resourceLoggerLayer(flags.format)),
+          ),
+          Match.when("logger-json", () =>
+            Effect.provide(output, resourceLoggerLayer(flags.format)),
+          ),
+          Match.when("structured", () =>
+            Effect.provide(output, resourceLoggerLayer(flags.format)),
+          ),
+          Match.orElse(() => output),
+        );
+      }),
+  ).pipe(Command.withDescription("List stack resources")),
+  Command.make(
+    "show",
+    {
+      stack: stackFlag,
+      format: resourceFormatFlag,
+      logicalId: logicalIdArgument,
+    },
+    (flags) =>
+      Effect.gen(function* () {
+        const stackName = yield* decodeStackName(flags.stack);
+        const output = showStackResource({
+          stackName,
+          logicalId: flags.logicalId,
+          format: flags.format,
+        });
 
-      yield* Match.value(flags.format).pipe(
-        Match.when("logfmt", () =>
-          Effect.provide(output, resourceLoggerLayer(flags.format)),
-        ),
-        Match.when("logger-json", () =>
-          Effect.provide(output, resourceLoggerLayer(flags.format)),
-        ),
-        Match.when("structured", () =>
-          Effect.provide(output, resourceLoggerLayer(flags.format)),
-        ),
-        Match.orElse(() => output),
-      );
-    }),
-).pipe(Command.withDescription("Show one stack resource"));
-
-const diff = Command.make(
-  "diff",
-  { profile: profileFlag, stack: stackFlag },
-  (flags) =>
+        yield* Match.value(flags.format).pipe(
+          Match.when("logfmt", () =>
+            Effect.provide(output, resourceLoggerLayer(flags.format)),
+          ),
+          Match.when("logger-json", () =>
+            Effect.provide(output, resourceLoggerLayer(flags.format)),
+          ),
+          Match.when("structured", () =>
+            Effect.provide(output, resourceLoggerLayer(flags.format)),
+          ),
+          Match.orElse(() => output),
+        );
+      }),
+  ).pipe(Command.withDescription("Show one stack resource")),
+  Command.make("diff", { profile: profileFlag, stack: stackFlag }, (flags) =>
     Effect.gen(function* () {
       const stackName = yield* decodeStackName(flags.stack);
 
@@ -145,12 +140,8 @@ const diff = Command.make(
         stackName,
       });
     }),
-).pipe(Command.withDescription("Print live resource changes before apply"));
-
-const apply = Command.make(
-  "apply",
-  { profile: profileFlag, stack: stackFlag },
-  (flags) =>
+  ).pipe(Command.withDescription("Print live resource changes before apply")),
+  Command.make("apply", { profile: profileFlag, stack: stackFlag }, (flags) =>
     Effect.gen(function* () {
       const stackName = yield* decodeStackName(flags.stack);
 
@@ -159,51 +150,37 @@ const apply = Command.make(
         stackName,
       });
     }),
-).pipe(Command.withDescription("Apply live resource changes"));
+  ).pipe(Command.withDescription("Apply live resource changes")),
+  Command.make(
+    "destroy",
+    {
+      profile: profileFlag,
+      stack: stackFlag,
+    },
+    (flags) =>
+      Effect.gen(function* () {
+        const stackName = yield* decodeStackName(flags.stack);
 
-const destroy = Command.make(
-  "destroy",
-  {
-    profile: profileFlag,
-    stack: stackFlag,
-  },
-  (flags) =>
-    Effect.gen(function* () {
-      const stackName = yield* decodeStackName(flags.stack);
+        yield* destroyStack({
+          profile: flags.profile,
+          stackName,
+        });
+      }),
+  ).pipe(Command.withDescription("Destroy a stack")),
+  Command.make(
+    "create",
+    {
+      profile: profileFlag,
+      stack: stackFlag,
+    },
+    (flags) =>
+      Effect.gen(function* () {
+        const stackName = yield* decodeStackName(flags.stack);
 
-      yield* destroyStack({
-        profile: flags.profile,
-        stackName,
-      });
-    }),
-).pipe(Command.withDescription("Destroy a stack"));
-
-const create = Command.make(
-  "create",
-  {
-    profile: profileFlag,
-    stack: stackFlag,
-  },
-  (flags) =>
-    Effect.gen(function* () {
-      const stackName = yield* decodeStackName(flags.stack);
-
-      yield* applyLiveStack({
-        profile: flags.profile,
-        stackName,
-      });
-    }),
-).pipe(Command.withDescription("Create missing stack resources"));
-
-export const nomossCliCommand = nomoss.pipe(
-  Command.withSubcommands([
-    graph,
-    plan,
-    list,
-    show,
-    diff,
-    apply,
-    destroy,
-    create,
-  ]),
-);
+        yield* applyLiveStack({
+          profile: flags.profile,
+          stackName,
+        });
+      }),
+  ).pipe(Command.withDescription("Create missing stack resources")),
+]);

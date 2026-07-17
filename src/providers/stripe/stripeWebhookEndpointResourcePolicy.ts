@@ -58,24 +58,25 @@ export class StripeWebhookEndpointResourcePolicy extends Context.Service<StripeW
         ).pipe(
           Option.match({
             onNone: () =>
-              Schema.decodeUnknownEffect(
-                StripeWebhookEndpointRequestPropsSchema,
-              )(current.props).pipe(
-                Effect.flatMap((endpoint) =>
+              Effect.flatMap(
+                Schema.decodeUnknownEffect(
+                  StripeWebhookEndpointRequestPropsSchema,
+                )(current.props),
+                (endpoint) =>
                   StripeWebhookEndpointPropsSchema.makeEffect({ endpoint }),
-                ),
               ),
             onSome: Effect.succeed,
           }),
         );
-
       const create = Effect.fn("StripeWebhookEndpointResourcePolicy.create")(
         function* (node: ResourceNode) {
           const props = yield* model.decodeProps(
             node,
             StripeWebhookEndpointPropsSchema,
           );
-          const endpoint = yield* lifecycle.createWebhookEndpoint(props.endpoint);
+          const endpoint = yield* lifecycle.createWebhookEndpoint(
+            props.endpoint,
+          );
           const outputs = stripeWebhookEndpointOutputsFromState(endpoint);
           const appliedNode = yield* resourceNode(node, outputs);
 
@@ -106,17 +107,17 @@ export class StripeWebhookEndpointResourcePolicy extends Context.Service<StripeW
             props.rotationKey !== previousProps.rotationKey,
           ).pipe(
             Match.when(true, () =>
-              lifecycle.createWebhookEndpoint(props.endpoint).pipe(
-                Effect.tap(() =>
-                  lifecycle.deleteWebhookEndpoint(
-                    currentOutputs.WebhookEndpointId,
-                  ),
-                ),
+              lifecycle.rotateWebhookEndpoint(
+                currentOutputs.WebhookEndpointId,
+                props.endpoint,
               ),
             ),
             Match.orElse(() => lifecycle.updateWebhookEndpoint(input)),
           );
-          const outputs = stripeWebhookEndpointOutputsFromState(endpoint, currentOutputs);
+          const outputs = stripeWebhookEndpointOutputsFromState(
+            endpoint,
+            currentOutputs,
+          );
           const appliedNode = yield* resourceNode(node, outputs);
 
           return ResourceCommandResult.Updated({ node: appliedNode });
