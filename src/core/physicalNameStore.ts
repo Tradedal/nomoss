@@ -26,17 +26,6 @@ type SanitizedNameState = {
   readonly text: string;
 };
 
-const appendSanitizedNameCharacter = (
-  nameState: SanitizedNameState,
-  nameCharacter: string,
-): SanitizedNameState => ({
-  pendingSeparator: false,
-  text: `${nameState.text}${Match.value(nameState.pendingSeparator).pipe(
-    Match.when(true, () => "-"),
-    Match.orElse(() => ""),
-  )}${nameCharacter}`,
-});
-
 /**
  * Generated provider names must remain stable across local runs when callers
  * omit explicit names. Destroy clears those mappings so recreated stacks do not
@@ -50,6 +39,16 @@ export class PhysicalNameStore extends Context.Service<PhysicalNameStore>()(
       const emptyState = PhysicalNameFileSchema.make({
         schemaVersion: 1,
         names: {},
+      });
+      const appendSanitizedNameCharacter = (
+        nameState: SanitizedNameState,
+        nameCharacter: string,
+      ): SanitizedNameState => ({
+        pendingSeparator: false,
+        text: `${nameState.text}${Match.value(nameState.pendingSeparator).pipe(
+          Match.when(true, () => "-"),
+          Match.orElse(() => ""),
+        )}${nameCharacter}`,
       });
       const readState = Effect.fn("PhysicalNameStore.readState")(function* () {
         return yield* fs
