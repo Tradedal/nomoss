@@ -70,7 +70,7 @@ project.release?.publisher?.publishToNpm({
 project.package.addVersion(currentPackageVersion);
 project.package.addField("type", "module");
 project.package.addField("engines", { node: ">=24" });
-project.package.addField("bin", { nomoss: "bin/nomoss" });
+project.addBins({ nomoss: "bin/nomoss" });
 project.package.addField("exports", {
   ".": "./src/index.ts",
   "./core": "./src/core/index.ts",
