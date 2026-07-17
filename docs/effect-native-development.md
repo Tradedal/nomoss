@@ -32,9 +32,11 @@ Unknown provider failures are translated in the adapter. Public error contracts 
 
 ## Control Flow
 
-Sequenced resource behavior uses one explicit `Effect.gen` flow. The generator stays flat enough to show data flow, validation, provider calls, and result construction in one place.
+Sequenced resource behavior uses one explicit `Effect.gen` flow. The generator stays flat enough to show data flow, validation, provider calls, and result construction in one place. Nested `Effect.gen` is prohibited; flatten it into the enclosing generator or one direct Effect pipeline.
 
-Expression-level branching uses `Match.value`, `Option.match`, `Either.match`, or `Effect.if`. Independent value aggregation uses `Effect.all`. Sequential work stays in the generator flow instead of being encoded as `Effect.all(..., { concurrency: 1 })`.
+Expression-level branching uses `Match.value`, `Option.match`, or `Either.match`. `Effect.when` is only for conditions that are themselves effectful. Independent value aggregation uses `Effect.all`. Sequential work stays in the generator flow instead of being encoded as `Effect.all(..., { concurrency: 1 })`.
+
+`Effect.tap` is observational only. Required business steps use explicit sequencing with `Effect.andThen` or the enclosing generator.
 
 ## Side Effects
 
@@ -50,4 +52,4 @@ Public behavior is tested through real functions and reusable layers. Provider a
 
 ## Tooling
 
-For Nomoss code changes, run `yarn --cwd nomoss typecheck:tsgo`, `yarn --cwd nomoss lint`, and the targeted Vitest file. The `typecheck:tsgo` path enables Effect language-service diagnostics that normal `tsc` does not enforce as strongly.
+After a clean dependency install, run `yarn tsgo:patch` once. It patches the installed TypeScript 7 compiler with Effect diagnostics. Run `yarn typecheck:tsgo`, `yarn lint`, and the targeted Vitest file for Nomoss code changes. Do not run the patch command before every typecheck; it creates another compiler backup each time.
