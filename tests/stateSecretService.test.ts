@@ -31,7 +31,7 @@ const stateStoreLayer = Layer.effect(
 );
 
 describe("StateSecretService", () => {
-  it.effect(
+  it.effect.skipIf(process.platform !== "darwin")(
     "keeps a Stripe signing secret outside the state file and restores it for lifecycle processing",
     () =>
       Effect.gen(function* () {
