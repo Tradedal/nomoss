@@ -1,4 +1,4 @@
-import { Console, Context, Data, Effect } from "effect";
+import { Console, Context, Data, Effect, Option } from "effect";
 
 import { ResourceStackDefinition } from "./resourceStackDefinition.js";
 import { ResourceStackLifecycle } from "./resourceStackLifecycle.js";
@@ -98,9 +98,13 @@ export class ResourceStackOperations extends Context.Service<ResourceStackOperat
             const result = yield* apply();
 
             yield* renderer.renderApplyResult(result);
-            yield* Effect.when(
-              Console.log(`applied stack ${definition.stackName}`),
-              Effect.succeed(result.applied),
+            yield* Option.match(
+              Option.liftPredicate(result, (value) => value.applied),
+              {
+                onNone: () => Effect.void,
+                onSome: () =>
+                  Console.log(`applied stack ${definition.stackName}`),
+              },
             );
           },
         ),
@@ -109,9 +113,13 @@ export class ResourceStackOperations extends Context.Service<ResourceStackOperat
             const result = yield* destroy();
 
             yield* renderer.renderDestroyResult(result);
-            yield* Effect.when(
-              Console.log(`destroyed stack ${definition.stackName}`),
-              Effect.succeed(result.destroyed),
+            yield* Option.match(
+              Option.liftPredicate(result, (value) => value.destroyed),
+              {
+                onNone: () => Effect.void,
+                onSome: () =>
+                  Console.log(`destroyed stack ${definition.stackName}`),
+              },
             );
           },
         ),

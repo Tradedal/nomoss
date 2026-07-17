@@ -18,6 +18,7 @@ import {
   type ResourceNode,
   ResourceNodeSchema,
 } from "./model.js";
+import type { ResourceCommandFailure } from "./resourceCommandPolicy.js";
 import { StateSecretService } from "./stateSecretService.js";
 
 /**
@@ -80,6 +81,12 @@ export type ResourceFailure = NonNullable<
   >["lastFailure"]
 >;
 
+const completedStateTag = (state: ResourceState): Option.Option<"Updated"> =>
+  Match.value(state).pipe(
+    Match.when({ _tag: "Updated" }, () => Option.some<"Updated">("Updated")),
+    Match.orElse(() => Option.none<"Updated">()),
+  );
+
 export const EnvironmentStateFileSchema = Schema.fromJsonString(
   EnvironmentStateSchema,
 );
@@ -105,18 +112,13 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
         "ResourceStateStore.loadResourceStates",
       )(function* (stack: string) {
         const filePath = `./.nomoss/state/${stack}.json`;
-        const exists = yield* fs.exists(filePath);
-        const states = yield* Option.liftPredicate(filePath, () => exists).pipe(
-          Option.match({
-            onNone: () => Effect.succeed([]),
-            onSome: (path) =>
-              fs.readFileString(path).pipe(
-                Effect.flatMap(
-                  Schema.decodeUnknownEffect(EnvironmentStateFileSchema),
-                ),
-                Effect.map((state) => state.resources),
-              ),
-          }),
+        const states = yield* fs.readFileString(filePath).pipe(
+          Effect.flatMap(
+            Schema.decodeUnknownEffect(EnvironmentStateFileSchema),
+          ),
+          Effect.map((state) => state.resources),
+          Effect.when(fs.exists(filePath)),
+          Effect.map(Option.getOrElse(() => [])),
         );
 
         return yield* stateSecrets.restoreStateSecrets(states);
@@ -176,19 +178,15 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
           const resourceStates: ReadonlyArray<ResourceState> = Arr.map(
             resources,
             (node) =>
-              Arr.findFirst(
-                states,
-                (state) => state.node.key.logicalId === node.key.logicalId,
-              ).pipe(
-                Option.flatMap((state) =>
-                  Match.value(state).pipe(
-                    Match.when({ _tag: "Updated" }, () =>
-                      Option.some<"Updated">("Updated"),
-                    ),
-                    Match.orElse(() => Option.none<"Updated">()),
+              Option.match(
+                Option.flatMap(
+                  Arr.findFirst(
+                    states,
+                    (state) => state.node.key.logicalId === node.key.logicalId,
                   ),
+                  completedStateTag,
                 ),
-                Option.match({
+                {
                   onNone: () =>
                     ResourceStateSchema.make({
                       _tag: "Created",
@@ -201,7 +199,7 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
                       node,
                       completedAt,
                     }),
-                }),
+                },
               ),
           );
 
@@ -312,20 +310,18 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
 
         markResourceFailure: Effect.fn(
           "ResourceStateStore.markResourceFailure",
-        )(function* (stack: string, node: ResourceNode, cause: unknown) {
+        )(function* (
+          stack: string,
+          node: ResourceNode,
+          cause: ResourceCommandFailure,
+        ) {
           const states = yield* loadResourceStates(stack);
           const occurredAt = yield* DateTime.now.pipe(
             Effect.map(DateTime.formatIso),
           );
           const resourceFailure: ResourceFailure = ResourceFailureSchema.make({
-            errorTag:
-              typeof cause === "object" &&
-              cause !== null &&
-              "_tag" in cause &&
-              typeof cause._tag === "string"
-                ? cause._tag
-                : undefined,
-            message: cause instanceof Error ? cause.message : String(cause),
+            errorTag: cause._tag,
+            message: cause.message,
             occurredAt,
           });
           const resourceStates: ReadonlyArray<ResourceState> = Arr.map(
@@ -450,19 +446,15 @@ export const ResourceStateStoreTestLayer = Layer.effect(
           const resourceStates: ReadonlyArray<ResourceState> = Arr.map(
             resources,
             (node) =>
-              Arr.findFirst(
-                states,
-                (state) => state.node.key.logicalId === node.key.logicalId,
-              ).pipe(
-                Option.flatMap((state) =>
-                  Match.value(state).pipe(
-                    Match.when({ _tag: "Updated" }, () =>
-                      Option.some<"Updated">("Updated"),
-                    ),
-                    Match.orElse(() => Option.none<"Updated">()),
+              Option.match(
+                Option.flatMap(
+                  Arr.findFirst(
+                    states,
+                    (state) => state.node.key.logicalId === node.key.logicalId,
                   ),
+                  completedStateTag,
                 ),
-                Option.match({
+                {
                   onNone: () =>
                     ResourceStateSchema.make({
                       _tag: "Created",
@@ -475,7 +467,7 @@ export const ResourceStateStoreTestLayer = Layer.effect(
                       node,
                       completedAt,
                     }),
-                }),
+                },
               ),
           );
 
@@ -587,20 +579,18 @@ export const ResourceStateStoreTestLayer = Layer.effect(
 
       markResourceFailure: Effect.fn(
         "ResourceStateStoreTestLayer.markResourceFailure",
-      )(function* (stack: string, node: ResourceNode, cause: unknown) {
+      )(function* (
+        stack: string,
+        node: ResourceNode,
+        cause: ResourceCommandFailure,
+      ) {
         const states = yield* loadResourceStates(stack);
         const occurredAt = yield* DateTime.now.pipe(
           Effect.map(DateTime.formatIso),
         );
         const resourceFailure: ResourceFailure = ResourceFailureSchema.make({
-          errorTag:
-            typeof cause === "object" &&
-            cause !== null &&
-            "_tag" in cause &&
-            typeof cause._tag === "string"
-              ? cause._tag
-              : undefined,
-          message: cause instanceof Error ? cause.message : String(cause),
+          errorTag: cause._tag,
+          message: cause.message,
           occurredAt,
         });
         const resourceStates: ReadonlyArray<ResourceState> = Arr.map(
