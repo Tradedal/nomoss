@@ -88,7 +88,7 @@ export class StripeCustomerLifecycle extends Context.Service<StripeCustomerLifec
         createCustomer: Effect.fn("StripeCustomerLifecycle/createCustomer")(
           function* (props: StripeCustomerProps) {
             const customer = yield* PostCustomers(props, {
-              apiVersion: StripeApiVersion,
+              apiVersion: StripeApiVersion.Dahlia,
             }).pipe(
               Effect.provideService(Credentials, stripeCredentials),
               Effect.catchCause((cause) =>
@@ -106,7 +106,7 @@ export class StripeCustomerLifecycle extends Context.Service<StripeCustomerLifec
               customer: customerId,
             };
             const customer = yield* GetCustomersCustomer(input, {
-              apiVersion: StripeApiVersion,
+              apiVersion: StripeApiVersion.Dahlia,
             }).pipe(
               Effect.provideService(Credentials, stripeCredentials),
               Effect.flatMap((output) =>
@@ -124,7 +124,7 @@ export class StripeCustomerLifecycle extends Context.Service<StripeCustomerLifec
         updateCustomer: Effect.fn("StripeCustomerLifecycle/updateCustomer")(
           function* (input: StripeCustomerUpdateProps) {
             const customer = yield* PostCustomersCustomer(input, {
-              apiVersion: StripeApiVersion,
+              apiVersion: StripeApiVersion.Dahlia,
             }).pipe(Effect.provideService(Credentials, stripeCredentials));
 
             return customer;
@@ -138,7 +138,7 @@ export class StripeCustomerLifecycle extends Context.Service<StripeCustomerLifec
             };
 
             yield* DeleteCustomersCustomer(input, {
-              apiVersion: StripeApiVersion,
+              apiVersion: StripeApiVersion.Dahlia,
             }).pipe(Effect.provideService(Credentials, stripeCredentials));
           },
         ),

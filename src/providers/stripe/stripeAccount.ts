@@ -16,7 +16,9 @@ import { Context, Effect, Option, Schema } from "effect";
 
 import { annotateResourceSchema } from "../../core/model.js";
 
-export const StripeApiVersion = "2026-06-24.dahlia";
+export enum StripeApiVersion {
+  Dahlia = "2026-06-24.dahlia",
+}
 
 export const StripeAccountPropsSchema = annotateResourceSchema(
   PostV2CoreAccountsInput,
@@ -88,7 +90,7 @@ export class StripeAccountLifecycleService extends Context.Service<StripeAccount
           props: StripeAccountProps,
         ) {
           const account = yield* PostV2CoreAccounts(props, {
-            apiVersion: StripeApiVersion,
+            apiVersion: StripeApiVersion.Dahlia,
           }).pipe(Effect.provideService(Credentials, stripeCredentials));
 
           return account;
@@ -101,7 +103,7 @@ export class StripeAccountLifecycleService extends Context.Service<StripeAccount
             id: accountId,
           };
           const account = yield* GetV2CoreAccountsId(input, {
-            apiVersion: StripeApiVersion,
+            apiVersion: StripeApiVersion.Dahlia,
           }).pipe(
             Effect.provideService(Credentials, stripeCredentials),
             Effect.map((output) => Option.some(output)),
@@ -114,7 +116,7 @@ export class StripeAccountLifecycleService extends Context.Service<StripeAccount
           input: StripeAccountUpdateProps,
         ) {
           const account = yield* PostV2CoreAccountsId(input, {
-            apiVersion: StripeApiVersion,
+            apiVersion: StripeApiVersion.Dahlia,
           }).pipe(Effect.provideService(Credentials, stripeCredentials));
 
           return account;
@@ -128,7 +130,7 @@ export class StripeAccountLifecycleService extends Context.Service<StripeAccount
           };
 
           yield* PostV2CoreAccountsIdClose(input, {
-            apiVersion: StripeApiVersion,
+            apiVersion: StripeApiVersion.Dahlia,
           }).pipe(Effect.provideService(Credentials, stripeCredentials));
         }),
       };

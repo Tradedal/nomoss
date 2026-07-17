@@ -12,15 +12,7 @@ import {
   PostWebhookEndpointsWebhookEndpoint,
   PostWebhookEndpointsWebhookEndpointInput,
 } from "@distilled.cloud/stripe/Operations";
-import {
-  Config,
-  Context,
-  Effect,
-  Match,
-  Option,
-  Redacted,
-  Schema,
-} from "effect";
+import { Config, Context, Effect, Option, Redacted, Schema } from "effect";
 
 import { annotateResourceSchema } from "../../core/model.js";
 import { StripeApiVersion } from "./stripeAccount.js";
@@ -107,6 +99,14 @@ const StripeWebhookEndpointBasicAuthConfig = Config.all({
   ),
 });
 
+const webhookSigningSecretValue = (
+  secret: string | Redacted.Redacted<string>,
+) =>
+  Option.match(Option.liftPredicate(secret, Redacted.isRedacted), {
+    onNone: () => secret,
+    onSome: Redacted.value,
+  });
+
 /**
  * Stripe create and update responses become the applied resource node through
  * this projection. When an update omits the creation-only signing secret, the
@@ -116,20 +116,15 @@ export const stripeWebhookEndpointOutputsFromState = (
   state: StripeWebhookEndpointObservedState,
   previous?: StripeWebhookEndpointOutputs,
 ): StripeWebhookEndpointOutputs => {
+  const previousSigningSecret = Option.flatMap(
+    Option.fromNullishOr(previous),
+    ({ WebhookSigningSecret }) => Option.fromUndefinedOr(WebhookSigningSecret),
+  );
   const endpointSigningSecret = Option.fromNullishOr(state.secret).pipe(
-    Option.orElse(() =>
-      Option.fromNullishOr(previous).pipe(
-        Option.flatMap(({ WebhookSigningSecret }) =>
-          Option.fromUndefinedOr(WebhookSigningSecret),
-        ),
-      ),
-    ),
+    Option.orElse(() => previousSigningSecret),
     Option.flatMap((secret) =>
       Schema.decodeUnknownOption(StripeWebhookSigningSecretSchema)(
-        Match.value(secret).pipe(
-          Match.when(Redacted.isRedacted, Redacted.value),
-          Match.orElse((value) => value),
-        ),
+        webhookSigningSecretValue(secret),
       ),
     ),
   );
@@ -196,7 +191,36 @@ export class StripeWebhookEndpointLifecycle extends Context.Service<StripeWebhoo
               url: deliveryUrlFor(props.url),
             });
           const endpoint = yield* PostWebhookEndpoints(endpointProps, {
-            apiVersion: StripeApiVersion,
+            apiVersion: StripeApiVersion.Dahlia,
+          }).pipe(Effect.provideService(Credentials, stripeCredentials));
+
+          return endpoint;
+        }),
+
+        rotateWebhookEndpoint: Effect.fn(
+          "StripeWebhookEndpointLifecycle.rotateWebhookEndpoint",
+        )(function* (
+          previousWebhookEndpointId: string,
+          props: StripeWebhookEndpointRequestProps,
+        ) {
+          const endpointProps =
+            yield* StripeWebhookEndpointRequestPropsSchema.makeEffect({
+              api_version: props.api_version,
+              connect: props.connect,
+              description: props.description,
+              enabled_events: props.enabled_events,
+              metadata: props.metadata,
+              url: deliveryUrlFor(props.url),
+            });
+          const endpoint = yield* PostWebhookEndpoints(endpointProps, {
+            apiVersion: StripeApiVersion.Dahlia,
+          }).pipe(Effect.provideService(Credentials, stripeCredentials));
+          const deleteInput: DeleteWebhookEndpointsWebhookEndpointInput = {
+            webhook_endpoint: previousWebhookEndpointId,
+          };
+
+          yield* DeleteWebhookEndpointsWebhookEndpoint(deleteInput, {
+            apiVersion: StripeApiVersion.Dahlia,
           }).pipe(Effect.provideService(Credentials, stripeCredentials));
 
           return endpoint;
@@ -209,7 +233,7 @@ export class StripeWebhookEndpointLifecycle extends Context.Service<StripeWebhoo
             webhook_endpoint: webhookEndpointId,
           };
           const endpoint = yield* GetWebhookEndpointsWebhookEndpoint(input, {
-            apiVersion: StripeApiVersion,
+            apiVersion: StripeApiVersion.Dahlia,
           }).pipe(
             Effect.provideService(Credentials, stripeCredentials),
             Effect.flatMap((output) =>
@@ -245,7 +269,7 @@ export class StripeWebhookEndpointLifecycle extends Context.Service<StripeWebhoo
           const endpoint = yield* PostWebhookEndpointsWebhookEndpoint(
             endpointInput,
             {
-              apiVersion: StripeApiVersion,
+              apiVersion: StripeApiVersion.Dahlia,
             },
           ).pipe(Effect.provideService(Credentials, stripeCredentials));
 
@@ -260,7 +284,7 @@ export class StripeWebhookEndpointLifecycle extends Context.Service<StripeWebhoo
           };
 
           yield* DeleteWebhookEndpointsWebhookEndpoint(input, {
-            apiVersion: StripeApiVersion,
+            apiVersion: StripeApiVersion.Dahlia,
           }).pipe(Effect.provideService(Credentials, stripeCredentials));
         }),
       };

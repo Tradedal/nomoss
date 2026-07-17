@@ -93,7 +93,7 @@ export class StripeBillingPortalConfigurationLifecycle extends Context.Service<S
           "StripeBillingPortalConfigurationLifecycle.createBillingPortalConfiguration",
         )(function* (props: StripeBillingPortalConfigurationProps) {
           const configuration = yield* PostBillingPortalConfigurations(props, {
-            apiVersion: StripeApiVersion,
+            apiVersion: StripeApiVersion.Dahlia,
           }).pipe(Effect.provideService(Credentials, stripeCredentials));
 
           return configuration;
@@ -107,7 +107,7 @@ export class StripeBillingPortalConfigurationLifecycle extends Context.Service<S
           };
           const configuration =
             yield* GetBillingPortalConfigurationsConfiguration(input, {
-              apiVersion: StripeApiVersion,
+              apiVersion: StripeApiVersion.Dahlia,
             }).pipe(
               Effect.provideService(Credentials, stripeCredentials),
               Effect.flatMap((output) =>
@@ -126,7 +126,7 @@ export class StripeBillingPortalConfigurationLifecycle extends Context.Service<S
         )(function* (input: StripeBillingPortalConfigurationUpdateProps) {
           const configuration =
             yield* PostBillingPortalConfigurationsConfiguration(input, {
-              apiVersion: StripeApiVersion,
+              apiVersion: StripeApiVersion.Dahlia,
             }).pipe(Effect.provideService(Credentials, stripeCredentials));
 
           return configuration;
@@ -144,7 +144,7 @@ export class StripeBillingPortalConfigurationLifecycle extends Context.Service<S
             );
 
           yield* PostBillingPortalConfigurationsConfiguration(input, {
-            apiVersion: StripeApiVersion,
+            apiVersion: StripeApiVersion.Dahlia,
           }).pipe(Effect.provideService(Credentials, stripeCredentials));
         }),
       };

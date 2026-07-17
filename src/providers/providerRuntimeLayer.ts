@@ -1,7 +1,6 @@
-import { Layer } from "effect";
-
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { Layer } from "effect";
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
 
 import {
@@ -40,12 +39,12 @@ import {
   stripeWebhookEndpointResourcePolicyLayerLive,
 } from "./stripe/stripeRuntimeLayer.js";
 
+const configuredStateSecretServiceWithNodeServicesLayer =
+  ConfiguredStateSecretServiceLayer.pipe(Layer.provide(NodeServices.layer));
 const resourceStateStoreWithNodeFileSystemLayer =
   resourceStateStoreBaseLayer.pipe(
     Layer.provideMerge(NodeFileSystem.layer),
-    Layer.provideMerge(
-      ConfiguredStateSecretServiceLayer.pipe(Layer.provide(NodeServices.layer)),
-    ),
+    Layer.provideMerge(configuredStateSecretServiceWithNodeServicesLayer),
   );
 const physicalNameStoreWithNodeFileSystemLayer = physicalNameStoreLayer.pipe(
   Layer.provide(NodeFileSystem.layer),
