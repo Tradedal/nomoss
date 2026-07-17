@@ -98,6 +98,7 @@ project.package.addField("scripts", {
   projen: "tsx .projenrc.ts",
 });
 project.gitignore.addPatterns(".nomoss/");
+project.defaultTask?.reset("tsx .projenrc.ts");
 
 if (project.github) {
   const buildWorkflow = project.github.workflows.find(

@@ -84,7 +84,7 @@
       "description": "Synthesize project files",
       "steps": [
         {
-          "exec": "node .projenrc.js"
+          "exec": "tsx .projenrc.ts"
         }
       ]
     },
