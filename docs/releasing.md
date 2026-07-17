@@ -1,17 +1,13 @@
 # Releasing Nomoss
 
-Release Please manages Nomoss versions from conventional commits merged into `main`:
+The `release` workflow accumulates conventional commits on `main` into a release PR:
 
 - `fix:` produces a patch release
 - `feat:` produces a minor release
 - `feat!:` or a `BREAKING CHANGE:` footer produces a major release
 
-The release workflow maintains the version in `package.json` and `.projenrc.ts`, updates `CHANGELOG.md`, creates the Git tag, and creates the GitHub release.
+Merging that PR creates the GitHub release and publishes the package to npm.
 
-npm publication is disabled by default. Before enabling it:
+The npm publisher uses GitHub Actions OpenID Connect and npm provenance. It has no npm token.
 
-1. Create or claim the public `nomoss` package on npm.
-2. Configure npm trusted publishing for `Tradedal/nomoss` and `.github/workflows/publish.yml`.
-3. Set the GitHub repository variable `NPM_PUBLISH_ENABLED` to `true`.
-
-Published packages use npm provenance through GitHub's OpenID Connect token. No npm token is stored in the repository.
+Configure npm Trusted Publishing for `Tradedal/nomoss` and the `release.yml` workflow before merging a release PR.

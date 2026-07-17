@@ -1,14 +1,22 @@
 {
   "files": [
     ".gitattributes",
+    ".github/pull_request_template.md",
+    ".github/workflows/build.yml",
+    ".github/workflows/pull-request-lint.yml",
+    ".github/workflows/release.yml",
+    ".github/workflows/upgrade-main.yml",
     ".gitignore",
+    ".mergify.yml",
     ".npmignore",
     ".projen/deps.json",
     ".projen/files.json",
     ".projen/tasks.json",
+    ".release-please-manifest.json",
     ".yarnrc.yml",
     "biome.jsonc",
     "LICENSE",
+    "release-please-config.json",
     "tsconfig.json",
     "vitest.config.ts",
     "vitest.integration.config.ts"
