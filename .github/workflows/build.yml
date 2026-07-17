@@ -19,10 +19,13 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}
+      - name: Install Yarn
+        run: corepack enable && corepack prepare yarn@4.17.1 --activate
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
           node-version: 24.11.1
+          package-manager-cache: false
       - name: Install dependencies
         run: yarn install
       - name: build

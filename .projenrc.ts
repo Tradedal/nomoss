@@ -1,5 +1,12 @@
 import fs from "node:fs";
-import { javascript, JsonFile, ReleasableCommits, TextFile } from "projen";
+import {
+  javascript,
+  JsonFile,
+  JsonPatch,
+  ReleasableCommits,
+  TextFile,
+} from "projen";
+import { JobStep } from "projen/lib/github/workflows-model";
 import { YarnNodeLinker } from "projen/lib/javascript";
 import { ReleaseTrigger } from "projen/lib/release";
 
@@ -91,6 +98,37 @@ project.package.addField("scripts", {
   projen: "tsx .projenrc.ts",
 });
 project.gitignore.addPatterns(".nomoss/");
+
+if (project.github) {
+  const buildWorkflow = project.github.workflows.find(
+    (workflow) => workflow.name === "build",
+  );
+
+  if (buildWorkflow) {
+    buildWorkflow.file?.patch(
+      JsonPatch.add("/jobs/build/steps/2/with/package-manager-cache", false),
+    );
+
+    const buildJob = buildWorkflow.getJob("build");
+    const buildSteps = buildJob?.steps;
+    const resolvedBuildSteps =
+      typeof buildSteps === "function"
+        ? buildSteps()
+        : ((buildSteps as JobStep[] | undefined) ?? []);
+
+    buildWorkflow.updateJob("build", {
+      ...buildJob,
+      steps: [
+        resolvedBuildSteps[0],
+        {
+          name: "Install Yarn",
+          run: "corepack enable && corepack prepare yarn@4.17.1 --activate",
+        },
+        ...resolvedBuildSteps.slice(1),
+      ],
+    });
+  }
+}
 
 new JsonFile(project, ".release-please-manifest.json", {
   obj: { ".": currentPackageVersion },
