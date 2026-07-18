@@ -1,55 +1,93 @@
 # Effect-Native Development
 
-Nomoss uses idiomatic Effect composition for infrastructure programs, provider services, lifecycle operations, and tests.
+Nomoss models infrastructure as Effects. Layers connect those Effects to
+provider services.
 
 ## Package Surface
 
-`src/index.ts` is the public package API. Stable functions, data contracts, and typed errors are exported there. Examples, research notes, and migration adapters remain outside the package API until deliberately promoted.
+`src/index.ts` defines the public package API. A module enters that API only
+after its production use and tests establish the contract. Example code remains
+outside the package.
 
-Root package code depends on Nomoss source, Effect libraries, and the provider libraries required by exported modules. Design notes stay outside the public package API until the implementation establishes their contracts.
+Design notes do not establish a package export. The implementation must first
+provide the behavior described by the export.
 
-AWS is the first provider target. Additional provider abstractions come after AWS resource composition, state, testing, and provider service contracts are stable.
+The AWS implementation establishes how Nomoss integrates a provider. Nomoss
+generalizes only behavior already proved by that implementation and its tests.
 
 ## Effect Model
 
-Infrastructure behavior is modeled as explicit `Effect` values. Requirements flow through the Effect environment type and are supplied by `Layer` composition.
+Infrastructure behavior is represented by explicit `Effect` values. The Effect
+environment exposes each required service. Layers provide those services.
 
-The public API follows the installed Effect version and repository tests. A higher-level resource orchestration API requires a written design contract and a production implementation before it becomes a package export.
+The public API follows the installed Effect version. Repository tests establish
+how Nomoss uses that API. An API that composes resources needs an accepted
+design and production use before it becomes a package export.
 
 ## Services And Layers
 
-Provider integrations are services. A provider service handles the external SDK client, request decoding, provider error capture, and typed error translation.
+Each provider integration is an Effect service. Its adapter translates SDK
+failures into the tagged errors returned by Nomoss.
 
-AWS modules depend on provider services through `Context.Service` requirements. Live service layers are the place for provider clients, process configuration, credentials, and external state.
+AWS modules request provider services through `Context.Service`. A live Layer
+connects each service to AWS.
 
-Applications and examples assemble dependencies once at the edge. Inner resource functions expose requirements through Effect instead of accepting broad option bags that recreate an implicit environment.
+Applications provide Layers when the runtime starts. Resource functions expose
+their requirements through Effect instead of recreating an environment in an
+options object.
+
+## Application Composition
+
+An application builds its infrastructure by yielding Nomoss resources in an
+Effect. It runs that Effect inside a named stack. The name scopes saved state.
+The stack also selects the AWS region used to inspect or change those resources.
+
+Provider modules do not import application stacks. `src/cliRuntimeLayer.ts`
+supplies the `upload-events` stack when the bundled CLI starts.
 
 ## Error Model
 
-Recoverable failures use tagged errors from `Data.TaggedError`. Provider failures include the resource id, lifecycle action, reason, and original cause when available.
+Recoverable failures use `Data.TaggedError`. A provider failure identifies the
+resource and the operation that failed. It retains the original SDK error when
+one is available.
 
-Unknown provider failures are translated in the adapter. Public error contracts use tagged data rather than raw thrown errors, string sentinels, or unknown object shapes.
+The provider adapter translates unknown failures. Public code returns tagged
+errors instead of exposing raw thrown values.
 
 ## Control Flow
 
-Sequenced resource behavior uses one explicit `Effect.gen` flow. The generator stays flat enough to show data flow, validation, provider calls, and result construction in one place. Nested `Effect.gen` is prohibited; flatten it into the enclosing generator or one direct Effect pipeline.
+Sequenced resource behavior uses one `Effect.gen`. Keep the generator flat so
+the required work remains visible. Replace a nested generator with the enclosing
+generator or one direct Effect pipeline.
 
-Expression-level branching uses `Match.value`, `Option.match`, or `Either.match`. `Effect.when` is only for conditions that are themselves effectful. Independent value aggregation uses `Effect.all`. Sequential work stays in the generator flow instead of being encoded as `Effect.all(..., { concurrency: 1 })`.
+`Match.value` selects among tagged values. `Option.match` and `Either.match`
+handle their respective containers. `Effect.when` is reserved for an effectful
+condition. `Effect.all` runs independent work; sequential work stays in the
+generator.
 
-`Effect.tap` is observational only. Required business steps use explicit sequencing with `Effect.andThen` or the enclosing generator.
+`Effect.tap` is observational only. Required work stays in the generator or
+uses `Effect.andThen`.
 
 ## Side Effects
 
-Time, randomness, logging, file access, and provider calls run through Effect services. Process-level side effects stay at executable edges.
+Code that touches the process or an external system runs through Effect
+services. Process startup remains at the executable edge.
 
-Effect programs log through `Effect.log*`. CLI rendering uses explicit renderer services or `Console` effects where the workflow contract requires terminal output.
+Effect programs log through `Effect.log*`. CLI commands use their renderer when
+they produce terminal output.
 
 ## Testing
 
-Tests use Vitest with `@effect/vitest`. Assertions live inside the main Effect returned from `it.effect(...)`.
+Tests use `@effect/vitest`. Assertions stay inside the Effect returned from
+`it.effect(...)`.
 
-Public behavior is tested through real functions and reusable layers. Provider adapters supply reusable test layers beside the adapter. Async behavior uses Effect test services and deterministic signals rather than sleeps or wall-clock checks.
+Tests exercise public functions through Layers. A provider adapter supplies its
+test Layer beside the live adapter. Asynchronous tests coordinate through Effect
+instead of sleeping.
 
 ## Tooling
 
-After a clean dependency install, run `yarn tsgo:patch` once. It patches the installed TypeScript 7 compiler with Effect diagnostics. Run `yarn typecheck:tsgo`, `yarn lint`, and the targeted Vitest file for Nomoss code changes. Do not run the patch command before every typecheck; it creates another compiler backup each time.
+After a clean dependency install, run `yarn tsgo:patch` once to enable Effect
+diagnostics in TypeScript 7. Use the targeted Vitest file while developing. Run
+`yarn check` before completing a code change. Repeating `yarn tsgo:patch`
+creates another compiler backup and is not part of normal validation.

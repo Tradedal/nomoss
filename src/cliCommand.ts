@@ -3,9 +3,9 @@ import { Effect, Logger, Match, Schema } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 
 import {
-  type StackName,
-  StackNameSchema,
-} from "./providers/aws/sampleStack.js";
+  UploadEventsStackNameSchema,
+  uploadEventsStack,
+} from "../examples/upload-events/stack.js";
 import {
   applyLiveStack,
   destroyStack,
@@ -17,7 +17,7 @@ import {
   showStackResource,
 } from "./providers/aws/stackWorkflow.js";
 
-const defaultStackName: StackName = "upload-events";
+const defaultStackName = uploadEventsStack.name;
 
 const stackFlag = Flag.string("stack").pipe(
   Flag.withDescription("Stack name"),
@@ -42,7 +42,7 @@ const resourceFormatFlag = Flag.choice("format", [
 const logicalIdArgument = Argument.string("logical-id");
 
 const decodeStackName = (value: string) =>
-  Schema.decodeUnknownEffect(StackNameSchema)(value);
+  Schema.decodeUnknownEffect(UploadEventsStackNameSchema)(value);
 
 const resourceLoggerLayer = (format: ResourceOutputFormat) =>
   Logger.layer([

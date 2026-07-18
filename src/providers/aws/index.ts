@@ -17,6 +17,4 @@ export * from "./awsRuntimeLayer.js";
 export * from "./awsSqsTransport.js";
 export * from "./awsStackLifecycle.js";
 export * from "./awsTagging.js";
-export * from "./constants.js";
-export * from "./sampleStack.js";
 export * from "./stackWorkflow.js";

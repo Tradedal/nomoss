@@ -28,7 +28,7 @@ export class ResourceStackOperations extends Context.Service<ResourceStackOperat
 
       const prepare = Effect.fn("ResourceStackOperations.prepare")(
         function* () {
-          yield* definition.declare();
+          yield* definition.program;
 
           return yield* lifecycle.prepare(definition.stackName);
         },

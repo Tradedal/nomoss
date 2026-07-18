@@ -15,6 +15,10 @@ import {
 } from "effect";
 
 import {
+  uploadEventsStack,
+  uploadEventsStackLayer,
+} from "../examples/upload-events/stack.js";
+import {
   physicalNameStoreLayer as corePhysicalNameStoreLayer,
   resourceStateStoreLayer as coreResourceStateStoreLayer,
   resourceGraphStoreLayer,
@@ -27,11 +31,8 @@ import {
 } from "../src/providers/aws/awsProviderLayer.js";
 import {
   awsStackLifecycleLayerLive,
-  stackCatalogLayerLive,
   stackWorkflowRendererLayerLive,
 } from "../src/providers/aws/awsRuntimeLayer.js";
-import { uploadEventsTarget } from "../src/providers/aws/constants.js";
-import type { StackName } from "../src/providers/aws/sampleStack.js";
 import {
   applyLiveStack,
   destroyStack,
@@ -44,7 +45,7 @@ class IntegrationMessageMissing extends Data.TaggedError(
   readonly key: string;
 }> {}
 
-const stackName: StackName = "upload-events";
+const stackName = uploadEventsStack.name;
 const integrationConfigLayer = ConfigProvider.layer(ConfigProvider.fromEnv());
 
 const physicalNameStoreLayer = Layer.provide(
@@ -59,6 +60,9 @@ const awsResourcesLayer = awsResourcesLayerLive.pipe(
   Layer.provideMerge(resourceGraphStoreLayer),
   Layer.provideMerge(physicalNameStoreLayer),
 );
+const stackDefinitionLayer = uploadEventsStackLayer.pipe(
+  Layer.provide(awsResourcesLayer),
+);
 const awsProviderRuntimeLayer = Layer.effect(
   AwsProviderRuntime,
   AwsProviderRuntime.make,
@@ -66,7 +70,7 @@ const awsProviderRuntimeLayer = Layer.effect(
 const appLayer = awsStackLifecycleLayerLive.pipe(
   Layer.provideMerge(awsResourcesLayer),
   Layer.provideMerge(resourceStateStoreLayer),
-  Layer.provideMerge(stackCatalogLayerLive),
+  Layer.provideMerge(stackDefinitionLayer),
   Layer.provideMerge(stackWorkflowRendererLayerLive),
   Layer.provideMerge(resourcePlannerLayer),
   Layer.provideMerge(awsProviderRuntimeLayer),
@@ -90,7 +94,7 @@ describe("ResourceGraph MVP AWS integration", () => {
 
         const awsLayer = providerRuntime.runtimeLayerSsoRegion(
           profile,
-          uploadEventsTarget.region,
+          uploadEventsStack.region,
         );
 
         yield* applyLiveStack({ profile, stackName });

@@ -25,6 +25,7 @@ import {
 } from "./awsQueue.js";
 import {
   QueuePolicyOutputsSchema,
+  type QueuePolicyProps,
   QueuePolicyPropsSchema,
   s3SendMessageQueuePolicy,
 } from "./awsQueuePolicy.js";
@@ -55,17 +56,22 @@ type GraphQueuePolicyInput = {
   readonly queueArn: ResourceOutputRef;
 };
 
+type GraphQueuePolicy = {
+  readonly key: ResourceKey;
+  readonly props: QueuePolicyProps;
+};
+
 type GraphBucketNotificationInput = {
   readonly logicalId: string;
   readonly bucketName: ResourceOutputRef;
   readonly queueArn: ResourceOutputRef;
-  readonly queuePolicy: ResourceKey;
+  readonly queuePolicy: GraphQueuePolicy;
 };
 
 /**
- * Stack graph programs use these declarations to validate AWS props, create
- * output refs, and let `ResourceGraphBuilder` record dependency edges when
- * declarations consume another resource output.
+ * Each method registers one desired AWS resource with `ResourceGraphBuilder`.
+ * When an input consumes a `ResourceOutputRef`, the builder records the edge
+ * needed to create its source first.
  */
 export class AwsResources extends Context.Service<AwsResources>()(
   "nomoss/providers/aws/awsResources",
@@ -75,6 +81,11 @@ export class AwsResources extends Context.Service<AwsResources>()(
       const physicalNames = yield* PhysicalNameStore;
 
       return {
+        /**
+         * Declares an S3 bucket in the current stack. Nomoss assigns a stable
+         * physical name when `Bucket` is omitted and returns output references
+         * for resources that consume the bucket name or ARN.
+         */
         Bucket: Effect.fn("AwsResources.Bucket")(function* (
           input: GraphBucketInput,
         ) {
@@ -120,6 +131,11 @@ export class AwsResources extends Context.Service<AwsResources>()(
           };
         }),
 
+        /**
+         * Declares an SQS queue in the current stack. Nomoss assigns a stable
+         * physical name when `QueueName` is omitted and returns output
+         * references for resources that consume the queue URL or ARN.
+         */
         Queue: Effect.fn("AwsResources.Queue")(function* (
           input: GraphQueueInput,
         ) {
@@ -156,6 +172,11 @@ export class AwsResources extends Context.Service<AwsResources>()(
           };
         }),
 
+        /**
+         * An SQS queue policy controls who may use a queue and which SQS actions
+         * they may call. This constructor permits S3 to send one bucket's event
+         * messages to the queue.
+         */
         QueuePolicy: Effect.fn("AwsResources.QueuePolicy")(function* (
           input: GraphQueuePolicyInput,
         ) {
@@ -195,6 +216,11 @@ export class AwsResources extends Context.Service<AwsResources>()(
           };
         }),
 
+        /**
+         * Sets the bucket's notification configuration so object-created events
+         * target the declared queue ARN. S3 validates the queue permission when
+         * this configuration is applied, so the queue policy is a prerequisite.
+         */
         BucketNotification: Effect.fn("AwsResources.BucketNotification")(
           function* (input: GraphBucketNotificationInput) {
             const key = { logicalId: input.logicalId };
@@ -207,7 +233,11 @@ export class AwsResources extends Context.Service<AwsResources>()(
               input.queueArn,
               "queueArn",
             );
-            yield* resource.after(input.queuePolicy, "queuePolicy", "Policy");
+            yield* resource.after(
+              input.queuePolicy.key,
+              "queuePolicy",
+              "Policy",
+            );
             const queueConfiguration = {
               Id: input.logicalId,
               QueueArn: queueArn,
@@ -240,10 +270,15 @@ export class AwsResources extends Context.Service<AwsResources>()(
 ) {}
 
 /**
- * Stack definitions use these CDK-style constructors while live provider
- * behavior remains in AWS lifecycle policies.
+ * These constructors declare resources without first yielding `AwsResources`.
+ * The surrounding Effect still supplies that service.
  */
 export const Aws = {
+  /**
+   * Declares an S3 bucket in the current stack. Nomoss assigns a stable
+   * physical name when `Bucket` is omitted and returns output references for
+   * resources that consume the bucket name or ARN.
+   */
   Bucket: (input: GraphBucketInput) =>
     Effect.gen(function* () {
       const resources = yield* AwsResources;
@@ -251,6 +286,11 @@ export const Aws = {
       return yield* resources.Bucket(input);
     }),
 
+  /**
+   * Declares an SQS queue in the current stack. Nomoss assigns a stable
+   * physical name when `QueueName` is omitted and returns output references
+   * for resources that consume the queue URL or ARN.
+   */
   Queue: (input: GraphQueueInput) =>
     Effect.gen(function* () {
       const resources = yield* AwsResources;
@@ -258,6 +298,11 @@ export const Aws = {
       return yield* resources.Queue(input);
     }),
 
+  /**
+   * An SQS queue policy controls who may use a queue and which SQS actions they
+   * may call. This constructor permits S3 to send one bucket's event messages
+   * to the queue.
+   */
   QueuePolicy: (input: GraphQueuePolicyInput) =>
     Effect.gen(function* () {
       const resources = yield* AwsResources;
@@ -265,6 +310,11 @@ export const Aws = {
       return yield* resources.QueuePolicy(input);
     }),
 
+  /**
+   * Sets the bucket's notification configuration so object-created events
+   * target the declared queue ARN. S3 validates the queue permission when this
+   * configuration is applied, so the queue policy is a prerequisite.
+   */
   BucketNotification: (input: GraphBucketNotificationInput) =>
     Effect.gen(function* () {
       const resources = yield* AwsResources;

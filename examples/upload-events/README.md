@@ -1,10 +1,13 @@
 # S3 upload events
 
-The `upload-events` resource program connects the `Uploads` S3 bucket to the `UploadEvents` SQS queue. `UploadEventsPolicy` permits S3 to publish messages to the queue. `UploadEventsNotification` routes S3 object-created events to that queue.
+The `upload-events` Effect connects the `Uploads` S3 bucket to the `UploadEvents` SQS queue. `UploadEventsPolicy` permits S3 to publish messages to the queue. `UploadEventsNotification` routes S3 object-created events to that queue.
 
-The program lives in [`src/providers/aws/sampleStack.ts`](../../src/providers/aws/sampleStack.ts). The `Uploads` bucket sets `forceDestroy`, so `nomoss destroy` removes its objects and the bucket. Use a non-production AWS account for this demo.
+[`stack.ts`](stack.ts) defines the Effect for `upload-events`. The CLI runs it
+inside a stack with the same name. Nomoss saves the resulting state under that
+name. The `Uploads` bucket sets `forceDestroy`, so `nomoss destroy` removes its
+objects and the bucket. Use a non-production AWS account for this demo.
 
-## Inspect the resource program
+## Inspect the Effect
 
 `nomoss graph` prints the dependency graph. `nomoss plan` derives the execution batches from the graph and local Nomoss state. `nomoss list` prints the declared resources.
 

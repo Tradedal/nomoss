@@ -188,6 +188,7 @@ new JsonFile(project, "tsconfig.json", {
       types: ["node"],
     },
     include: [
+      "examples/**/*.ts",
       "src/**/*.ts",
       "tests/**/*.ts",
       "vitest.config.ts",
@@ -205,7 +206,7 @@ new TextFile(project, "biome.jsonc", {
     '  \"extends\": [\"@catenarycloud/linteffect\"],',
     '  \"files\": {',
     '    \"ignoreUnknown\": false,',
-    '    \"includes\": [\"src/**/*.ts\", \"tests/**/*.ts\", \"vitest.config.ts\", \"vitest.integration.config.ts\"]',
+    '    \"includes\": [\"examples/**/*.ts\", \"src/**/*.ts\", \"tests/**/*.ts\", \"vitest.config.ts\", \"vitest.integration.config.ts\"]',
     "  },",
     '  \"formatter\": { \"enabled\": true, \"indentStyle\": \"space\", \"indentWidth\": 2 },',
     '  \"javascript\": { \"formatter\": { \"quoteStyle\": \"double\" } },',
