@@ -69,8 +69,9 @@ export type ResourcePlannerService = {
 };
 
 /**
- * A selected action retains its graph position until depth calculation assigns
- * it to a batch; `PlanAction` itself intentionally contains no graph index.
+ * Dependency lookup needs the graph node index, while stack rendering and
+ * provider execution consume `PlanAction` without graph internals. The planner
+ * keeps both facts together until it has assigned the action to a batch.
  */
 type SelectedAction = {
   readonly action: PlanAction;
@@ -138,9 +139,11 @@ const selectDestroyActions = (
   );
 
 /**
- * Selected actions may omit unchanged prerequisites. Missing prerequisite
- * depths contribute `-1`, placing the first required action at depth zero
- * without inventing work for unchanged graph nodes.
+ * Stack lifecycle sends provider commands only for resources that need create
+ * or update work. A prerequisite that already matches persisted provider state
+ * therefore has no action or batch depth; treating it as depth `-1` lets its
+ * changed dependent enter the first batch instead of waiting for work Nomoss
+ * will not run.
  */
 const depthByKey = (
   desired: ResourceDependencyGraph,
@@ -173,9 +176,9 @@ const depthByKey = (
   );
 
 /**
- * A graph depth is the deepest selected prerequisite plus one. Grouping by
- * that depth preserves prerequisite order while keeping independent actions in
- * the same provider-command batch.
+ * Provider execution can run independent actions together, but an action's
+ * incoming graph dependencies must finish first. Depth groups the selected
+ * actions into those execution batches for stack lifecycle and AWS apply.
  */
 const batchesFor = (
   desired: ResourceDependencyGraph,
