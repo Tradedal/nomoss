@@ -5,13 +5,12 @@ import type { ResourceNode } from "../../core/model.js";
 import { PhysicalNameStore } from "../../core/physicalNameStore.js";
 import type { ResourceDependencyGraph } from "../../core/planner.js";
 import { ResourceGraphStore } from "../../core/resourceGraphStore.js";
+import { ResourceStackCatalog } from "../../core/resourceStackCatalog.js";
 import { ResourceStateStore } from "../../core/stateStore.js";
 import { type AppliedResource, AwsApply } from "./awsApply.js";
 import { AwsProviderRuntime } from "./awsProviderLayer.js";
 import { AwsReconciliation } from "./awsReconciliation.js";
 import { AwsRefresh } from "./awsRefresh.js";
-import { AwsResources } from "./awsResources.js";
-import { StackCatalog, type StackName } from "./sampleStack.js";
 
 export type ResourceListing = {
   readonly logicalId: string;
@@ -54,11 +53,10 @@ export class AwsStackLifecycle extends Context.Service<AwsStackLifecycle>()(
   "nomoss/providers/aws/awsStackLifecycle",
   {
     make: Effect.gen(function* () {
-      const catalog = yield* StackCatalog;
+      const catalog = yield* ResourceStackCatalog;
       const graphStore = yield* ResourceGraphStore;
       const stateStore = yield* ResourceStateStore;
       const physicalNames = yield* PhysicalNameStore;
-      const resources = yield* AwsResources;
       const providerRuntime = yield* AwsProviderRuntime;
 
       const changedDecisions = (decisions: ReadonlyMap<string, PlanDecision>) =>
@@ -126,12 +124,12 @@ export class AwsStackLifecycle extends Context.Service<AwsStackLifecycle>()(
         },
       );
       const prepareStack = Effect.fn("AwsStackLifecycle.prepare")(function* (
-        stackName: StackName,
+        stackName: string,
       ) {
         const stack = yield* catalog.get(stackName);
 
         yield* graphStore.reset;
-        yield* stack.graph.pipe(Effect.provideService(AwsResources, resources));
+        yield* catalog.declare(stack);
         const desired = yield* graphStore.snapshot;
         const prepared: PreparedStack = {
           stackName: stack.name,
@@ -146,7 +144,7 @@ export class AwsStackLifecycle extends Context.Service<AwsStackLifecycle>()(
         prepare: prepareStack,
 
         mermaid: Effect.fn("AwsStackLifecycle.mermaid")(function* (
-          stackName: StackName,
+          stackName: string,
         ) {
           yield* prepareStack(stackName);
 
@@ -154,7 +152,7 @@ export class AwsStackLifecycle extends Context.Service<AwsStackLifecycle>()(
         }),
 
         describeResources: Effect.fn("AwsStackLifecycle.describeResources")(
-          function* (stackName: StackName) {
+          function* (stackName: string) {
             const prepared = yield* prepareStack(stackName);
 
             return resourceListings(prepared.desired);
@@ -163,7 +161,7 @@ export class AwsStackLifecycle extends Context.Service<AwsStackLifecycle>()(
 
         diffLive: Effect.fn("AwsStackLifecycle.diffLive")(function* (input: {
           readonly profile: string;
-          readonly stackName: StackName;
+          readonly stackName: string;
         }) {
           const prepared = yield* prepareStack(input.stackName);
           const decisions = yield* liveDecisions(prepared.desired).pipe(
@@ -177,7 +175,7 @@ export class AwsStackLifecycle extends Context.Service<AwsStackLifecycle>()(
 
         applyLive: Effect.fn("AwsStackLifecycle.applyLive")(function* (input: {
           readonly profile: string;
-          readonly stackName: StackName;
+          readonly stackName: string;
         }) {
           const prepared = yield* prepareStack(input.stackName);
           const desiredResources = stateStore.resourcesFromGraph(
@@ -227,7 +225,7 @@ export class AwsStackLifecycle extends Context.Service<AwsStackLifecycle>()(
         destroyLive: Effect.fn("AwsStackLifecycle.destroyLive")(
           function* (input: {
             readonly profile: string;
-            readonly stackName: StackName;
+            readonly stackName: string;
           }) {
             const prepared = yield* prepareStack(input.stackName);
             const graphNodes = Arr.fromIterable(

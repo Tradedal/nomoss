@@ -2,7 +2,11 @@
 
 The `upload-events` resource program connects the `Uploads` S3 bucket to the `UploadEvents` SQS queue. `UploadEventsPolicy` permits S3 to publish messages to the queue. `UploadEventsNotification` routes S3 object-created events to that queue.
 
-The program lives in [`src/providers/aws/sampleStack.ts`](../../src/providers/aws/sampleStack.ts). The `Uploads` bucket sets `forceDestroy`, so `nomoss destroy` removes its objects and the bucket. Use a non-production AWS account for this demo.
+The application program lives in [`stack.ts`](stack.ts). It composes exported
+Nomoss AWS resources into a project stack and supplies that declaration through
+the core stack catalog contract. The `Uploads` bucket sets `forceDestroy`, so
+`nomoss destroy` removes its objects and the bucket. Use a non-production AWS
+account for this demo.
 
 ## Inspect the resource program
 

@@ -24,6 +24,17 @@ AWS modules depend on provider services through `Context.Service` requirements. 
 
 Applications and examples assemble dependencies once at the edge. Inner resource functions expose requirements through Effect instead of accepting broad option bags that recreate an implicit environment.
 
+## Application Composition
+
+Nomoss core defines the stack catalog contract, and provider packages expose
+resource declaration services. A consuming application composes those resource
+services into named stack declarations and supplies its catalog as a Layer.
+
+Application stack names, deployment regions, and resource programs remain in
+the consuming project or example. Core lifecycle services read the catalog, and
+provider packages do not import an application stack. The bundled
+`upload-events` example demonstrates this separation under `examples/`.
+
 ## Error Model
 
 Recoverable failures use tagged errors from `Data.TaggedError`. Provider failures include the resource id, lifecycle action, reason, and original cause when available.

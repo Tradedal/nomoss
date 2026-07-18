@@ -20,7 +20,6 @@ import {
   type ResourceListing,
   type StackApplyResult,
 } from "./awsStackLifecycle.js";
-import type { StackName } from "./sampleStack.js";
 
 export type ResourceOutputFormat =
   | "text"
@@ -185,7 +184,7 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
         `  props: ${Formatter.format(resource.props)}`,
         `  outputs: ${Formatter.format(resource.outputs)}`,
       ];
-      const logResource = (stackName: StackName, resource: ResourceListing) =>
+      const logResource = (stackName: string, resource: ResourceListing) =>
         Effect.logInfo("resource", resource).pipe(
           Effect.annotateLogs({
             stack: stackName,
@@ -200,7 +199,7 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
       return {
         renderResources: Effect.fn("StackWorkflowRenderer.renderResources")(
           function* (input: {
-            readonly stackName: StackName;
+            readonly stackName: string;
             readonly format: ResourceOutputFormat;
             readonly resources: ReadonlyArray<ResourceListing>;
           }) {
@@ -308,7 +307,7 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
 ) {}
 
 export const printGraph = Effect.fn("StackWorkflow.printGraph")(function* (
-  stackName: StackName,
+  stackName: string,
 ) {
   const stackLifecycle = yield* AwsStackLifecycle;
   const mermaid = yield* stackLifecycle.mermaid(stackName);
@@ -321,7 +320,7 @@ export const printGraph = Effect.fn("StackWorkflow.printGraph")(function* (
  */
 export const describeStackResources = Effect.fn(
   "StackWorkflow.describeStackResources",
-)(function* (stackName: StackName) {
+)(function* (stackName: string) {
   const stackLifecycle = yield* AwsStackLifecycle;
 
   return yield* stackLifecycle.describeResources(stackName);
@@ -335,7 +334,7 @@ const ResourceFields = Schema.Record(Schema.String, Schema.Unknown);
 export const stackResourceString = Effect.fn(
   "StackWorkflow.stackResourceString",
 )(function* (input: {
-  readonly stackName: StackName;
+  readonly stackName: string;
   readonly logicalId: string;
   readonly section: "props" | "outputs";
   readonly field: string;
@@ -358,7 +357,7 @@ export const stackResourceString = Effect.fn(
 
 export const listStackResources = Effect.fn("StackWorkflow.listStackResources")(
   function* (input: {
-    readonly stackName: StackName;
+    readonly stackName: string;
     readonly format: ResourceOutputFormat;
   }) {
     const renderer = yield* StackWorkflowRenderer;
@@ -374,7 +373,7 @@ export const listStackResources = Effect.fn("StackWorkflow.listStackResources")(
 
 export const showStackResource = Effect.fn("StackWorkflow.showStackResource")(
   function* (input: {
-    readonly stackName: StackName;
+    readonly stackName: string;
     readonly logicalId: string;
     readonly format: ResourceOutputFormat;
   }) {
@@ -398,7 +397,7 @@ export const showStackResource = Effect.fn("StackWorkflow.showStackResource")(
 );
 
 export const printPlan = Effect.fn("StackWorkflow.printPlan")(function* (
-  stackName: StackName,
+  stackName: string,
 ) {
   const stackLifecycle = yield* AwsStackLifecycle;
   const planner = yield* ResourcePlanner;
@@ -415,10 +414,7 @@ export const printPlan = Effect.fn("StackWorkflow.printPlan")(function* (
 });
 
 export const printLiveDiff = Effect.fn("StackWorkflow.printLiveDiff")(
-  function* (input: {
-    readonly profile: string;
-    readonly stackName: StackName;
-  }) {
+  function* (input: { readonly profile: string; readonly stackName: string }) {
     const stackLifecycle = yield* AwsStackLifecycle;
     const renderer = yield* StackWorkflowRenderer;
     const report = yield* stackLifecycle.diffLive(input);
@@ -431,10 +427,7 @@ export const printLiveDiff = Effect.fn("StackWorkflow.printLiveDiff")(
  * Applies live AWS changes for a stack and renders the resulting decision report. Provider execution and state writes run through `AwsStackLifecycle`; this function handles CLI output only.
  */
 export const applyLiveStack = Effect.fn("StackWorkflow.applyLiveStack")(
-  function* (input: {
-    readonly profile: string;
-    readonly stackName: StackName;
-  }) {
+  function* (input: { readonly profile: string; readonly stackName: string }) {
     const stackLifecycle = yield* AwsStackLifecycle;
     const renderer = yield* StackWorkflowRenderer;
     const result = yield* stackLifecycle.applyLive(input);
@@ -451,10 +444,7 @@ export const applyLiveStack = Effect.fn("StackWorkflow.applyLiveStack")(
  * Destroys live AWS resources for a stack and renders the resulting decision report. Provider execution and physical-name cleanup run through `AwsStackLifecycle`.
  */
 export const destroyStack = Effect.fn("StackWorkflow.destroyStack")(
-  function* (input: {
-    readonly profile: string;
-    readonly stackName: StackName;
-  }) {
+  function* (input: { readonly profile: string; readonly stackName: string }) {
     const stackLifecycle = yield* AwsStackLifecycle;
     const renderer = yield* StackWorkflowRenderer;
     const result = yield* stackLifecycle.destroyLive(input);

@@ -1,8 +1,8 @@
-import { Layer } from "effect";
-
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { Layer } from "effect";
 
+import { uploadEventsStackCatalogLayer } from "../examples/upload-events/stack.js";
 import {
   physicalNameStoreLayer as corePhysicalNameStoreLayer,
   resourceStateStoreBaseLayer as coreResourceStateStoreLayer,
@@ -17,7 +17,6 @@ import {
 } from "./providers/aws/awsProviderLayer.js";
 import {
   awsStackLifecycleLayerLive,
-  stackCatalogLayerLive,
   stackWorkflowRendererLayerLive,
 } from "./providers/aws/awsRuntimeLayer.js";
 
@@ -36,11 +35,14 @@ const awsResourcesLayer = awsResourcesLayerLive.pipe(
   Layer.provideMerge(resourceGraphStoreLayer),
   Layer.provideMerge(physicalNameStoreWithNodeFileSystemLayer),
 );
+const stackCatalogLayer = uploadEventsStackCatalogLayer.pipe(
+  Layer.provide(awsResourcesLayer),
+);
 
 export const nomossCliRuntimeLayer = awsStackLifecycleLayerLive.pipe(
   Layer.provideMerge(awsResourcesLayer),
   Layer.provideMerge(resourceStateStoreWithNodeFileSystemLayer),
-  Layer.provideMerge(stackCatalogLayerLive),
+  Layer.provideMerge(stackCatalogLayer),
   Layer.provideMerge(stackWorkflowRendererLayerLive),
   Layer.provideMerge(resourcePlannerLayer),
   Layer.provideMerge(Layer.effect(AwsProviderRuntime, AwsProviderRuntime.make)),

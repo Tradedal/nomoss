@@ -8,6 +8,7 @@ export * from "./resourceGraphStore.js";
 export * from "./resourceOutputResolver.js";
 export * from "./resourcePolicy.js";
 export * from "./resourceStackDefinition.js";
+export * from "./resourceStackCatalog.js";
 export * from "./resourceStackLifecycle.js";
 export * from "./resourceStackOperations.js";
 export * from "./runtimeLayer.js";
