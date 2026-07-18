@@ -1,17 +1,54 @@
-import { Context, Effect } from "effect";
+import { Context, Data, Effect, Exit } from "effect";
 
 /**
- * Applications provide this service to name the stack and register desired
- * resources. Provider services are captured when the application layer builds
- * the definition, so stack operations can run declaration, planning, apply,
- * destroy, and rendering without consumer lifecycle wiring.
+ * `AwsStackLifecycle.prepare` receives a stack name from the CLI. It rejects a
+ * mismatch before saving the loaded program's resources under that name.
  */
-export class ResourceStackDefinition extends Context.Service<ResourceStackDefinition>()(
-  "nomoss/core/resourceStackDefinition",
-  {
-    make: Effect.succeed({
-      stackName: "",
-      declare: Effect.fn("ResourceStackDefinition.declare")(function* () {}),
-    }),
-  },
-) {}
+export class ResourceStackDefinitionMismatch extends Data.TaggedError(
+  "ResourceStackDefinitionMismatch",
+)<{
+  readonly defined: string;
+  readonly requested: string;
+}> {}
+
+/**
+ * An application can fail while registering resources. This error records the
+ * affected stack so the lifecycle command can report that failure.
+ */
+export class ResourceStackDeclarationFailed extends Data.TaggedError(
+  "ResourceStackDeclarationFailed",
+)<{
+  readonly stackName: string;
+  readonly cause: unknown;
+}> {}
+
+/**
+ * When a resource constructor fails, this function attaches the stack name
+ * before `AwsStackLifecycle` returns the error.
+ */
+export const resourceStackDeclarationResult = Effect.fn(
+  "ResourceStackDefinition.declarationResult",
+)(function* (stackName: string, result: Exit.Exit<void, unknown>) {
+  return yield* Exit.match(result, {
+    onFailure: (cause) =>
+      Effect.fail(new ResourceStackDeclarationFailed({ stackName, cause })),
+    onSuccess: () => Effect.void,
+  });
+});
+
+type ResourceStackDefinitionService = {
+  readonly stackName: string;
+  readonly description: string;
+  readonly region: string;
+  readonly program: ReturnType<typeof resourceStackDeclarationResult>;
+};
+
+/**
+ * `AwsStackLifecycle` runs `program` whenever it prepares the stack.
+ * `ResourceStateStore` saves the resulting graph under `stackName`. AWS calls
+ * use `region`.
+ */
+export class ResourceStackDefinition extends Context.Service<
+  ResourceStackDefinition,
+  ResourceStackDefinitionService
+>()("nomoss/core/resourceStackDefinition") {}

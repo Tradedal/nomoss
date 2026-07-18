@@ -5,7 +5,10 @@ import type { ResourceNode } from "../../core/model.js";
 import { PhysicalNameStore } from "../../core/physicalNameStore.js";
 import type { ResourceDependencyGraph } from "../../core/planner.js";
 import { ResourceGraphStore } from "../../core/resourceGraphStore.js";
-import { ResourceStackCatalog } from "../../core/resourceStackCatalog.js";
+import {
+  ResourceStackDefinition,
+  ResourceStackDefinitionMismatch,
+} from "../../core/resourceStackDefinition.js";
 import { ResourceStateStore } from "../../core/stateStore.js";
 import { type AppliedResource, AwsApply } from "./awsApply.js";
 import { AwsProviderRuntime } from "./awsProviderLayer.js";
@@ -53,7 +56,7 @@ export class AwsStackLifecycle extends Context.Service<AwsStackLifecycle>()(
   "nomoss/providers/aws/awsStackLifecycle",
   {
     make: Effect.gen(function* () {
-      const catalog = yield* ResourceStackCatalog;
+      const stackDefinition = yield* ResourceStackDefinition;
       const graphStore = yield* ResourceGraphStore;
       const stateStore = yield* ResourceStateStore;
       const physicalNames = yield* PhysicalNameStore;
@@ -126,14 +129,22 @@ export class AwsStackLifecycle extends Context.Service<AwsStackLifecycle>()(
       const prepareStack = Effect.fn("AwsStackLifecycle.prepare")(function* (
         stackName: string,
       ) {
-        const stack = yield* catalog.get(stackName);
+        yield* Effect.filterOrFail(
+          Effect.succeed(stackName),
+          (requested) => requested === stackDefinition.stackName,
+          (requested) =>
+            new ResourceStackDefinitionMismatch({
+              defined: stackDefinition.stackName,
+              requested,
+            }),
+        );
 
         yield* graphStore.reset;
-        yield* catalog.declare(stack);
+        yield* stackDefinition.program;
         const desired = yield* graphStore.snapshot;
         const prepared: PreparedStack = {
-          stackName: stack.name,
-          region: stack.region,
+          stackName: stackDefinition.stackName,
+          region: stackDefinition.region,
           desired,
         };
 

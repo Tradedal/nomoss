@@ -15,8 +15,8 @@ import {
 } from "effect";
 
 import {
-  uploadEventsStackCatalogLayer,
   uploadEventsStack,
+  uploadEventsStackLayer,
 } from "../examples/upload-events/stack.js";
 import {
   physicalNameStoreLayer as corePhysicalNameStoreLayer,
@@ -60,7 +60,7 @@ const awsResourcesLayer = awsResourcesLayerLive.pipe(
   Layer.provideMerge(resourceGraphStoreLayer),
   Layer.provideMerge(physicalNameStoreLayer),
 );
-const stackCatalogLayer = uploadEventsStackCatalogLayer.pipe(
+const stackDefinitionLayer = uploadEventsStackLayer.pipe(
   Layer.provide(awsResourcesLayer),
 );
 const awsProviderRuntimeLayer = Layer.effect(
@@ -70,7 +70,7 @@ const awsProviderRuntimeLayer = Layer.effect(
 const appLayer = awsStackLifecycleLayerLive.pipe(
   Layer.provideMerge(awsResourcesLayer),
   Layer.provideMerge(resourceStateStoreLayer),
-  Layer.provideMerge(stackCatalogLayer),
+  Layer.provideMerge(stackDefinitionLayer),
   Layer.provideMerge(stackWorkflowRendererLayerLive),
   Layer.provideMerge(resourcePlannerLayer),
   Layer.provideMerge(awsProviderRuntimeLayer),
