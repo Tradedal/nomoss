@@ -59,43 +59,64 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
           Match.when({ _tag: "Updated" }, () => ansi.yellow),
           Match.orElse(() => ansi.red),
         );
-      const resourceType = (resource: AppliedResource) => {
-        const { node } = resource.result;
-
-        return `${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId}`;
-      };
+      const resourceType = ({ result: { node } }: AppliedResource) =>
+        `${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId}`;
+      const applyResultStatus = (resource: AppliedResource, colors: boolean) =>
+        Match.value(colors).pipe(
+          Match.when(
+            true,
+            () =>
+              `${appliedResourceColor(resource)}✓ ${appliedResourceLabel(resource)}${ansi.reset}`,
+          ),
+          Match.orElse(() => `✓ ${appliedResourceLabel(resource)}`),
+        );
+      const applyResultLine = (resource: AppliedResource, colors: boolean) =>
+        `${applyResultStatus(resource, colors)} ${resourceType(resource)}  ${formatDuration(resource.durationMillis)}`;
+      const appliedResourceCount = (
+        resources: ReadonlyArray<AppliedResource>,
+      ) =>
+        `${resources.length} ${Match.value(resources.length === 1).pipe(
+          Match.when(true, () => "resource"),
+          Match.orElse(() => "resources"),
+        )}`;
+      const uniformApplyOutcome = (
+        resource: AppliedResource,
+        rest: ReadonlyArray<AppliedResource>,
+      ) =>
+        Match.value(
+          Arr.every(
+            rest,
+            (candidate) =>
+              appliedResourceLabel(candidate) ===
+              appliedResourceLabel(resource),
+          ),
+        ).pipe(
+          Match.when(
+            true,
+            () =>
+              `${appliedResourceCount(Arr.prepend(rest, resource))} ${appliedResourceLabel(resource)}`,
+          ),
+          Match.orElse(
+            () =>
+              `${appliedResourceCount(Arr.prepend(rest, resource))} applied`,
+          ),
+        );
+      const applyResultOutcome = (resources: ReadonlyArray<AppliedResource>) =>
+        Arr.match(resources, {
+          onEmpty: () => "0 resources applied",
+          onNonEmpty: ([resource, ...rest]) =>
+            uniformApplyOutcome(resource, rest),
+        });
       const applyResultLines = (
         result: StackApplyResult,
         colors: boolean,
-      ): ReadonlyArray<string> => {
-        const labels = Arr.map(result.resources, appliedResourceLabel);
-        const uniqueLabels = new Set(labels);
-        const resourceCount = result.resources.length;
-        const noun = Match.value(resourceCount === 1).pipe(
-          Match.when(true, () => "resource"),
-          Match.orElse(() => "resources"),
+      ): ReadonlyArray<string> =>
+        Arr.append(
+          Arr.map(result.resources, (resource) =>
+            applyResultLine(resource, colors),
+          ),
+          `${applyResultOutcome(result.resources)} in ${formatDuration(result.durationMillis)}`,
         );
-        const outcome = Match.value(uniqueLabels.size === 1).pipe(
-          Match.when(true, () => `${resourceCount} ${noun} ${labels[0]}`),
-          Match.orElse(() => `${resourceCount} ${noun} applied`),
-        );
-
-        return Arr.append(
-          Arr.map(result.resources, (resource) => {
-            const label = `✓ ${appliedResourceLabel(resource)}`;
-            const status = Match.value(colors).pipe(
-              Match.when(
-                true,
-                () => `${appliedResourceColor(resource)}${label}${ansi.reset}`,
-              ),
-              Match.orElse(() => label),
-            );
-
-            return `${status} ${resourceType(resource)}  ${formatDuration(resource.durationMillis)}`;
-          }),
-          `${outcome} in ${formatDuration(result.durationMillis)}`,
-        );
-      };
 
       const prefixedValueLines = (prefix: string, value: string) => [
         `${prefix} ${value}`,

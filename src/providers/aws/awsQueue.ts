@@ -226,6 +226,25 @@ export class QueueLifecycleService extends Context.Service<QueueLifecycleService
           }),
         );
 
+      const readQueueObservedState = Effect.fn(
+        "QueueLifecycleService.read/readQueueObservedState",
+      )(function* (props: QueueProps, url: SQS.GetQueueUrlResult) {
+        const queueUrl = yield* queueUrlFromGetQueueUrlResult(props, url);
+        const { attributes, tags } = yield* Effect.all({
+          attributes: sqsTransport
+            .getQueueAttributes({
+              QueueUrl: queueUrl,
+              AttributeNames: ["All"],
+            })
+            .pipe(Effect.mapError((cause) => new QueueReadFailed({ cause }))),
+          tags: sqsTransport
+            .listQueueTags({ QueueUrl: queueUrl })
+            .pipe(Effect.mapError((cause) => new QueueReadFailed({ cause }))),
+        });
+
+        return queueObservedState(url, attributes, tags);
+      });
+
       return {
         create: Effect.fn("QueueLifecycleService.create")(function* (
           props: QueueProps,
@@ -263,46 +282,14 @@ export class QueueLifecycleService extends Context.Service<QueueLifecycleService
               ),
               Effect.mapError((cause) => new QueueReadFailed({ cause })),
             );
-          const maybeQueueUrlResult = yield* Effect.fromOption(
-            queueUrlResult,
-          ).pipe(Effect.catchNoSuchElement);
-          const queueObservation = yield* Option.match(maybeQueueUrlResult, {
-            onNone: () => Effect.succeed(Option.none<QueueObservedState>()),
-            onSome: (presentQueueUrlResult) =>
-              Effect.flatMap(
-                queueUrlFromGetQueueUrlResult(props, presentQueueUrlResult),
-                (queueUrl) =>
-                  Effect.all({
-                    attributes: sqsTransport
-                      .getQueueAttributes({
-                        QueueUrl: queueUrl,
-                        AttributeNames: ["All"],
-                      })
-                      .pipe(
-                        Effect.mapError(
-                          (cause) => new QueueReadFailed({ cause }),
-                        ),
-                      ),
-                    tags: sqsTransport
-                      .listQueueTags({ QueueUrl: queueUrl })
-                      .pipe(
-                        Effect.mapError(
-                          (cause) => new QueueReadFailed({ cause }),
-                        ),
-                      ),
-                  }).pipe(
-                    Effect.map(({ attributes, tags }) =>
-                      Option.some(
-                        queueObservedState(
-                          presentQueueUrlResult,
-                          attributes,
-                          tags,
-                        ),
-                      ),
-                    ),
-                  ),
-              ),
-          });
+          const queueObservation = yield* queueUrlResult.pipe(
+            Option.map((url) =>
+              Effect.map(readQueueObservedState(props, url), Option.some),
+            ),
+            Option.getOrElse(() =>
+              Effect.succeed(Option.none<QueueObservedState>()),
+            ),
+          );
 
           return queueObservation;
         }),

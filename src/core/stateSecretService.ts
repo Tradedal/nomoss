@@ -284,7 +284,7 @@ const restoreStateSecretOutput = Effect.fn(
     output,
   );
 
-  return yield* Option.match(reference, {
+  const restoredOutput = yield* Option.match(reference, {
     onNone: () =>
       Schema.decodeUnknownEffect(Schema.String)(output).pipe(
         Effect.mapError(
@@ -295,14 +295,13 @@ const restoreStateSecretOutput = Effect.fn(
               cause,
             }),
         ),
-        Effect.map(() =>
-          Option.some<StateSecretOutputUpdate>({ output, outputKey }),
-        ),
       ),
-    onSome: (reference) =>
-      Effect.map(readMacOSKeychainSecret(reference), (secret) =>
-        Option.some<StateSecretOutputUpdate>({ output: secret, outputKey }),
-      ),
+    onSome: readMacOSKeychainSecret,
+  });
+
+  return Option.some<StateSecretOutputUpdate>({
+    output: restoredOutput,
+    outputKey,
   });
 });
 

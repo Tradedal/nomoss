@@ -191,6 +191,24 @@ export class AwsStackLifecycle extends Context.Service<AwsStackLifecycle>()(
             Effect.provide(decisionLayer),
           );
           const report = reportFor(prepared.stackName, decisions);
+          const applyChangedReport = Effect.fn(
+            "AwsStackLifecycle.applyChangedReport",
+          )(function* () {
+            const [duration, resources] = yield* applyDecisions({
+              desired: prepared.desired,
+              decisions,
+              stackName: prepared.stackName,
+              desiredResources,
+            }).pipe(Effect.provide(decisionLayer), Effect.timed);
+
+            return {
+              report,
+              applied: true,
+              resources,
+              durationMillis: Duration.toMillis(duration),
+            } satisfies StackApplyResult;
+          });
+
           return yield* Option.match(
             Option.liftPredicate(report, (value) => value.changed.length > 0),
             {
@@ -201,24 +219,7 @@ export class AwsStackLifecycle extends Context.Service<AwsStackLifecycle>()(
                   resources: [],
                   durationMillis: 0,
                 }),
-              onSome: () =>
-                applyDecisions({
-                  desired: prepared.desired,
-                  decisions,
-                  stackName: prepared.stackName,
-                  desiredResources,
-                }).pipe(
-                  Effect.provide(decisionLayer),
-                  Effect.timed,
-                  Effect.map(
-                    ([duration, resources]): StackApplyResult => ({
-                      report,
-                      applied: true,
-                      resources,
-                      durationMillis: Duration.toMillis(duration),
-                    }),
-                  ),
-                ),
+              onSome: applyChangedReport,
             },
           );
         }),
