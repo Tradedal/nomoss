@@ -229,115 +229,116 @@ export class ResourcePlanner extends Context.Service<
      * update. Unchanged nodes are omitted so the resulting batches describe
      * only provider work that can alter the stack.
      */
+    const currentResourcesByKey = (current: ReadonlyArray<ResourceNode>) =>
+      HashMap.fromIterable(
+        Arr.map(current, (node) => [keyString(node.key), node] as const),
+      );
     const selectCreateOrUpdateActions = (
       desired: ResourceDependencyGraph,
       current: ReadonlyArray<ResourceNode>,
-    ): ReadonlyArray<SelectedAction> => {
-      const currentByKey = HashMap.fromIterable(
-        Arr.map(current, (node) => [keyString(node.key), node] as const),
-      );
-
-      return Arr.flatMap(
-        Arr.fromIterable(Graph.topo(desired)),
-        ([index, node]): ReadonlyArray<SelectedAction> =>
-          Option.match(HashMap.get(currentByKey, keyString(node.key)), {
-            onNone: () =>
-              [
-                {
-                  action: PlanAction.Create({ node }),
-                  index,
-                  key: keyString(node.key),
-                },
-              ] satisfies ReadonlyArray<SelectedAction>,
-            onSome: (currentNode) =>
-              Option.match(
-                Option.liftPredicate(
-                  currentNode,
-                  (candidate) =>
-                    resourceModel.propsEqual(candidate, node) === false,
+    ): ReadonlyArray<SelectedAction> =>
+      currentResourcesByKey(current).pipe((currentByKey) =>
+        Arr.flatMap(
+          Arr.fromIterable(Graph.topo(desired)),
+          ([index, node]): ReadonlyArray<SelectedAction> =>
+            Option.match(HashMap.get(currentByKey, keyString(node.key)), {
+              onNone: () =>
+                [
+                  {
+                    action: PlanAction.Create({ node }),
+                    index,
+                    key: keyString(node.key),
+                  },
+                ] satisfies ReadonlyArray<SelectedAction>,
+              onSome: (currentNode) =>
+                Option.match(
+                  Option.liftPredicate(
+                    currentNode,
+                    (candidate) =>
+                      resourceModel.propsEqual(candidate, node) === false,
+                  ),
+                  {
+                    onNone: () => [],
+                    onSome: (candidate) =>
+                      [
+                        {
+                          action: PlanAction.Update({
+                            current: candidate,
+                            node,
+                          }),
+                          index,
+                          key: keyString(node.key),
+                        },
+                      ] satisfies ReadonlyArray<SelectedAction>,
+                  },
                 ),
-                {
-                  onNone: () => [],
-                  onSome: (candidate) =>
-                    [
-                      {
-                        action: PlanAction.Update({
-                          current: candidate,
-                          node,
-                        }),
-                        index,
-                        key: keyString(node.key),
-                      },
-                    ] satisfies ReadonlyArray<SelectedAction>,
-                },
-              ),
-          }),
+            }),
+        ),
       );
-    };
 
     const createOrUpdateBatches = (
       desired: ResourceDependencyGraph,
       current: ReadonlyArray<ResourceNode>,
-    ) => {
-      const selectedActions = selectCreateOrUpdateActions(desired, current);
+    ) =>
+      batchesFor(
+        desired,
+        selectCreateOrUpdateActions(desired, current),
+        "forward",
+      );
 
-      return batchesFor(desired, selectedActions, "forward");
-    };
-
-    const deleteBatches = (
-      desired: ResourceDependencyGraph,
-      current: ReadonlyArray<ResourceNode>,
-    ) => {
-      const desiredKeys = HashSet.fromIterable(
-        Arr.map(Arr.fromIterable(Graph.topo(desired)), ([, node]) =>
+    const desiredResourceKeys = (graph: ResourceDependencyGraph) =>
+      HashSet.fromIterable(
+        Arr.map(Arr.fromIterable(Graph.topo(graph)), ([, node]) =>
           keyString(node.key),
         ),
       );
 
-      return Arr.map(
-        Arr.filter(
-          current,
-          (node) => HashSet.has(desiredKeys, keyString(node.key)) === false,
-        ),
-        (node) => [PlanAction.Delete({ node })],
-      );
-    };
-
-    const destroyKeysFor = (
+    const deleteBatches = (
       desired: ResourceDependencyGraph,
-      destroyRoots: ReadonlyArray<ResourceKey>,
-    ) => {
-      const indexByKey = HashMap.fromIterable(
+      current: ReadonlyArray<ResourceNode>,
+    ) =>
+      desiredResourceKeys(desired).pipe((desiredKeys) =>
         Arr.map(
-          Arr.fromIterable(Graph.nodes(desired)),
+          Arr.filter(
+            current,
+            (node) => HashSet.has(desiredKeys, keyString(node.key)) === false,
+          ),
+          (node) => [PlanAction.Delete({ node })],
+        ),
+      );
+
+    const resourceIndexes = (graph: ResourceDependencyGraph) =>
+      HashMap.fromIterable(
+        Arr.map(
+          Arr.fromIterable(Graph.nodes(graph)),
           ([index, node]) => [keyString(node.key), index] as const,
         ),
       );
-
-      return Arr.reduce(
-        destroyRoots,
-        HashSet.empty<string>(),
-        (selected, root) =>
+    const destroyKeysFor = (
+      desired: ResourceDependencyGraph,
+      destroyRoots: ReadonlyArray<ResourceKey>,
+    ) =>
+      resourceIndexes(desired).pipe((indexByKey) =>
+        Arr.reduce(destroyRoots, HashSet.empty<string>(), (selected, root) =>
           Option.match(HashMap.get(indexByKey, keyString(root)), {
             onNone: () => selected,
             onSome: (index) =>
               collectDestroyDependents(desired, [index], selected),
           }),
+        ),
       );
-    };
 
     const destroyBatches = (
       desired: ResourceDependencyGraph,
       destroyRoots: ReadonlyArray<ResourceKey>,
-    ) => {
-      const destroyKeys = destroyKeysFor(desired, destroyRoots);
-
-      return batchesFor(
-        desired,
-        selectDestroyActions(desired, destroyKeys),
-        "reverse",
+    ) =>
+      destroyKeysFor(desired, destroyRoots).pipe((destroyKeys) =>
+        batchesFor(
+          desired,
+          selectDestroyActions(desired, destroyKeys),
+          "reverse",
+        ),
       );
-    };
 
     return {
       createOrUpdateBatches,

@@ -267,90 +267,87 @@ export class StripeResources extends Context.Service<StripeResources>()(
         )(function* (input: StripeBillingPortalConfigurationInput) {
           const key = { logicalId: input.logicalId };
           const declaration = yield* graph.resource(key);
-          const props = yield* Option.match(
-            Option.fromUndefinedOr(input.subscriptionUpdateProducts),
-            {
+          const subscriptionUpdateProps = Effect.fn(
+            "StripeResources.BillingPortalConfiguration.subscriptionUpdateProps",
+          )(function* (
+            products: ReadonlyArray<StripeBillingPortalConfigurationSubscriptionUpdateProductDeclaration>,
+          ) {
+            const subscriptionUpdate = yield* Option.fromUndefinedOr(
+              input.props.features.subscription_update,
+            ).pipe(
+              Effect.fromOption,
+              Effect.mapError(
+                () =>
+                  new BillingPortalSubscriptionUpdateConfigurationMissing({
+                    logicalId: input.logicalId,
+                  }),
+              ),
+            );
+            const subscriptionUpdateProducts = yield* Effect.forEach(
+              products,
+              (product, productIndex) =>
+                Effect.all({
+                  product: declaration.stringFrom(
+                    product.product,
+                    `features.subscription_update.products.${productIndex}.product`,
+                  ),
+                  prices: Effect.forEach(product.prices, (price, priceIndex) =>
+                    declaration.stringFrom(
+                      price,
+                      `features.subscription_update.products.${productIndex}.prices.${priceIndex}`,
+                    ),
+                  ),
+                }),
+            );
+
+            return yield* StripeBillingPortalConfigurationPropsSchema.makeEffect(
+              {
+                business_profile: input.props.business_profile,
+                default_return_url: input.props.default_return_url,
+                features: Record.filter(
+                  {
+                    customer_update: input.props.features.customer_update,
+                    invoice_history: input.props.features.invoice_history,
+                    payment_method_update:
+                      input.props.features.payment_method_update,
+                    subscription_cancel:
+                      input.props.features.subscription_cancel,
+                    subscription_update: Record.filter(
+                      {
+                        billing_cycle_anchor:
+                          subscriptionUpdate.billing_cycle_anchor,
+                        default_allowed_updates:
+                          subscriptionUpdate.default_allowed_updates,
+                        enabled: subscriptionUpdate.enabled,
+                        products: subscriptionUpdateProducts,
+                        proration_behavior:
+                          subscriptionUpdate.proration_behavior,
+                        schedule_at_period_end:
+                          subscriptionUpdate.schedule_at_period_end,
+                        trial_update_behavior:
+                          subscriptionUpdate.trial_update_behavior,
+                      },
+                      (value) => value !== undefined,
+                    ),
+                  },
+                  (value) => value !== undefined,
+                ),
+                login_page: input.props.login_page,
+                metadata: input.props.metadata,
+                name: input.props.name,
+              },
+            );
+          });
+          const props = yield* Option.fromUndefinedOr(
+            input.subscriptionUpdateProducts,
+          ).pipe(
+            Option.match({
               onNone: () =>
                 StripeBillingPortalConfigurationPropsSchema.makeEffect(
                   input.props,
                 ),
-              onSome: (products) =>
-                Option.match(
-                  Option.fromUndefinedOr(
-                    input.props.features.subscription_update,
-                  ),
-                  {
-                    onNone: () =>
-                      Effect.fail(
-                        new BillingPortalSubscriptionUpdateConfigurationMissing(
-                          {
-                            logicalId: input.logicalId,
-                          },
-                        ),
-                      ),
-                    onSome: (subscriptionUpdate) =>
-                      Effect.forEach(products, (product, productIndex) =>
-                        Effect.all({
-                          product: declaration.stringFrom(
-                            product.product,
-                            `features.subscription_update.products.${productIndex}.product`,
-                          ),
-                          prices: Effect.forEach(
-                            product.prices,
-                            (price, priceIndex) =>
-                              declaration.stringFrom(
-                                price,
-                                `features.subscription_update.products.${productIndex}.prices.${priceIndex}`,
-                              ),
-                          ),
-                        }),
-                      ).pipe(
-                        Effect.flatMap((subscriptionUpdateProducts) =>
-                          StripeBillingPortalConfigurationPropsSchema.makeEffect(
-                            {
-                              business_profile: input.props.business_profile,
-                              default_return_url:
-                                input.props.default_return_url,
-                              features: Record.filter(
-                                {
-                                  customer_update:
-                                    input.props.features.customer_update,
-                                  invoice_history:
-                                    input.props.features.invoice_history,
-                                  payment_method_update:
-                                    input.props.features.payment_method_update,
-                                  subscription_cancel:
-                                    input.props.features.subscription_cancel,
-                                  subscription_update: Record.filter(
-                                    {
-                                      billing_cycle_anchor:
-                                        subscriptionUpdate.billing_cycle_anchor,
-                                      default_allowed_updates:
-                                        subscriptionUpdate.default_allowed_updates,
-                                      enabled: subscriptionUpdate.enabled,
-                                      products: subscriptionUpdateProducts,
-                                      proration_behavior:
-                                        subscriptionUpdate.proration_behavior,
-                                      schedule_at_period_end:
-                                        subscriptionUpdate.schedule_at_period_end,
-                                      trial_update_behavior:
-                                        subscriptionUpdate.trial_update_behavior,
-                                    },
-                                    (value) => value !== undefined,
-                                  ),
-                                },
-                                (value) => value !== undefined,
-                              ),
-                              login_page: input.props.login_page,
-                              metadata: input.props.metadata,
-                              name: input.props.name,
-                            },
-                          ),
-                        ),
-                      ),
-                  },
-                ),
-            },
+              onSome: subscriptionUpdateProps,
+            }),
           );
           const outputs = pendingStripeBillingPortalConfigurationOutputs(
             input.logicalId,

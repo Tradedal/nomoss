@@ -118,11 +118,9 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
           ([index, node]) => resolveGraphNode(index, node, resources),
         );
         const resolvedGraph = Graph.mutate(graph, (mutable) => {
-          Arr.reduce(resolvedNodes, mutable, (next, [index, node]) => {
-            Graph.updateNode(next, index, () => node);
-
-            return next;
-          });
+          Arr.forEach(resolvedNodes, ([index, node]) =>
+            Graph.updateNode(mutable, index, () => node),
+          );
         });
 
         return resolvedGraph;

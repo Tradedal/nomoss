@@ -151,6 +151,18 @@ export const pendingStripeWebhookEndpointOutputs = (
   return outputs;
 };
 
+const basicAuthDeliveryUrl = (
+  url: string,
+  credentials: { readonly username: string; readonly password: string },
+) => {
+  const deliveryUrl = new URL(url);
+
+  deliveryUrl.username = credentials.username;
+  deliveryUrl.password = credentials.password;
+
+  return deliveryUrl.toString();
+};
+
 /**
  * Billing infrastructure invokes this service when the declared Stripe webhook
  * endpoint must be created, read, updated, or removed. Its delivery URL may
@@ -167,13 +179,7 @@ export class StripeWebhookEndpointLifecycle extends Context.Service<StripeWebhoo
         Option.all(basicAuth).pipe(
           Option.match({
             onNone: () => url,
-            onSome: ({ username, password }) => {
-              const deliveryUrl = new URL(url);
-              deliveryUrl.username = username;
-              deliveryUrl.password = password;
-
-              return deliveryUrl.toString();
-            },
+            onSome: (credentials) => basicAuthDeliveryUrl(url, credentials),
           }),
         );
 
