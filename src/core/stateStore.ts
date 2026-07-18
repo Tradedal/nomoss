@@ -5,6 +5,7 @@ import {
   Effect,
   FileSystem,
   Graph,
+  HashMap,
   Layer,
   Match,
   Option,
@@ -391,7 +392,7 @@ export const ResourceStateStoreTestLayer = Layer.effect(
   ResourceStateStore,
   Effect.gen(function* () {
     const statesByStack = yield* Ref.make(
-      new Map<string, ReadonlyArray<ResourceState>>(),
+      HashMap.empty<string, ReadonlyArray<ResourceState>>(),
     );
 
     const loadResourceStates = Effect.fn(
@@ -399,20 +400,15 @@ export const ResourceStateStoreTestLayer = Layer.effect(
     )(function* (stack: string) {
       const resources = yield* Ref.get(statesByStack);
 
-      return resources.get(stack) ?? [];
+      return Option.getOrElse(HashMap.get(resources, stack), () => []);
     });
 
     const saveResourceStates = Effect.fn(
       "ResourceStateStoreTestLayer.saveResourceStates",
     )(function* (stack: string, resources: ReadonlyArray<ResourceState>) {
-      yield* Ref.update(statesByStack, (current) => {
-        const entries: ReadonlyArray<
-          readonly [string, ReadonlyArray<ResourceState>]
-        > = Arr.append(Arr.fromIterable(current), [stack, resources]);
-        const nextStatesByStack = new Map(entries);
-
-        return nextStatesByStack;
-      });
+      yield* Ref.update(statesByStack, (current) =>
+        HashMap.set(current, stack, resources),
+      );
     });
 
     return {

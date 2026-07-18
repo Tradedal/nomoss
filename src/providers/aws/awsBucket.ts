@@ -202,6 +202,21 @@ export class BucketLifecycleService extends Context.Service<BucketLifecycleServi
         Versions: [],
         DeleteMarkers: [],
       };
+      const readBucketObservedState = Effect.fn(
+        "BucketLifecycleService.read/readBucketObservedState",
+      )(function* (props: BucketProps, head: S3.HeadBucketOutput) {
+        const tagging = yield* getBucketTagging({
+          Bucket: props.Bucket,
+        }).pipe(
+          Effect.map(Option.some),
+          Effect.catchTag("NoSuchTagSet", () =>
+            Effect.succeed(Option.none<S3.GetBucketTaggingOutput>()),
+          ),
+          Effect.mapError((cause) => new BucketReadFailed({ cause })),
+        );
+
+        return bucketObservedState(head, tagging);
+      });
       return {
         create: Effect.fn("BucketLifecycleService.create")(function* (
           props: BucketProps,
@@ -226,22 +241,19 @@ export class BucketLifecycleService extends Context.Service<BucketLifecycleServi
             Effect.mapError((cause) => new BucketReadFailed({ cause })),
           );
 
-          return yield* Option.match(head, {
-            onNone: () => Effect.succeed(Option.none<BucketObservedState>()),
-            onSome: (headOutput) =>
-              getBucketTagging({
-                Bucket: props.Bucket,
-              }).pipe(
-                Effect.map(Option.some),
-                Effect.catchTag("NoSuchTagSet", () =>
-                  Effect.succeed(Option.none<S3.GetBucketTaggingOutput>()),
-                ),
-                Effect.mapError((cause) => new BucketReadFailed({ cause })),
-                Effect.map((tagging) =>
-                  Option.some(bucketObservedState(headOutput, tagging)),
-                ),
+          const observation = yield* head.pipe(
+            Option.map((headOutput) =>
+              Effect.map(
+                readBucketObservedState(props, headOutput),
+                Option.some,
               ),
-          });
+            ),
+            Option.getOrElse(() =>
+              Effect.succeed(Option.none<BucketObservedState>()),
+            ),
+          );
+
+          return observation;
         }),
         destroy: Effect.fn("BucketLifecycleService.destroy")(function* (
           props: BucketProps,
@@ -252,24 +264,19 @@ export class BucketLifecycleService extends Context.Service<BucketLifecycleServi
             bucket: string,
             objects: ReadonlyArray<S3.ObjectIdentifier>,
           ) {
-            return yield* Option.match(
-              Option.liftPredicate(objects, (value) => value.length > 0),
-              {
-                onNone: () => Effect.succeed(false),
-                onSome: (presentObjects) =>
-                  deleteObjects({
-                    Bucket: bucket,
-                    Delete: {
-                      Objects: Arr.fromIterable(presentObjects),
-                    },
-                  }).pipe(
-                    Effect.mapError(
-                      (cause) => new BucketEmptyFailed({ cause }),
-                    ),
-                    Effect.map(() => true),
-                  ),
-              },
-            );
+            return yield* Arr.match(objects, {
+              onEmpty: () => Effect.succeed(false),
+              onNonEmpty: (presentObjects) =>
+                deleteObjects({
+                  Bucket: bucket,
+                  Delete: {
+                    Objects: Arr.fromIterable(presentObjects),
+                  },
+                }).pipe(
+                  Effect.mapError((cause) => new BucketEmptyFailed({ cause })),
+                  Effect.map(() => true),
+                ),
+            });
           });
           const emptyBucketCurrentObjects = Effect.fn(
             "BucketLifecycleService.destroy/emptyBucketCurrentObjects",
