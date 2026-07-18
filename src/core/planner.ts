@@ -3,6 +3,8 @@ import {
   Context,
   Effect,
   Graph,
+  HashMap,
+  HashSet,
   Match,
   Option,
   Order,
@@ -23,19 +25,42 @@ export type ResourceDependencyGraph = Graph.DirectedGraph<
   DependencyEdge
 >;
 
+/**
+ * Stack lifecycle preparation compares the desired graph with persisted provider
+ * state before rendering a plan or executing provider commands. This service
+ * turns that comparison into dependency-safe batches for those two consumers.
+ */
 export type ResourcePlannerService = {
+  /**
+   * Apply uses these batches when a resource must be created or its declared
+   * properties differ from persisted state. Dependencies run before consumers
+   * so provider commands can resolve the outputs they require.
+   */
   readonly createOrUpdateBatches: (
     desired: ResourceDependencyGraph,
     current: ReadonlyArray<ResourceNode>,
   ) => ReadonlyArray<ReadonlyArray<PlanAction>>;
+  /**
+   * Stack reconciliation uses these actions to remove persisted resources that
+   * no longer appear in the desired graph.
+   */
   readonly deleteBatches: (
     desired: ResourceDependencyGraph,
     current: ReadonlyArray<ResourceNode>,
   ) => ReadonlyArray<ReadonlyArray<PlanAction>>;
+  /**
+   * Replacement and explicit teardown start from selected roots, then include
+   * graph dependents so no surviving resource retains an output reference to a
+   * resource being removed.
+   */
   readonly destroyBatches: (
     desired: ResourceDependencyGraph,
     destroyRoots: ReadonlyArray<ResourceKey>,
   ) => ReadonlyArray<ReadonlyArray<PlanAction>>;
+  /**
+   * Plan rendering and stack execution consume one resource plan so create,
+   * delete, and replacement work describe the same desired/current comparison.
+   */
   readonly planFromGraph: (
     desired: ResourceDependencyGraph,
     current: ReadonlyArray<ResourceNode>,
@@ -43,6 +68,10 @@ export type ResourcePlannerService = {
   ) => ResourcePlan;
 };
 
+/**
+ * A selected action retains its graph position until depth calculation assigns
+ * it to a batch; `PlanAction` itself intentionally contains no graph index.
+ */
 type SelectedAction = {
   readonly action: PlanAction;
   readonly index: Graph.NodeIndex;
@@ -56,8 +85,134 @@ const batchDepthOrder = (direction: "forward" | "reverse") =>
   );
 
 /**
- * Apply and CLI workflows use planner batches to preserve dependency order
- * while independent resources remain parallelizable inside each batch.
+ * Replacement roots cannot be destroyed alone when graph consumers still
+ * depend on their outputs. This traversal selects each root and every outgoing
+ * dependent before reverse-depth batching tears them down.
+ */
+const collectDestroyDependents = (
+  desired: ResourceDependencyGraph,
+  remaining: ReadonlyArray<Graph.NodeIndex>,
+  selected: HashSet.HashSet<string>,
+): HashSet.HashSet<string> =>
+  Option.match(Arr.head(remaining), {
+    onNone: () => selected,
+    onSome: (index) =>
+      Option.match(
+        Option.filter(
+          Option.fromUndefinedOr(desired.nodes.get(index)),
+          (node) => HashSet.has(selected, keyString(node.key)) === false,
+        ),
+        {
+          onNone: () =>
+            collectDestroyDependents(desired, Arr.drop(remaining, 1), selected),
+          onSome: (node) =>
+            collectDestroyDependents(
+              desired,
+              Arr.appendAll(
+                Arr.drop(remaining, 1),
+                Graph.neighborsDirected(desired, index, "outgoing"),
+              ),
+              HashSet.add(selected, keyString(node.key)),
+            ),
+        },
+      ),
+  });
+
+const selectDestroyActions = (
+  desired: ResourceDependencyGraph,
+  destroyKeys: HashSet.HashSet<string>,
+): ReadonlyArray<SelectedAction> =>
+  Arr.flatMap(
+    Arr.fromIterable(Graph.topo(desired)),
+    ([index, node]): ReadonlyArray<SelectedAction> =>
+      Match.value(HashSet.has(destroyKeys, keyString(node.key))).pipe(
+        Match.when(true, () => [
+          {
+            action: PlanAction.Destroy({ node }),
+            index,
+            key: keyString(node.key),
+          },
+        ]),
+        Match.orElse(() => []),
+      ),
+  );
+
+/**
+ * Selected actions may omit unchanged prerequisites. Missing prerequisite
+ * depths contribute `-1`, placing the first required action at depth zero
+ * without inventing work for unchanged graph nodes.
+ */
+const depthByKey = (
+  desired: ResourceDependencyGraph,
+  selectedActions: ReadonlyArray<SelectedAction>,
+): HashMap.HashMap<string, number> =>
+  Arr.reduce(
+    selectedActions,
+    HashMap.empty<string, number>(),
+    (depths, entry) =>
+      HashMap.set(
+        depths,
+        entry.key,
+        Arr.reduce(
+          Graph.neighborsDirected(desired, entry.index, "incoming"),
+          -1,
+          (highest, dependencyIndex) =>
+            Math.max(
+              highest,
+              Option.getOrElse(
+                Option.flatMap(
+                  Option.fromUndefinedOr(desired.nodes.get(dependencyIndex)),
+                  (dependencyNode) =>
+                    HashMap.get(depths, keyString(dependencyNode.key)),
+                ),
+                () => -1,
+              ),
+            ),
+        ) + 1,
+      ),
+  );
+
+/**
+ * A graph depth is the deepest selected prerequisite plus one. Grouping by
+ * that depth preserves prerequisite order while keeping independent actions in
+ * the same provider-command batch.
+ */
+const batchesFor = (
+  desired: ResourceDependencyGraph,
+  selectedActions: ReadonlyArray<SelectedAction>,
+  direction: "forward" | "reverse",
+): ReadonlyArray<ReadonlyArray<PlanAction>> => {
+  const depths = depthByKey(desired, selectedActions);
+  const actionsByDepth = Arr.reduce(
+    selectedActions,
+    HashMap.empty<number, ReadonlyArray<PlanAction>>(),
+    (grouped, entry) =>
+      Option.match(HashMap.get(depths, entry.key), {
+        onNone: () => grouped,
+        onSome: (depth) =>
+          HashMap.set(
+            grouped,
+            depth,
+            Arr.append(
+              Option.getOrElse(HashMap.get(grouped, depth), () => []),
+              entry.action,
+            ),
+          ),
+      }),
+  );
+
+  return Arr.map(
+    Arr.sort(
+      Arr.map(HashMap.toEntries(actionsByDepth), ([depth]) => depth),
+      batchDepthOrder(direction),
+    ),
+    (depth) => Option.getOrElse(HashMap.get(actionsByDepth, depth), () => []),
+  );
+};
+
+/**
+ * The stack lifecycle and AWS apply path share this planner so a rendered plan
+ * and the provider commands it drives follow the same dependency ordering.
  */
 export class ResourcePlanner extends Context.Service<
   ResourcePlanner,
@@ -66,580 +221,130 @@ export class ResourcePlanner extends Context.Service<
   make: Effect.gen(function* () {
     const resourceModel = yield* ResourceModel;
 
-    return {
-      createOrUpdateBatches: (desired, current) => {
-        const currentByKey = new Map(
-          Arr.map(current, (node) => [keyString(node.key), node]),
-        );
-        const selectedActions: ReadonlyArray<SelectedAction> = Arr.flatMap(
-          Arr.fromIterable(Graph.topo(desired)),
-          ([index, node]): ReadonlyArray<SelectedAction> =>
-            Option.fromUndefinedOr(currentByKey.get(keyString(node.key))).pipe(
-              Option.match({
-                onNone: () =>
-                  [
-                    {
-                      action: PlanAction.Create({ node }),
-                      index,
-                      key: keyString(node.key),
-                    },
-                  ] satisfies ReadonlyArray<SelectedAction>,
-                onSome: (currentNode) =>
-                  Option.match(
-                    Option.liftPredicate(
-                      currentNode,
-                      (candidate) =>
-                        resourceModel.propsEqual(candidate, node) === false,
-                    ),
-                    {
-                      onNone: () => [],
-                      onSome: (candidate) =>
-                        [
-                          {
-                            action: PlanAction.Update({
-                              current: candidate,
-                              node,
-                            }),
-                            index,
-                            key: keyString(node.key),
-                          },
-                        ] satisfies ReadonlyArray<SelectedAction>,
-                    },
-                  ),
-              }),
-            ),
-        );
-        const depthByKey = Arr.reduce(
-          selectedActions,
-          new Map<string, number>(),
-          (depths, entry) => {
-            const dependencyDepth =
-              Arr.reduce(
-                Graph.neighborsDirected(desired, entry.index, "incoming"),
-                -1,
-                (highest, dependencyIndex) =>
-                  Math.max(
-                    highest,
-                    Option.fromUndefinedOr(
-                      desired.nodes.get(dependencyIndex),
-                    ).pipe(
-                      Option.flatMap((dependencyNode) =>
-                        Option.fromUndefinedOr(
-                          depths.get(keyString(dependencyNode.key)),
-                        ),
-                      ),
-                      Option.getOrElse(() => -1),
-                    ),
-                  ),
-              ) + 1;
-            const depthEntries: ReadonlyArray<readonly [string, number]> =
-              Arr.append(Arr.fromIterable(depths), [
-                entry.key,
-                dependencyDepth,
-              ]);
-            const nextDepthByKey = new Map(depthEntries);
+    /**
+     * Persisted nodes establish whether the desired graph needs a create or an
+     * update. Unchanged nodes are omitted so the resulting batches describe
+     * only provider work that can alter the stack.
+     */
+    const selectCreateOrUpdateActions = (
+      desired: ResourceDependencyGraph,
+      current: ReadonlyArray<ResourceNode>,
+    ): ReadonlyArray<SelectedAction> => {
+      const currentByKey = HashMap.fromIterable(
+        Arr.map(current, (node) => [keyString(node.key), node] as const),
+      );
 
-            return nextDepthByKey;
-          },
-        );
-        const actionByDepth = Arr.reduce(
-          selectedActions,
-          new Map<number, ReadonlyArray<PlanAction>>(),
-          (grouped, entry) =>
-            Option.fromUndefinedOr(depthByKey.get(entry.key)).pipe(
-              Option.map((depth) => {
-                const actions = Arr.appendAll(
-                  Option.getOrElse(
-                    Option.fromUndefinedOr(grouped.get(depth)),
-                    (): ReadonlyArray<PlanAction> => [],
-                  ),
-                  [entry.action],
-                );
-                const actionEntries: ReadonlyArray<
-                  readonly [number, ReadonlyArray<PlanAction>]
-                > = Arr.append(Arr.fromIterable(grouped), [depth, actions]);
-                const nextActionByDepth = new Map(actionEntries);
-
-                return nextActionByDepth;
-              }),
-              Option.getOrElse(() => grouped),
-            ),
-        );
-        const batches: ReadonlyArray<ReadonlyArray<PlanAction>> = Arr.map(
-          Arr.sort(
-            Arr.map(Arr.fromIterable(actionByDepth), ([depth]) => depth),
-            batchDepthOrder("forward"),
-          ),
-          (depth) =>
-            Option.fromUndefinedOr(actionByDepth.get(depth)).pipe(
-              Option.getOrElse(() => []),
-            ),
-        );
-
-        return batches;
-      },
-
-      deleteBatches: (desired, current) => {
-        const desiredByKey = new Set(
-          Arr.map(Arr.fromIterable(Graph.topo(desired)), ([, node]) =>
-            keyString(node.key),
-          ),
-        );
-        const batches: ReadonlyArray<ReadonlyArray<PlanAction>> = Arr.map(
-          Arr.filter(
-            current,
-            (node) => desiredByKey.has(keyString(node.key)) === false,
-          ),
-          (node) => [PlanAction.Delete({ node })],
-        );
-
-        return batches;
-      },
-
-      destroyBatches: (desired, destroyRoots) => {
-        const indexByKey = new Map(
-          Arr.map(Arr.fromIterable(Graph.nodes(desired)), ([index, node]) => [
-            keyString(node.key),
-            index,
-          ]),
-        );
-        const selectedKeys = Arr.reduce(
-          destroyRoots,
-          new Set<string>(),
-          (accumulated, root) => {
-            const pending: ReadonlyArray<Graph.NodeIndex> =
-              Option.fromUndefinedOr(indexByKey.get(keyString(root))).pipe(
-                Option.match({
+      return Arr.flatMap(
+        Arr.fromIterable(Graph.topo(desired)),
+        ([index, node]): ReadonlyArray<SelectedAction> =>
+          Option.match(HashMap.get(currentByKey, keyString(node.key)), {
+            onNone: () =>
+              [
+                {
+                  action: PlanAction.Create({ node }),
+                  index,
+                  key: keyString(node.key),
+                },
+              ] satisfies ReadonlyArray<SelectedAction>,
+            onSome: (currentNode) =>
+              Option.match(
+                Option.liftPredicate(
+                  currentNode,
+                  (candidate) =>
+                    resourceModel.propsEqual(candidate, node) === false,
+                ),
+                {
                   onNone: () => [],
-                  onSome: (index) => [index],
-                }),
-              );
-            const selected = new Set(accumulated);
-
-            const collectDependents = (
-              remaining: ReadonlyArray<Graph.NodeIndex>,
-              collected: Set<string>,
-            ): Set<string> =>
-              Arr.head(remaining).pipe(
-                Option.match({
-                  onNone: () => collected,
-                  onSome: (index) =>
-                    Option.match(
-                      Option.filter(
-                        Option.map(
-                          Option.fromUndefinedOr(desired.nodes.get(index)),
-                          (node) => ({
-                            index,
-                            key: keyString(node.key),
-                          }),
-                        ),
-                        ({ key }) => collected.has(key) === false,
-                      ),
-                      {
-                        onNone: () =>
-                          collectDependents(Arr.drop(remaining, 1), collected),
-                        onSome: (selectedKey) =>
-                          collectDependents(
-                            Arr.appendAll(
-                              Arr.drop(remaining, 1),
-                              Graph.neighborsDirected(
-                                desired,
-                                selectedKey.index,
-                                "outgoing",
-                              ),
-                            ),
-                            new Set(
-                              Arr.append(
-                                Arr.fromIterable(collected),
-                                selectedKey.key,
-                              ),
-                            ),
-                          ),
-                      },
-                    ),
-                }),
-              );
-
-            return collectDependents(pending, selected);
-          },
-        );
-        const selectedActions: ReadonlyArray<SelectedAction> = Arr.flatMap(
-          Arr.fromIterable(Graph.topo(desired)),
-          ([index, node]) =>
-            Option.some(node).pipe(
-              Option.filter((candidate) =>
-                selectedKeys.has(keyString(candidate.key)),
-              ),
-              Option.match({
-                onNone: () => [],
-                onSome: (candidate) => [
-                  {
-                    action: PlanAction.Destroy({ node: candidate }),
-                    index,
-                    key: keyString(candidate.key),
-                  },
-                ],
-              }),
-            ),
-        );
-        const depthByKey = Arr.reduce(
-          selectedActions,
-          new Map<string, number>(),
-          (depths, entry) => {
-            const dependencyDepth =
-              Arr.reduce(
-                Graph.neighborsDirected(desired, entry.index, "incoming"),
-                -1,
-                (highest, dependencyIndex) =>
-                  Math.max(
-                    highest,
-                    Option.fromUndefinedOr(
-                      desired.nodes.get(dependencyIndex),
-                    ).pipe(
-                      Option.flatMap((dependencyNode) =>
-                        Option.fromUndefinedOr(
-                          depths.get(keyString(dependencyNode.key)),
-                        ),
-                      ),
-                      Option.getOrElse(() => -1),
-                    ),
-                  ),
-              ) + 1;
-            const depthEntries: ReadonlyArray<readonly [string, number]> =
-              Arr.append(Arr.fromIterable(depths), [
-                entry.key,
-                dependencyDepth,
-              ]);
-            const nextDepthByKey = new Map(depthEntries);
-
-            return nextDepthByKey;
-          },
-        );
-        const actionByDepth = Arr.reduce(
-          selectedActions,
-          new Map<number, ReadonlyArray<PlanAction>>(),
-          (grouped, entry) =>
-            Option.fromUndefinedOr(depthByKey.get(entry.key)).pipe(
-              Option.map((depth) => {
-                const actions = Arr.appendAll(
-                  Option.getOrElse(
-                    Option.fromUndefinedOr(grouped.get(depth)),
-                    (): ReadonlyArray<PlanAction> => [],
-                  ),
-                  [entry.action],
-                );
-                const actionEntries: ReadonlyArray<
-                  readonly [number, ReadonlyArray<PlanAction>]
-                > = Arr.append(Arr.fromIterable(grouped), [depth, actions]);
-                const nextActionByDepth = new Map(actionEntries);
-
-                return nextActionByDepth;
-              }),
-              Option.getOrElse(() => grouped),
-            ),
-        );
-        const batches: ReadonlyArray<ReadonlyArray<PlanAction>> = Arr.map(
-          Arr.sort(
-            Arr.map(Arr.fromIterable(actionByDepth), ([depth]) => depth),
-            batchDepthOrder("reverse"),
-          ),
-          (depth) =>
-            Option.fromUndefinedOr(actionByDepth.get(depth)).pipe(
-              Option.getOrElse(() => []),
-            ),
-        );
-
-        return batches;
-      },
-
-      planFromGraph: (desired, current, destroyRoots = []) => {
-        const currentByKey = new Map(
-          Arr.map(current, (node) => [keyString(node.key), node]),
-        );
-        const selectedCreateOrUpdate: ReadonlyArray<SelectedAction> =
-          Arr.flatMap(
-            Arr.fromIterable(Graph.topo(desired)),
-            ([index, node]): ReadonlyArray<SelectedAction> =>
-              Option.fromUndefinedOr(
-                currentByKey.get(keyString(node.key)),
-              ).pipe(
-                Option.match({
-                  onNone: () =>
+                  onSome: (candidate) =>
                     [
                       {
-                        action: PlanAction.Create({ node }),
+                        action: PlanAction.Update({
+                          current: candidate,
+                          node,
+                        }),
                         index,
                         key: keyString(node.key),
                       },
                     ] satisfies ReadonlyArray<SelectedAction>,
-                  onSome: (currentNode) =>
-                    Option.match(
-                      Option.liftPredicate(
-                        currentNode,
-                        (candidate) =>
-                          resourceModel.propsEqual(candidate, node) === false,
-                      ),
-                      {
-                        onNone: () => [],
-                        onSome: (candidate) =>
-                          [
-                            {
-                              action: PlanAction.Update({
-                                current: candidate,
-                                node,
-                              }),
-                              index,
-                              key: keyString(node.key),
-                            },
-                          ] satisfies ReadonlyArray<SelectedAction>,
-                      },
-                    ),
-                }),
+                },
               ),
-          );
-        const createOrUpdateDepthByKey = Arr.reduce(
-          selectedCreateOrUpdate,
-          new Map<string, number>(),
-          (depths, entry) => {
-            const dependencyDepth =
-              Arr.reduce(
-                Graph.neighborsDirected(desired, entry.index, "incoming"),
-                -1,
-                (highest, dependencyIndex) =>
-                  Math.max(
-                    highest,
-                    Option.fromUndefinedOr(
-                      desired.nodes.get(dependencyIndex),
-                    ).pipe(
-                      Option.flatMap((dependencyNode) =>
-                        Option.fromUndefinedOr(
-                          depths.get(keyString(dependencyNode.key)),
-                        ),
-                      ),
-                      Option.getOrElse(() => -1),
-                    ),
-                  ),
-              ) + 1;
-            const depthEntries: ReadonlyArray<readonly [string, number]> =
-              Arr.append(Arr.fromIterable(depths), [
-                entry.key,
-                dependencyDepth,
-              ]);
-            const nextDepthByKey = new Map(depthEntries);
+          }),
+      );
+    };
 
-            return nextDepthByKey;
-          },
-        );
-        const createOrUpdateByDepth = Arr.reduce(
-          selectedCreateOrUpdate,
-          new Map<number, ReadonlyArray<PlanAction>>(),
-          (grouped, entry) =>
-            Option.fromUndefinedOr(
-              createOrUpdateDepthByKey.get(entry.key),
-            ).pipe(
-              Option.map((depth) => {
-                const actions = Arr.appendAll(
-                  Option.getOrElse(
-                    Option.fromUndefinedOr(grouped.get(depth)),
-                    (): ReadonlyArray<PlanAction> => [],
-                  ),
-                  [entry.action],
-                );
-                const actionEntries: ReadonlyArray<
-                  readonly [number, ReadonlyArray<PlanAction>]
-                > = Arr.append(Arr.fromIterable(grouped), [depth, actions]);
-                const nextActionByDepth = new Map(actionEntries);
+    const createOrUpdateBatches = (
+      desired: ResourceDependencyGraph,
+      current: ReadonlyArray<ResourceNode>,
+    ) => {
+      const selectedActions = selectCreateOrUpdateActions(desired, current);
 
-                return nextActionByDepth;
-              }),
-              Option.getOrElse(() => grouped),
-            ),
-        );
-        const createOrUpdate: ReadonlyArray<ReadonlyArray<PlanAction>> =
-          Arr.map(
-            Arr.sort(
-              Arr.map(
-                Arr.fromIterable(createOrUpdateByDepth),
-                ([depth]) => depth,
-              ),
-              batchDepthOrder("forward"),
-            ),
-            (depth) =>
-              Option.fromUndefinedOr(createOrUpdateByDepth.get(depth)).pipe(
-                Option.getOrElse(() => []),
-              ),
-          );
-        const desiredByKey = new Set(
-          Arr.map(Arr.fromIterable(Graph.topo(desired)), ([, node]) =>
-            keyString(node.key),
-          ),
-        );
-        const deleteBatches: ReadonlyArray<ReadonlyArray<PlanAction>> = Arr.map(
-          Arr.filter(
-            current,
-            (node) => desiredByKey.has(keyString(node.key)) === false,
-          ),
-          (node) => [PlanAction.Delete({ node })],
-        );
-        const indexByKey = new Map(
-          Arr.map(Arr.fromIterable(Graph.nodes(desired)), ([index, node]) => [
-            keyString(node.key),
-            index,
-          ]),
-        );
-        const destroyKeys = Arr.reduce(
-          destroyRoots,
-          new Set<string>(),
-          (accumulated, root) => {
-            const pending: ReadonlyArray<Graph.NodeIndex> =
-              Option.fromUndefinedOr(indexByKey.get(keyString(root))).pipe(
-                Option.match({
-                  onNone: () => [],
-                  onSome: (index) => [index],
-                }),
-              );
-            const selected = new Set(accumulated);
+      return batchesFor(desired, selectedActions, "forward");
+    };
 
-            const collectDependents = (
-              remaining: ReadonlyArray<Graph.NodeIndex>,
-              collected: Set<string>,
-            ): Set<string> =>
-              Arr.head(remaining).pipe(
-                Option.match({
-                  onNone: () => collected,
-                  onSome: (index) =>
-                    Option.match(
-                      Option.filter(
-                        Option.map(
-                          Option.fromUndefinedOr(desired.nodes.get(index)),
-                          (node) => ({
-                            index,
-                            key: keyString(node.key),
-                          }),
-                        ),
-                        ({ key }) => collected.has(key) === false,
-                      ),
-                      {
-                        onNone: () =>
-                          collectDependents(Arr.drop(remaining, 1), collected),
-                        onSome: (selectedKey) =>
-                          collectDependents(
-                            Arr.appendAll(
-                              Arr.drop(remaining, 1),
-                              Graph.neighborsDirected(
-                                desired,
-                                selectedKey.index,
-                                "outgoing",
-                              ),
-                            ),
-                            new Set(
-                              Arr.append(
-                                Arr.fromIterable(collected),
-                                selectedKey.key,
-                              ),
-                            ),
-                          ),
-                      },
-                    ),
-                }),
-              );
+    const deleteBatches = (
+      desired: ResourceDependencyGraph,
+      current: ReadonlyArray<ResourceNode>,
+    ) => {
+      const desiredKeys = HashSet.fromIterable(
+        Arr.map(Arr.fromIterable(Graph.topo(desired)), ([, node]) =>
+          keyString(node.key),
+        ),
+      );
 
-            return collectDependents(pending, selected);
-          },
-        );
-        const selectedDestroy: ReadonlyArray<SelectedAction> = Arr.flatMap(
-          Arr.fromIterable(Graph.topo(desired)),
-          ([index, node]) =>
-            Option.some(node).pipe(
-              Option.filter((candidate) =>
-                destroyKeys.has(keyString(candidate.key)),
-              ),
-              Option.match({
-                onNone: () => [],
-                onSome: (candidate) => [
-                  {
-                    action: PlanAction.Destroy({ node: candidate }),
-                    index,
-                    key: keyString(candidate.key),
-                  },
-                ],
-              }),
-            ),
-        );
-        const destroyDepthByKey = Arr.reduce(
-          selectedDestroy,
-          new Map<string, number>(),
-          (depths, entry) => {
-            const dependencyDepth =
-              Arr.reduce(
-                Graph.neighborsDirected(desired, entry.index, "incoming"),
-                -1,
-                (highest, dependencyIndex) =>
-                  Math.max(
-                    highest,
-                    Option.fromUndefinedOr(
-                      desired.nodes.get(dependencyIndex),
-                    ).pipe(
-                      Option.flatMap((dependencyNode) =>
-                        Option.fromUndefinedOr(
-                          depths.get(keyString(dependencyNode.key)),
-                        ),
-                      ),
-                      Option.getOrElse(() => -1),
-                    ),
-                  ),
-              ) + 1;
-            const depthEntries: ReadonlyArray<readonly [string, number]> =
-              Arr.append(Arr.fromIterable(depths), [
-                entry.key,
-                dependencyDepth,
-              ]);
-            const nextDepthByKey = new Map(depthEntries);
+      return Arr.map(
+        Arr.filter(
+          current,
+          (node) => HashSet.has(desiredKeys, keyString(node.key)) === false,
+        ),
+        (node) => [PlanAction.Delete({ node })],
+      );
+    };
 
-            return nextDepthByKey;
-          },
-        );
-        const destroyByDepth = Arr.reduce(
-          selectedDestroy,
-          new Map<number, ReadonlyArray<PlanAction>>(),
-          (grouped, entry) =>
-            Option.fromUndefinedOr(destroyDepthByKey.get(entry.key)).pipe(
-              Option.map((depth) => {
-                const actions = Arr.appendAll(
-                  Option.getOrElse(
-                    Option.fromUndefinedOr(grouped.get(depth)),
-                    (): ReadonlyArray<PlanAction> => [],
-                  ),
-                  [entry.action],
-                );
-                const actionEntries: ReadonlyArray<
-                  readonly [number, ReadonlyArray<PlanAction>]
-                > = Arr.append(Arr.fromIterable(grouped), [depth, actions]);
-                const nextActionByDepth = new Map(actionEntries);
+    const destroyKeysFor = (
+      desired: ResourceDependencyGraph,
+      destroyRoots: ReadonlyArray<ResourceKey>,
+    ) => {
+      const indexByKey = HashMap.fromIterable(
+        Arr.map(
+          Arr.fromIterable(Graph.nodes(desired)),
+          ([index, node]) => [keyString(node.key), index] as const,
+        ),
+      );
 
-                return nextActionByDepth;
-              }),
-              Option.getOrElse(() => grouped),
-            ),
-        );
-        const destroy: ReadonlyArray<ReadonlyArray<PlanAction>> = Arr.map(
-          Arr.sort(
-            Arr.map(Arr.fromIterable(destroyByDepth), ([depth]) => depth),
-            batchDepthOrder("reverse"),
-          ),
-          (depth) =>
-            Option.fromUndefinedOr(destroyByDepth.get(depth)).pipe(
-              Option.getOrElse(() => []),
-            ),
-        );
-        const plan: ResourcePlan = {
-          createOrUpdate,
-          delete: deleteBatches,
-          destroy,
-        };
+      return Arr.reduce(
+        destroyRoots,
+        HashSet.empty<string>(),
+        (selected, root) =>
+          Option.match(HashMap.get(indexByKey, keyString(root)), {
+            onNone: () => selected,
+            onSome: (index) =>
+              collectDestroyDependents(desired, [index], selected),
+          }),
+      );
+    };
 
-        return plan;
-      },
+    const destroyBatches = (
+      desired: ResourceDependencyGraph,
+      destroyRoots: ReadonlyArray<ResourceKey>,
+    ) => {
+      const destroyKeys = destroyKeysFor(desired, destroyRoots);
+
+      return batchesFor(
+        desired,
+        selectDestroyActions(desired, destroyKeys),
+        "reverse",
+      );
+    };
+
+    return {
+      createOrUpdateBatches,
+      deleteBatches,
+      destroyBatches,
+      planFromGraph: (desired, current, destroyRoots = []) => ({
+        createOrUpdate: createOrUpdateBatches(desired, current),
+        delete: deleteBatches(desired, current),
+        destroy: destroyBatches(desired, destroyRoots),
+      }),
     };
   }),
 }) {}
