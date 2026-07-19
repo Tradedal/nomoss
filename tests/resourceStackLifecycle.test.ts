@@ -5,13 +5,13 @@ import {
   ResourceModel,
   ResourceNodeSchema,
   resourceOutputRef,
-} from "../src/core/model.js";
-import { ResourceOutputResolver } from "../src/core/resourceOutputResolver.js";
-import { ResourceStackLifecycle } from "../src/core/resourceStackLifecycle.js";
+} from "../src/core/resource/model.js";
+import { ResourceOutputResolver } from "../src/core/resource/resourceOutputResolver.js";
+import { ResourceStackLifecycle } from "../src/core/stack/resourceStackLifecycle.js";
 import {
   type ResourceState,
   ResourceStateStore,
-} from "../src/core/stateStore.js";
+} from "../src/core/state/stateStore.js";
 import {
   StripeCustomerOutputsSchema,
   StripeCustomerPropsSchema,

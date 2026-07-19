@@ -18,8 +18,8 @@ import {
   type PlanAction,
   type ResourceNode,
   ResourceNodeSchema,
-} from "./model.js";
-import type { ResourceCommandFailure } from "./resourceCommandPolicy.js";
+} from "../resource/model.js";
+import type { ResourceCommandFailure } from "../resource/resourceCommandPolicy.js";
 import { StateSecretService } from "./stateSecretService.js";
 
 /**

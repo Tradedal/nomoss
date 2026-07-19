@@ -3,6 +3,14 @@
   "compilerOptions": {
     "noEmit": true,
     "rootDir": ".",
+    "paths": {
+      "@nomoss/core": [
+        "./src/core/index.ts"
+      ],
+      "@nomoss/providers": [
+        "./src/providers/index.ts"
+      ]
+    },
     "incremental": true,
     "tsBuildInfoFile": "lib/tsconfig.tsbuildinfo",
     "allowImportingTsExtensions": true,

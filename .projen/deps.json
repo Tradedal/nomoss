@@ -40,6 +40,11 @@
       "type": "build"
     },
     {
+      "name": "typescript-ast",
+      "version": "npm:typescript@6.0.2",
+      "type": "build"
+    },
+    {
       "name": "typescript",
       "version": "7.0.2",
       "type": "build"

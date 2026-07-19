@@ -16,7 +16,7 @@ import {
   annotateResourceSchema,
   type ResourceOutputRef,
   ResourceOutputRefSchema,
-} from "../../core/model.js";
+} from "../../core/resource/model.js";
 import { StripeApiVersion } from "./stripeAccount.js";
 
 export const StripePricePropsSchema = annotateResourceSchema(PostPricesInput, {

@@ -5,11 +5,11 @@ import {
   annotateResourceSchema,
   CloudFormationPropertyReferencesAnnotationId,
   resourceOutputRef,
-} from "../src/core/model.js";
-import { ResourceGraphBuilder } from "../src/core/resourceGraphBuilder.js";
-import { ResourceGraphStore } from "../src/core/resourceGraphStore.js";
-import { ResourceOutputResolver } from "../src/core/resourceOutputResolver.js";
-import { resourceGraphStoreLayer } from "../src/core/runtimeLayer.js";
+} from "../src/core/resource/model.js";
+import { ResourceGraphBuilder } from "../src/core/resource/resourceGraphBuilder.js";
+import { ResourceGraphStore } from "../src/core/resource/resourceGraphStore.js";
+import { ResourceOutputResolver } from "../src/core/resource/resourceOutputResolver.js";
+import { resourceGraphStoreLayer } from "../src/core/runtime/runtimeLayer.js";
 import {
   QueueLifecycleService,
   QueuePropsSchema,
@@ -173,5 +173,4 @@ describe("AWS resource definition compiler", () => {
         ),
       ),
   );
-
 });

@@ -13,20 +13,20 @@ import {
   PlanDecision,
   ResourceCommand,
   type ResourceCommandResult,
-} from "./lifecycle.js";
+} from "../resource/lifecycle.js";
 import {
   keyString,
   PlanAction,
   type PlanAction as PlanActionValue,
   type ResourceNode,
   type ResourcePlan,
-} from "./model.js";
+} from "../resource/model.js";
 import type { ResourceDependencyGraph } from "./planner.js";
 import { ResourcePlanner } from "./planner.js";
-import { ResourceCommandPolicy } from "./resourceCommandPolicy.js";
-import { ResourceGraphStore } from "./resourceGraphStore.js";
-import { ResourceOutputResolver } from "./resourceOutputResolver.js";
-import { ResourceStateStore } from "./stateStore.js";
+import { ResourceCommandPolicy } from "../resource/resourceCommandPolicy.js";
+import { ResourceGraphStore } from "../resource/resourceGraphStore.js";
+import { ResourceOutputResolver } from "../resource/resourceOutputResolver.js";
+import { ResourceStateStore } from "../state/stateStore.js";
 
 export type ResourcePreparedStack = {
   readonly stackName: string;

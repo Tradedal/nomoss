@@ -10,7 +10,7 @@ import {
   Schema,
 } from "effect";
 
-import { keyString, type ResourcePlan } from "./model.js";
+import { keyString, type ResourcePlan } from "../resource/model.js";
 import type {
   ResourceApplyResult,
   ResourceDestroyResult,

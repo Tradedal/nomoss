@@ -15,7 +15,7 @@ import {
 import { ChildProcess } from "effect/unstable/process";
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner";
 
-import { type ResourceNode, ResourceNodeSchema } from "./model.js";
+import { type ResourceNode, ResourceNodeSchema } from "../resource/model.js";
 import { type ResourceState, ResourceStateSchema } from "./stateStore.js";
 
 /**

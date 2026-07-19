@@ -1,21 +1,17 @@
-import { Context, Effect, Layer, Schema } from "effect";
-
+import type {
+  ResourceCommand,
+  ResourceCommandPolicy,
+  ResourceKey,
+} from "@nomoss/core";
 import {
   annotateResourceSchema,
   CloudFormationPropertyReferencesAnnotationId,
+  ResourceGraphBuilder,
   ResourceOutputRefSchema,
   ResourceSchemaAnnotationSchema,
-} from "../../../../../../core/model.js";
-
-import type { ResourceCommand } from "../../../../../../core/lifecycle.js";
-
-import type { ResourceCommandPolicy } from "../../../../../../core/resourceCommandPolicy.js";
-
-import type { ResourceKey } from "../../../../../../core/model.js";
-
-import { ResourceGraphBuilder } from "../../../../../../core/resourceGraphBuilder.js";
-
-import { providerCommandPolicyTag } from "../../../../../../providers/resourceCommandPolicyLayer.js";
+} from "@nomoss/core";
+import { providerCommandPolicyTag } from "@nomoss/providers";
+import { Context, Effect, Layer, Schema } from "effect";
 
 const Tag = Schema.Struct({
   Key: Schema.String.annotate({

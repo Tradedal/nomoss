@@ -3,7 +3,7 @@ import { Context, Effect, FileSystem, Schema } from "effect";
 import {
   annotateResourceSchema,
   ResourceOutputRefSchema,
-} from "../../core/model.js";
+} from "../../core/resource/model.js";
 
 /**
  * Runtime applications read this document after Nomoss has applied the Stripe

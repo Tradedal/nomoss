@@ -1,6 +1,6 @@
 import { Context, Data, Effect, Equal, Option, Schema } from "effect";
 
-import { ProviderIdSchema } from "../providers/provider.js";
+import { ProviderIdSchema } from "../../providers/provider.js";
 
 export const ResourceKeySchema = Schema.Struct({
   logicalId: Schema.NonEmptyString,

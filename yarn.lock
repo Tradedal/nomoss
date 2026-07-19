@@ -3385,8 +3385,6 @@ __metadata:
     typescript-ast: "npm:typescript@6.0.2"
     vite: "npm:^8.0.7"
     vitest: "npm:^4.1.4"
-  bin:
-    nomoss: bin/nomoss
   languageName: unknown
   linkType: soft
 

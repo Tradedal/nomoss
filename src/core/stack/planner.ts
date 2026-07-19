@@ -18,7 +18,7 @@ import {
   ResourceModel,
   type ResourceNode,
   type ResourcePlan,
-} from "./model.js";
+} from "../resource/model.js";
 
 export type ResourceDependencyGraph = Graph.DirectedGraph<
   ResourceNode,

@@ -1,21 +1,17 @@
-import { Context, Effect, Layer, Schema } from "effect";
-
+import type {
+  ResourceCommand,
+  ResourceCommandPolicy,
+  ResourceKey,
+} from "@nomoss/core";
 import {
   annotateResourceSchema,
   CloudFormationPropertyReferencesAnnotationId,
+  ResourceGraphBuilder,
   ResourceOutputRefSchema,
   ResourceSchemaAnnotationSchema,
-} from "../../../../../../core/model.js";
-
-import type { ResourceCommand } from "../../../../../../core/lifecycle.js";
-
-import type { ResourceCommandPolicy } from "../../../../../../core/resourceCommandPolicy.js";
-
-import type { ResourceKey } from "../../../../../../core/model.js";
-
-import { ResourceGraphBuilder } from "../../../../../../core/resourceGraphBuilder.js";
-
-import { providerCommandPolicyTag } from "../../../../../../providers/resourceCommandPolicyLayer.js";
+} from "@nomoss/core";
+import { providerCommandPolicyTag } from "@nomoss/providers";
+import { Context, Effect, Layer, Schema } from "effect";
 
 const TagFilter = Schema.Struct({
   Value: Schema.String.annotate({ description: "The tag value." }),
@@ -262,9 +258,7 @@ const Transition = Schema.Struct({
         "Indicates when objects are transitioned to the specified storage class. The date value must be in ISO 8601 format. The time is always midnight UTC.",
     }).check(
       Schema.isPattern(
-        new RegExp(
-          "^(\\d{4})-(0[0-9]|1[0-2])-([0-2]\\d|3[01])T([01]\\d|2[0-4]):([0-5]\\d):([0-6]\\d)((\\.\\d{3})?)Z$",
-        ),
+        /^(\d{4})-(0[0-9]|1[0-2])-([0-2]\d|3[01])T([01]\d|2[0-4]):([0-5]\d):([0-6]\d)((\.\d{3})?)Z$/,
       ),
     ),
   ),
@@ -727,9 +721,7 @@ const Rule = Schema.Struct({
         "Indicates when objects are deleted from Amazon S3 and Amazon S3 Glacier. The date value must be in ISO 8601 format. The time is always midnight UTC. If you specify an expiration and transition time, you must use the same time unit for both properties (either in days or by date). The expiration time must also be later than the transition time.",
     }).check(
       Schema.isPattern(
-        new RegExp(
-          "^(\\d{4})-(0[0-9]|1[0-2])-([0-2]\\d|3[01])T([01]\\d|2[0-4]):([0-5]\\d):([0-6]\\d)((\\.\\d{3})?)Z$",
-        ),
+        /^(\d{4})-(0[0-9]|1[0-2])-([0-2]\d|3[01])T([01]\d|2[0-4]):([0-5]\d):([0-6]\d)((\.\d{3})?)Z$/,
       ),
     ),
   ),
@@ -834,7 +826,7 @@ const Rule = Schema.Struct({
         "Specifies the minimum object size in bytes for this rule to apply to. Objects must be larger than this value in bytes. For more information about size based rules, see [Lifecycle configuration using size-based rules](https://docs.aws.amazon.com/AmazonS3/latest/userguide/lifecycle-configuration-examples.html#lc-size-rules) in the *Amazon S3 User Guide*.",
     })
       .check(Schema.isMaxLength(20))
-      .check(Schema.isPattern(new RegExp("[0-9]+"))),
+      .check(Schema.isPattern(/[0-9]+/)),
   ),
   ObjectSizeLessThan: Schema.optionalKey(
     Schema.String.annotate({
@@ -842,7 +834,7 @@ const Rule = Schema.Struct({
         "Specifies the maximum object size in bytes for this rule to apply to. Objects must be smaller than this value in bytes. For more information about sized based rules, see [Lifecycle configuration using size-based rules](https://docs.aws.amazon.com/AmazonS3/latest/userguide/lifecycle-configuration-examples.html#lc-size-rules) in the *Amazon S3 User Guide*.",
     })
       .check(Schema.isMaxLength(20))
-      .check(Schema.isPattern(new RegExp("[0-9]+"))),
+      .check(Schema.isPattern(/[0-9]+/)),
   ),
   Transition: Schema.optionalKey(
     Schema.Struct({
@@ -864,9 +856,7 @@ const Rule = Schema.Struct({
             "Indicates when objects are transitioned to the specified storage class. The date value must be in ISO 8601 format. The time is always midnight UTC.",
         }).check(
           Schema.isPattern(
-            new RegExp(
-              "^(\\d{4})-(0[0-9]|1[0-2])-([0-2]\\d|3[01])T([01]\\d|2[0-4]):([0-5]\\d):([0-6]\\d)((\\.\\d{3})?)Z$",
-            ),
+            /^(\d{4})-(0[0-9]|1[0-2])-([0-2]\d|3[01])T([01]\d|2[0-4]):([0-5]\d):([0-6]\d)((\.\d{3})?)Z$/,
           ),
         ),
       ),
@@ -1647,14 +1637,15 @@ export const registerBucket = Effect.fn("Bucket.register")(function* (input: {
   readonly key: ResourceKey;
   readonly props: BucketProps;
 }) {
-  const graph = yield* ResourceGraphBuilder;
-  const lifecycle = yield* BucketLifecycleService;
-  const graphResource = yield* graph.resource(input.key);
+  const graphResource = yield* (yield* ResourceGraphBuilder).resource(
+    input.key,
+  );
   const resourceProps = yield* BucketPropsSchema.makeEffect(input.props);
-  const resourceOutputs = yield* lifecycle.resolvePendingOutputs({
-    key: input.key,
-    props: resourceProps,
-  });
+  const resourceOutputs =
+    yield* (yield* BucketLifecycleService).resolvePendingOutputs({
+      key: input.key,
+      props: resourceProps,
+    });
   yield* graphResource.register({
     propsSchema: BucketPropsSchema,
     outputsSchema: BucketOutputsSchema,

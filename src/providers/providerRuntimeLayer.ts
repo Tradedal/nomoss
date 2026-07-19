@@ -13,8 +13,8 @@ import {
   resourceStackLifecycleLayer,
   resourceStateStoreBaseLayer,
   stackWorkflowRendererLayer,
-} from "../core/runtimeLayer.js";
-import { ConfiguredStateSecretServiceLayer } from "../core/stateSecretService.js";
+} from "../core/runtime/runtimeLayer.js";
+import { ConfiguredStateSecretServiceLayer } from "../core/state/stateSecretService.js";
 import {
   providerResourceCommandPolicyLayerLive,
   stripeBillingConfigurationExportResourceCommandMetadataLayer,

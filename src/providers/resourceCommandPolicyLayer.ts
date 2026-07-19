@@ -3,14 +3,14 @@ import { Context, Effect, Layer, Match, Option } from "effect";
 import {
   type ResourceCommand,
   ResourceCommandUnsupported,
-} from "../core/lifecycle.js";
-import type { ResourceSchemaAnnotation } from "../core/model.js";
-import { resourceSchemaString } from "../core/model.js";
+} from "../core/resource/lifecycle.js";
+import type { ResourceSchemaAnnotation } from "../core/resource/model.js";
+import { resourceSchemaString } from "../core/resource/model.js";
 import {
   ResourceCommandExecutionFailed,
   type ResourceCommandFailure,
   ResourceCommandPolicy,
-} from "../core/resourceCommandPolicy.js";
+} from "../core/resource/resourceCommandPolicy.js";
 import { StripeBillingConfigurationExportResourcePolicy } from "./stripe/stripeBillingConfigurationExportResourcePolicy.js";
 import { StripeBillingPortalConfigurationResourcePolicy } from "./stripe/stripeBillingPortalConfigurationResourcePolicy.js";
 import { StripeCustomerResourcePolicy } from "./stripe/stripeCustomerResourcePolicy.js";

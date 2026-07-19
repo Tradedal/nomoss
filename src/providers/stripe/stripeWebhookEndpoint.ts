@@ -14,7 +14,7 @@ import {
 } from "@distilled.cloud/stripe/Operations";
 import { Config, Context, Effect, Option, Redacted, Schema } from "effect";
 
-import { annotateResourceSchema } from "../../core/model.js";
+import { annotateResourceSchema } from "../../core/resource/model.js";
 import { StripeApiVersion } from "./stripeAccount.js";
 
 export const StripeWebhookEndpointRequestPropsSchema =

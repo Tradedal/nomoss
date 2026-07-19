@@ -1,21 +1,15 @@
-import { Context, Effect, Layer, Schema } from "effect";
-
+import type {
+  ResourceCommand,
+  ResourceCommandPolicy,
+  ResourceKey,
+} from "@nomoss/core";
 import {
   annotateResourceSchema,
-  CloudFormationPropertyReferencesAnnotationId,
-  ResourceOutputRefSchema,
+  ResourceGraphBuilder,
   ResourceSchemaAnnotationSchema,
-} from "../../../../../../core/model.js";
-
-import type { ResourceCommand } from "../../../../../../core/lifecycle.js";
-
-import type { ResourceCommandPolicy } from "../../../../../../core/resourceCommandPolicy.js";
-
-import type { ResourceKey } from "../../../../../../core/model.js";
-
-import { ResourceGraphBuilder } from "../../../../../../core/resourceGraphBuilder.js";
-
-import { providerCommandPolicyTag } from "../../../../../../providers/resourceCommandPolicyLayer.js";
+} from "@nomoss/core";
+import { providerCommandPolicyTag } from "@nomoss/providers";
+import { Context, Effect, Layer, Schema } from "effect";
 
 const DomainValidationOption = Schema.Struct({
   DomainName: Schema.String,
@@ -88,14 +82,15 @@ export const registerCertificate = Effect.fn("Certificate.register")(
     readonly key: ResourceKey;
     readonly props: CertificateProps;
   }) {
-    const graph = yield* ResourceGraphBuilder;
-    const lifecycle = yield* CertificateLifecycleService;
-    const graphResource = yield* graph.resource(input.key);
+    const graphResource = yield* (yield* ResourceGraphBuilder).resource(
+      input.key,
+    );
     const resourceProps = yield* CertificatePropsSchema.makeEffect(input.props);
-    const resourceOutputs = yield* lifecycle.resolvePendingOutputs({
-      key: input.key,
-      props: resourceProps,
-    });
+    const resourceOutputs =
+      yield* (yield* CertificateLifecycleService).resolvePendingOutputs({
+        key: input.key,
+        props: resourceProps,
+      });
     yield* graphResource.register({
       propsSchema: CertificatePropsSchema,
       outputsSchema: CertificateOutputsSchema,

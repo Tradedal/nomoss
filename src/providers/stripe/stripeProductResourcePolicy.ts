@@ -5,12 +5,12 @@ import {
   ResourceCommand,
   ResourceCommandResult,
   ResourceCommandUnsupported,
-} from "../../core/lifecycle.js";
+} from "../../core/resource/lifecycle.js";
 import {
   ResourceModel,
   type ResourceNode,
   readResourceSchemaAnnotation,
-} from "../../core/model.js";
+} from "../../core/resource/model.js";
 import {
   StripeProductLifecycle,
   type StripeProductOutputs,

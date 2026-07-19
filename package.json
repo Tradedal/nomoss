@@ -55,7 +55,6 @@
   "files": [
     "README.md",
     "LICENSE",
-    "bin",
     "docs",
     "examples",
     "media",

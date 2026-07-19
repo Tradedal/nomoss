@@ -14,7 +14,7 @@ import {
 } from "@distilled.cloud/stripe/Operations";
 import { Context, Effect, Option, Schema } from "effect";
 
-import { annotateResourceSchema } from "../../core/model.js";
+import { annotateResourceSchema } from "../../core/resource/model.js";
 
 export enum StripeApiVersion {
   Dahlia = "2026-06-24.dahlia",

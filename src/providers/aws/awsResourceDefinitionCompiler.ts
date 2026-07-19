@@ -224,6 +224,24 @@ export class AwsResourceDefinitionCompiler extends Context.Service<AwsResourceDe
           const { registry, cloudFormationRelationships } = definition;
           const [, service, , resource] = registry.typeName;
           const cloudFormationType = `AWS::${service}::${resource}`;
+          const propertyReferenceImports: ReadonlyArray<string> = Record.get(
+            cloudFormationRelationships,
+            cloudFormationType,
+          ).pipe(
+            Option.flatMap((relationshipDefinition) =>
+              Option.fromUndefinedOr(relationshipDefinition.relationships),
+            ),
+            Option.filter((relationships) =>
+              Option.isSome(Arr.head(Record.keys(relationships))),
+            ),
+            Option.match({
+              onNone: () => [],
+              onSome: () => [
+                "CloudFormationPropertyReferencesAnnotationId",
+                "ResourceOutputRefSchema",
+              ],
+            }),
+          );
           /**
            * The Registry marks provider-returned fields with JSON pointers under
            * `readOnlyProperties`. Stack declarations must not submit those fields,
@@ -574,35 +592,28 @@ export class AwsResourceDefinitionCompiler extends Context.Service<AwsResourceDe
                     names: ["Context", "Effect", "Layer", "Schema"],
                   }),
                   GeneratedModuleImport.RuntimeImport({
-                    modulePath: "../../../../../../core/model.js",
+                    modulePath: "@nomoss/core",
                     names: [
                       "annotateResourceSchema",
-                      "CloudFormationPropertyReferencesAnnotationId",
-                      "ResourceOutputRefSchema",
                       "ResourceSchemaAnnotationSchema",
+                      "ResourceGraphBuilder",
+                      ...propertyReferenceImports,
                     ],
                   }),
                   GeneratedModuleImport.TypeImport({
-                    modulePath: "../../../../../../core/lifecycle.js",
+                    modulePath: "@nomoss/core",
                     names: ["ResourceCommand"],
                   }),
                   GeneratedModuleImport.TypeImport({
-                    modulePath:
-                      "../../../../../../core/resourceCommandPolicy.js",
+                    modulePath: "@nomoss/core",
                     names: ["ResourceCommandPolicy"],
                   }),
                   GeneratedModuleImport.TypeImport({
-                    modulePath: "../../../../../../core/model.js",
+                    modulePath: "@nomoss/core",
                     names: ["ResourceKey"],
                   }),
                   GeneratedModuleImport.RuntimeImport({
-                    modulePath:
-                      "../../../../../../core/resourceGraphBuilder.js",
-                    names: ["ResourceGraphBuilder"],
-                  }),
-                  GeneratedModuleImport.RuntimeImport({
-                    modulePath:
-                      "../../../../../../providers/resourceCommandPolicyLayer.js",
+                    modulePath: "@nomoss/providers",
                     names: ["providerCommandPolicyTag"],
                   }),
                 ],
@@ -1144,7 +1155,7 @@ export class AwsResourceDefinitionCompiler extends Context.Service<AwsResourceDe
               .spawn(
                 ChildProcess.make("yarn", [
                   "biome",
-                  "format",
+                  "check",
                   "--write",
                   publication.outputPath,
                 ]),

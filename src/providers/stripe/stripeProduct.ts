@@ -13,7 +13,7 @@ import {
 } from "@distilled.cloud/stripe/Operations";
 import { type Cause, Context, Data, Effect, Option, Schema } from "effect";
 
-import { annotateResourceSchema } from "../../core/model.js";
+import { annotateResourceSchema } from "../../core/resource/model.js";
 import { StripeApiVersion } from "./stripeAccount.js";
 
 export const StripeProductPropsSchema = annotateResourceSchema(

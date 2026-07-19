@@ -13,7 +13,7 @@ import { Context, Effect, Option, Schema } from "effect";
 import {
   annotateResourceSchema,
   ResourceOutputRefSchema,
-} from "../../core/model.js";
+} from "../../core/resource/model.js";
 import { StripeApiVersion } from "./stripeAccount.js";
 
 export const StripeBillingPortalConfigurationPropsSchema =

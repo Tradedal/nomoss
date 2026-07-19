@@ -7,7 +7,7 @@ import {
   resourceGraphBuilderLayer,
   resourceGraphStoreLayer,
   resourceModelLayer,
-} from "../../core/runtimeLayer.js";
+} from "../../core/runtime/runtimeLayer.js";
 import { StripeBillingConfigurationExportLifecycle } from "./stripeBillingConfigurationExport.js";
 import { StripeBillingConfigurationExportResourcePolicy } from "./stripeBillingConfigurationExportResourcePolicy.js";
 import { StripeBillingPortalConfigurationLifecycle } from "./stripeBillingPortalConfiguration.js";

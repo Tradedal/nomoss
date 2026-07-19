@@ -138,6 +138,10 @@ new JsonFile(project, "tsconfig.json", {
     compilerOptions: {
       noEmit: true,
       rootDir: ".",
+      paths: {
+        "@nomoss/core": ["./src/core/index.ts"],
+        "@nomoss/providers": ["./src/providers/index.ts"],
+      },
       incremental: true,
       tsBuildInfoFile: "lib/tsconfig.tsbuildinfo",
       allowImportingTsExtensions: true,
@@ -220,26 +224,52 @@ new TextFile(project, "biome.jsonc", {
 new TextFile(project, "vitest.config.ts", {
   marker: false,
   lines: [
+    'import { fileURLToPath } from "node:url";',
+    "",
     'import { defineConfig } from "vitest/config";',
     "",
     "export default defineConfig({",
+    "  resolve: {",
+    "    alias: {",
+    '      "@nomoss/core": fileURLToPath(',
+    '        new URL("./src/core/index.ts", import.meta.url),',
+    "      ),",
+    '      "@nomoss/providers": fileURLToPath(',
+    '        new URL("./src/providers/index.ts", import.meta.url),',
+    "      ),",
+    "    },",
+    "  },",
     "  test: {",
     '    include: ["tests/**/*.test.ts"],',
     "  },",
     "});",
+    "",
   ],
 });
 
 new TextFile(project, "vitest.integration.config.ts", {
   marker: false,
   lines: [
+    'import { fileURLToPath } from "node:url";',
+    "",
     'import { defineConfig } from "vitest/config";',
     "",
     "export default defineConfig({",
+    "  resolve: {",
+    "    alias: {",
+    '      "@nomoss/core": fileURLToPath(',
+    '        new URL("./src/core/index.ts", import.meta.url),',
+    "      ),",
+    '      "@nomoss/providers": fileURLToPath(',
+    '        new URL("./src/providers/index.ts", import.meta.url),',
+    "      ),",
+    "    },",
+    "  },",
     "  test: {",
     '    include: ["tests/**/*.integration.test.ts"],',
     "  },",
     "});",
+    "",
   ],
 });
 project.synth();

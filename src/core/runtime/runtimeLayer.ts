@@ -1,17 +1,17 @@
 import { Layer } from "effect";
 
-import { ResourceModel } from "./model.js";
-import { PhysicalNameStore } from "./physicalNameStore.js";
-import { ResourcePlanner } from "./planner.js";
-import { ResourceGraphBuilder } from "./resourceGraphBuilder.js";
-import { ResourceGraphStore } from "./resourceGraphStore.js";
-import { ResourceOutputResolver } from "./resourceOutputResolver.js";
-import { ResourcePolicy } from "./resourcePolicy.js";
-import { ResourceStackLifecycle } from "./resourceStackLifecycle.js";
-import { ResourceStackOperations } from "./resourceStackOperations.js";
-import { StackWorkflowRenderer } from "./stackWorkflowRenderer.js";
-import { StateSecretServiceDefaultLayer } from "./stateSecretService.js";
-import { ResourceStateStore } from "./stateStore.js";
+import { ResourceModel } from "../resource/model.js";
+import { ResourceGraphBuilder } from "../resource/resourceGraphBuilder.js";
+import { ResourceGraphStore } from "../resource/resourceGraphStore.js";
+import { ResourceOutputResolver } from "../resource/resourceOutputResolver.js";
+import { ResourcePolicy } from "../resource/resourcePolicy.js";
+import { ResourcePlanner } from "../stack/planner.js";
+import { ResourceStackLifecycle } from "../stack/resourceStackLifecycle.js";
+import { ResourceStackOperations } from "../stack/resourceStackOperations.js";
+import { StackWorkflowRenderer } from "../stack/stackWorkflowRenderer.js";
+import { PhysicalNameStore } from "../state/physicalNameStore.js";
+import { StateSecretServiceDefaultLayer } from "../state/stateSecretService.js";
+import { ResourceStateStore } from "../state/stateStore.js";
 
 export const resourceModelLayer = Layer.effect(
   ResourceModel,

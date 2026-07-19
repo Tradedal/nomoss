@@ -15,8 +15,8 @@ import {
   resourceOutputResolverLayer,
   resourcePlannerLayer,
   resourceStackLifecycleLayer,
-} from "../../src/core/runtimeLayer.js";
-import { ResourceStateStoreTestLayer } from "../../src/core/stateStore.js";
+} from "../../src/core/runtime/runtimeLayer.js";
+import { ResourceStateStoreTestLayer } from "../../src/core/state/stateStore.js";
 import {
   providerResourceCommandPolicyLayerLive,
   stripeBillingConfigurationExportResourceCommandMetadataLayer,

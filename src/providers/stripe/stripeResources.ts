@@ -1,7 +1,10 @@
 import { Context, Data, Effect, Option, Record } from "effect";
 
-import { type ResourceOutputRef, resourceOutputRef } from "../../core/model.js";
-import { ResourceGraphBuilder } from "../../core/resourceGraphBuilder.js";
+import {
+  type ResourceOutputRef,
+  resourceOutputRef,
+} from "../../core/resource/model.js";
+import { ResourceGraphBuilder } from "../../core/resource/resourceGraphBuilder.js";
 import {
   StripeBillingConfigurationExportOutputsSchema,
   StripeBillingConfigurationExportPropsSchema,

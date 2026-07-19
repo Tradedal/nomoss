@@ -5,13 +5,13 @@ import { assert, describe, it } from "@effect/vitest";
 import { ConfigProvider, Effect, FileSystem, Layer, Schema } from "effect";
 import { ChildProcess } from "effect/unstable/process";
 
-import { ResourceNodeSchema } from "../src/core/model.js";
-import { ConfiguredStateSecretServiceLayer } from "../src/core/stateSecretService.js";
+import { ResourceNodeSchema } from "../src/core/resource/model.js";
+import { ConfiguredStateSecretServiceLayer } from "../src/core/state/stateSecretService.js";
 import {
   EnvironmentStateFileSchema,
   ResourceStateSchema,
   ResourceStateStore,
-} from "../src/core/stateStore.js";
+} from "../src/core/state/stateStore.js";
 
 const keychainConfigLayer = ConfigProvider.layer(
   ConfigProvider.fromUnknown({
