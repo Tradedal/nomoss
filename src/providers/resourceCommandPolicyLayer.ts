@@ -11,7 +11,6 @@ import {
   type ResourceCommandFailure,
   ResourceCommandPolicy,
 } from "../core/resourceCommandPolicy.js";
-import { QueueResourcePolicy } from "./aws/awsQueueResourcePolicy.js";
 import { StripeBillingConfigurationExportResourcePolicy } from "./stripe/stripeBillingConfigurationExportResourcePolicy.js";
 import { StripeBillingPortalConfigurationResourcePolicy } from "./stripe/stripeBillingPortalConfigurationResourcePolicy.js";
 import { StripeCustomerResourcePolicy } from "./stripe/stripeCustomerResourcePolicy.js";
@@ -83,7 +82,7 @@ type ProviderResourceCommandPolicy = {
  * service's `execute(command)`. For the key above, that `execute` delegates to
  * `StripePriceResourcePolicy.execute`.
  */
-const providerCommandPolicyTag = (schema: ResourceSchemaAnnotation) =>
+export const providerCommandPolicyTag = (schema: ResourceSchemaAnnotation) =>
   Context.Service<ProviderResourceCommandPolicy, ProviderResourceCommandPolicy>(
     `nomoss/providers/resourceCommandPolicyLayer/${resourceSchemaString(schema)}`,
   );
@@ -113,17 +112,6 @@ const providerCommandError = (
  * same `ResourceCommand` shape. The schema on the command node selects the
  * matching metadata-provided service; no command-name switch is needed.
  */
-export const awsQueueResourceCommandMetadataLayer = Layer.unwrap(
-  Effect.map(QueueResourcePolicy, ({ schema, execute }) =>
-    Layer.succeed(providerCommandPolicyTag(schema), {
-      execute: (command) =>
-        execute(command).pipe(
-          Effect.mapError((cause) => providerCommandError(command, cause)),
-        ),
-    }),
-  ),
-);
-
 export const stripeCustomerResourceCommandMetadataLayer = Layer.unwrap(
   Effect.map(StripeCustomerResourcePolicy, ({ schema, execute }) =>
     Layer.succeed(providerCommandPolicyTag(schema), {

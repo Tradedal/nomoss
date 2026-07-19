@@ -3382,6 +3382,7 @@ __metadata:
     projen: "npm:^0.98.34"
     tsx: "npm:^4.20.6"
     typescript: "npm:7.0.2"
+    typescript-ast: "npm:typescript@6.0.2"
     vite: "npm:^8.0.7"
     vitest: "npm:^4.1.4"
   bin:
@@ -4341,6 +4342,16 @@ __metadata:
   version: 0.0.6
   resolution: "typedarray@npm:0.0.6"
   checksum: 10c0/6005cb31df50eef8b1f3c780eb71a17925f3038a100d82f9406ac2ad1de5eb59f8e6decbdc145b3a1f8e5836e17b0c0002fb698b9fe2516b8f9f9ff602d36412
+  languageName: node
+  linkType: hard
+
+"typescript-ast@npm:typescript@6.0.2":
+  version: 6.0.2
+  resolution: "typescript@npm:6.0.2"
+  bin:
+    tsc: bin/tsc
+    tsserver: bin/tsserver
+  checksum: 10c0/4b860b0bf87cc0fee0f66d8ef2640b5a8a8a8c74d1129adb82e389e5f97124383823c47946bef8a73ede371461143a3aa8544399d2133c7b2e4f07e81860af7f
   languageName: node
   linkType: hard
 

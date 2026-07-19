@@ -4,6 +4,7 @@ import {
   Data,
   Effect,
   Graph,
+  Match,
   Option,
   Ref,
   Schema,
@@ -11,6 +12,7 @@ import {
 
 import {
   type DependencyEdge,
+  DependencyEdgeSchema,
   keyString,
   type ResourceKey,
   ResourceModel,
@@ -65,6 +67,15 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
         indexByKey: new Map(),
       };
       const state = yield* Ref.make<ResourceGraphState>(initialState);
+      const dependencyEdgesEqual = Schema.toEquivalence(DependencyEdgeSchema);
+      const dependencyEdgeLabel = Match.type<DependencyEdge>().pipe(
+        Match.when(
+          { kind: "property" },
+          ({ property, sourceProperty }) => `${property} <- ${sourceProperty}`,
+        ),
+        Match.when({ kind: "prerequisite" }, ({ reason }) => reason),
+        Match.exhaustive,
+      );
       /**
        * Effect's graph API addresses nodes by index, while Nomoss callers use
        * resource keys. The side index is the service invariant that lets every
@@ -104,6 +115,26 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
 
         return graphNodes;
       });
+      const insertResource = Effect.fn("ResourceGraphStore.insertResource")(
+        function* (graphState: ResourceGraphState, node: ResourceNode) {
+          const stableKey = keyString(node.key);
+          let nodeIndex: Graph.NodeIndex = -1;
+          const nextGraph = Graph.mutate(graphState.graph, (mutable) => {
+            nodeIndex = Graph.addNode(mutable, node);
+          });
+          const indexEntries: ReadonlyArray<
+            readonly [string, Graph.NodeIndex]
+          > = Arr.append(Arr.fromIterable(graphState.indexByKey), [
+            stableKey,
+            nodeIndex,
+          ]);
+
+          yield* Ref.set(state, {
+            graph: nextGraph,
+            indexByKey: new Map(indexEntries),
+          });
+        },
+      );
 
       return {
         /**
@@ -129,22 +160,34 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
             () => new DuplicateResource({ key: node.key }),
           );
 
-          let nodeIndex: Graph.NodeIndex = -1;
-          const nextGraph = Graph.mutate(graphState.graph, (mutable) => {
-            nodeIndex = Graph.addNode(mutable, node);
-          });
-          const indexEntries: ReadonlyArray<
-            readonly [string, Graph.NodeIndex]
-          > = Arr.append(Arr.fromIterable(graphState.indexByKey), [
-            stableKey,
-            nodeIndex,
-          ]);
-          const nextState: ResourceGraphState = {
-            graph: nextGraph,
-            indexByKey: new Map(indexEntries),
-          };
+          yield* insertResource(graphState, node);
+        }),
 
-          yield* Ref.set(state, nextState);
+        /**
+         * Contribution-backed resources are rendered again when another
+         * contribution changes their desired provider document. The stable
+         * graph node is replaced in place so its dependency edges remain
+         * intact; ordinary declarations continue to use `addResource`.
+         */
+        materializeResource: Effect.fn(
+          "ResourceGraphStore.materializeResource",
+        )(function* (node: ResourceNode) {
+          const graphState = yield* Ref.get(state);
+          const stableKey = keyString(node.key);
+          const existing = Option.fromUndefinedOr(
+            graphState.indexByKey.get(stableKey),
+          );
+
+          yield* Option.match(existing, {
+            onNone: () => insertResource(graphState, node),
+            onSome: (nodeIndex) =>
+              Ref.set(state, {
+                graph: Graph.mutate(graphState.graph, (mutable) => {
+                  Graph.updateNode(mutable, nodeIndex, () => node);
+                }),
+                indexByKey: graphState.indexByKey,
+              }),
+          });
         }),
 
         /**
@@ -161,15 +204,24 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
           const graphState = yield* Ref.get(state);
           const sourceIndex = yield* indexFor(source, graphState);
           const targetIndex = yield* indexFor(target, graphState);
-          const nextGraph = Graph.mutate(graphState.graph, (mutable) => {
-            Graph.addEdge(mutable, sourceIndex, targetIndex, edge);
-          });
-          const nextState: ResourceGraphState = {
-            graph: nextGraph,
-            indexByKey: graphState.indexByKey,
-          };
+          const duplicate = Graph.findEdge(
+            graphState.graph,
+            (existing, existingSource, existingTarget) =>
+              existingSource === sourceIndex &&
+              existingTarget === targetIndex &&
+              dependencyEdgesEqual(existing, edge),
+          );
 
-          yield* Ref.set(state, nextState);
+          yield* Option.match(duplicate, {
+            onNone: () =>
+              Ref.set(state, {
+                graph: Graph.mutate(graphState.graph, (mutable) => {
+                  Graph.addEdge(mutable, sourceIndex, targetIndex, edge);
+                }),
+                indexByKey: graphState.indexByKey,
+              }),
+            onSome: () => Effect.void,
+          });
         }),
 
         /**
@@ -232,8 +284,7 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
           return Ref.get(state).pipe(
             Effect.map((graphState) =>
               Graph.toMermaid(graphState.graph, {
-                edgeLabel: (edge) =>
-                  `${edge.property} <- ${edge.sourceProperty}`,
+                edgeLabel: dependencyEdgeLabel,
                 nodeLabel: resourceModel.resourceLabel,
               }),
             ),

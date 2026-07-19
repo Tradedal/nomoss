@@ -5,9 +5,9 @@
     "type": "git",
     "url": "https://github.com/Tradedal/nomoss.git"
   },
-  "bin": "bin/nomoss",
   "scripts": {
     "check": "yarn lint && yarn typecheck:tsgo && vitest run --pool forks --passWithNoTests --exclude 'tests/**/*.integration.test.ts'",
+    "generate:aws-resource-definition": "tsx tools/compileAwsResourceDefinition.ts",
     "lint": "biome lint --reporter=summary",
     "lint:fix": "biome check --write",
     "tsgo:patch": "effect-tsgo patch",
@@ -24,6 +24,7 @@
     "constructs": "^10.0.0",
     "projen": "^0.98.34",
     "typescript": "7.0.2",
+    "typescript-ast": "npm:typescript@6.0.2",
     "vite": "^8.0.7",
     "vitest": "^4.1.4"
   },

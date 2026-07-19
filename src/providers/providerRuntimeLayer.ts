@@ -16,11 +16,6 @@ import {
 } from "../core/runtimeLayer.js";
 import { ConfiguredStateSecretServiceLayer } from "../core/stateSecretService.js";
 import {
-  awsQueueResourcePolicyLayerLive,
-  awsResourcesLayerLive,
-} from "./aws/awsProviderLayer.js";
-import {
-  awsQueueResourceCommandMetadataLayer,
   providerResourceCommandPolicyLayerLive,
   stripeBillingConfigurationExportResourceCommandMetadataLayer,
   stripeBillingPortalConfigurationResourceCommandMetadataLayer,
@@ -49,15 +44,11 @@ const resourceStateStoreWithNodeFileSystemLayer =
 const physicalNameStoreWithNodeFileSystemLayer = physicalNameStoreLayer.pipe(
   Layer.provide(NodeFileSystem.layer),
 );
-const providerResourcesLayer = Layer.mergeAll(
-  awsResourcesLayerLive,
-  stripeResourcesLayerLive,
-).pipe(
+const providerResourcesLayer = stripeResourcesLayerLive.pipe(
   Layer.provideMerge(resourceGraphStoreLayer),
   Layer.provideMerge(physicalNameStoreWithNodeFileSystemLayer),
 );
 const providerResourcePolicyLayer = Layer.mergeAll(
-  awsQueueResourcePolicyLayerLive(),
   stripeCustomerResourcePolicyLayerLive,
   stripeProductResourcePolicyLayerLive,
   stripePriceResourcePolicyLayerLive,
@@ -74,7 +65,6 @@ const providerResourcePolicyLayer = Layer.mergeAll(
  * persisted resource node's schema metadata.
  */
 const providerCommandMetadataLayer = Layer.mergeAll(
-  awsQueueResourceCommandMetadataLayer,
   stripeCustomerResourceCommandMetadataLayer,
   stripeProductResourceCommandMetadataLayer,
   stripePriceResourceCommandMetadataLayer,

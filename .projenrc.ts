@@ -34,6 +34,7 @@ const project = new javascript.NodeProject({
     "@types/node@^24.0.0",
     "projen@^0.98.34",
     "typescript@7.0.2",
+    "typescript-ast@npm:typescript@6.0.2",
     "vite@^8.0.7",
     "vitest@^4.1.4",
   ],
@@ -70,7 +71,6 @@ project.release?.publisher?.publishToNpm({
 project.package.addVersion(currentPackageVersion);
 project.package.addField("type", "module");
 project.package.addField("engines", { node: ">=24" });
-project.package.addField("bin", "bin/nomoss");
 project.package.addField("exports", {
   ".": "./src/index.ts",
   "./core": "./src/core/index.ts",
@@ -81,7 +81,6 @@ project.package.addField("exports", {
 project.package.addField("files", [
   "README.md",
   "LICENSE",
-  "bin",
   "docs",
   "examples",
   "media",
@@ -91,6 +90,7 @@ project.package.addField("publishConfig", { access: "public" });
 project.package.addField("packageManager", "yarn@4.17.1");
 project.package.addField("scripts", {
   check: "yarn lint && yarn typecheck:tsgo && vitest run --pool forks --passWithNoTests --exclude 'tests/**/*.integration.test.ts'",
+  "generate:aws-resource-definition": "tsx tools/compileAwsResourceDefinition.ts",
   lint: "biome lint --reporter=summary",
   "lint:fix": "biome check --write",
   "tsgo:patch": "effect-tsgo patch",
@@ -98,6 +98,7 @@ project.package.addField("scripts", {
   projen: "tsx .projenrc.ts",
 });
 project.gitignore.addPatterns(".nomoss/");
+project.gitignore.addPatterns("refs/");
 project.defaultTask?.reset("tsx .projenrc.ts");
 
 if (project.github) {

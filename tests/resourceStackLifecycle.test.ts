@@ -6,7 +6,6 @@ import {
   ResourceNodeSchema,
   resourceOutputRef,
 } from "../src/core/model.js";
-import { ResourceGraphStore } from "../src/core/resourceGraphStore.js";
 import { ResourceOutputResolver } from "../src/core/resourceOutputResolver.js";
 import { ResourceStackLifecycle } from "../src/core/resourceStackLifecycle.js";
 import {
@@ -14,12 +13,6 @@ import {
   ResourceStateStore,
 } from "../src/core/stateStore.js";
 import {
-  QueueOutputsSchema,
-  QueuePropsSchema,
-} from "../src/providers/aws/awsQueue.js";
-import {
-  pendingStripeCustomerOutputs,
-  StripeCustomerCreateFailed,
   StripeCustomerOutputsSchema,
   StripeCustomerPropsSchema,
 } from "../src/providers/stripe/stripeCustomer.js";
@@ -122,80 +115,6 @@ describe("ResourceStackLifecycle", () => {
             },
           },
         });
-      }).pipe(
-        Effect.provide(
-          ResourceStackLifecycleProviderFixture.successfulCrossProviderStack(),
-        ),
-      ),
-  );
-
-  it.effect(
-    "persists mixed-provider resources after dependency-ordered apply and clears them after destroy",
-    () =>
-      Effect.gen(function* () {
-        const model = yield* ResourceModel;
-        const graph = yield* ResourceGraphStore;
-        const lifecycle = yield* ResourceStackLifecycle;
-        const stateStore = yield* ResourceStateStore;
-        const capture = yield* ProviderCommandFixtureCapture;
-        const queueNode = yield* model.nodeFromResource({
-          key: { logicalId: "EventsQueue" },
-          propsSchema: QueuePropsSchema,
-          outputsSchema: QueueOutputsSchema,
-          props: { QueueName: "events" },
-          outputs: {
-            QueueUrl: "nomoss:pending:sqs:events",
-            QueueArn: "nomoss:pending:sqs-arn:events",
-          },
-        });
-        const customerNode = yield* model.nodeFromResource({
-          key: { logicalId: "BillingCustomer" },
-          propsSchema: StripeCustomerPropsSchema,
-          outputsSchema: StripeCustomerOutputsSchema,
-          props: {
-            name: "Billing customer",
-            metadata: {
-              queue: "events",
-            },
-          },
-          outputs: pendingStripeCustomerOutputs("BillingCustomer"),
-        });
-
-        /**
-         * The dependency is the behavior under review: a Stripe resource can
-         * rely on an AWS-created value while Nomoss keeps lifecycle ordering
-         * in the library instead of the consumer application.
-         */
-        yield* graph.addResource(queueNode);
-        yield* graph.addResource(customerNode);
-        yield* graph.addDependency(queueNode.key, customerNode.key, {
-          kind: "property",
-          property: "metadata.queue",
-          sourceProperty: "QueueUrl",
-        });
-
-        const prepared = yield* lifecycle.prepare("billing-stack");
-        yield* lifecycle.apply(prepared);
-        const savedAfterApply =
-          yield* stateStore.loadResources("billing-stack");
-        yield* lifecycle.destroy(prepared);
-        const savedAfterDestroy =
-          yield* stateStore.loadResources("billing-stack");
-
-        assert.deepStrictEqual(yield* capture.snapshot, [
-          "create aws queue",
-          "create stripe customer",
-          "destroy stripe customer",
-          "destroy aws queue",
-        ]);
-        assert.deepStrictEqual(
-          Arr.map(
-            savedAfterApply,
-            (node) => `${node.schema.provider}:${node.key.logicalId}`,
-          ),
-          ["aws:EventsQueue", "stripe:BillingCustomer"],
-        );
-        assert.deepStrictEqual(savedAfterDestroy, []);
       }).pipe(
         Effect.provide(
           ResourceStackLifecycleProviderFixture.successfulCrossProviderStack(),
@@ -949,100 +868,6 @@ describe("ResourceStackLifecycle", () => {
       }).pipe(
         Effect.provide(
           ResourceStackLifecycleProviderFixture.productDestroyFailsOnce(),
-        ),
-      ),
-  );
-
-  it.effect(
-    "rolls back created dependency resources and keeps no saved state when a dependent provider create fails",
-    () =>
-      Effect.gen(function* () {
-        const model = yield* ResourceModel;
-        const graph = yield* ResourceGraphStore;
-        const lifecycle = yield* ResourceStackLifecycle;
-        const stateStore = yield* ResourceStateStore;
-        const capture = yield* ProviderCommandFixtureCapture;
-        const queueNode = yield* model.nodeFromResource({
-          key: { logicalId: "EventsQueue" },
-          propsSchema: QueuePropsSchema,
-          outputsSchema: QueueOutputsSchema,
-          props: { QueueName: "events" },
-          outputs: {
-            QueueUrl: "nomoss:pending:sqs:events",
-            QueueArn: "nomoss:pending:sqs-arn:events",
-          },
-        });
-        const customerNode = yield* model.nodeFromResource({
-          key: { logicalId: "BillingCustomer" },
-          propsSchema: StripeCustomerPropsSchema,
-          outputsSchema: StripeCustomerOutputsSchema,
-          props: {
-            name: "Billing customer",
-            metadata: {
-              queue: "events",
-            },
-          },
-          outputs: pendingStripeCustomerOutputs("BillingCustomer"),
-        });
-
-        /**
-         * The same dependency shape is used for the failure path because
-         * rollback only proves the required behavior after a dependency was
-         * created for a later provider resource.
-         */
-        yield* graph.addResource(queueNode);
-        yield* graph.addResource(customerNode);
-        yield* graph.addDependency(queueNode.key, customerNode.key, {
-          kind: "property",
-          property: "metadata.queue",
-          sourceProperty: "QueueUrl",
-        });
-
-        const prepared = yield* lifecycle.prepare("billing-stack");
-        const error = yield* lifecycle.apply(prepared).pipe(Effect.flip);
-        const saved = yield* stateStore.loadResources("billing-stack");
-        const savedStates =
-          yield* stateStore.loadResourceStates("billing-stack");
-
-        const failedCommand = yield* Match.value(error).pipe(
-          Match.when({ _tag: "ResourceCommandExecutionFailed" }, (failed) =>
-            Effect.succeed(failed),
-          ),
-          Match.orElse((unexpected) => Effect.fail(unexpected)),
-        );
-        assert.ok(failedCommand.cause instanceof StripeCustomerCreateFailed);
-        assert.deepStrictEqual(yield* capture.snapshot, [
-          "create aws queue",
-          "create stripe customer",
-          "destroy aws queue",
-        ]);
-        assert.deepStrictEqual(saved, []);
-        assert.deepStrictEqual(
-          Arr.map(savedStates, (state) =>
-            Match.value(state).pipe(
-              Match.when({ _tag: "Creating" }, (creating) => ({
-                logicalId: creating.node.key.logicalId,
-                phase: creating._tag,
-                failureTag: creating.lastFailure?.errorTag,
-              })),
-              Match.orElse((other) => ({
-                logicalId: other.node.key.logicalId,
-                phase: other._tag,
-                failureTag: undefined,
-              })),
-            ),
-          ),
-          [
-            {
-              logicalId: "BillingCustomer",
-              phase: "Creating",
-              failureTag: "StripeCustomerCreateFailed",
-            },
-          ],
-        );
-      }).pipe(
-        Effect.provide(
-          ResourceStackLifecycleProviderFixture.dependentStripeCreateFailure(),
         ),
       ),
   );

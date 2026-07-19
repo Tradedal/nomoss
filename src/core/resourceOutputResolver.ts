@@ -3,6 +3,7 @@ import {
   Context,
   Data,
   Effect,
+  Match,
   Option,
   Record as Rec,
   Schema,
@@ -114,7 +115,23 @@ export class ResourceOutputResolver extends Context.Service<ResourceOutputResolv
         dependencies: ReadonlyArray<ResourceDependency>,
       ) =>
         Stream.runFoldEffect(
-          Stream.fromIterable(dependencies),
+          Stream.fromIterable(
+            Arr.getSomes(
+              Arr.map(dependencies, (dependency) =>
+                Match.value(dependency.edge).pipe(
+                  Match.when({ kind: "property" }, (edge) =>
+                    Option.some({
+                      source: dependency.source,
+                      target: dependency.target,
+                      edge,
+                    }),
+                  ),
+                  Match.when({ kind: "prerequisite" }, () => Option.none()),
+                  Match.exhaustive,
+                ),
+              ),
+            ),
+          ),
           () => node.props,
           (props, dependency) =>
             Arr.findFirst(

@@ -14,16 +14,10 @@ import {
   resourceModelLayer,
   resourceOutputResolverLayer,
   resourcePlannerLayer,
-  resourcePolicyLayer,
   resourceStackLifecycleLayer,
 } from "../../src/core/runtimeLayer.js";
 import { ResourceStateStoreTestLayer } from "../../src/core/stateStore.js";
-import { QueueLifecycleService } from "../../src/providers/aws/awsQueue.js";
-import { QueueResourcePolicy } from "../../src/providers/aws/awsQueueResourcePolicy.js";
-import { AwsSqsTransport } from "../../src/providers/aws/awsSqsTransport.js";
-import { AwsTagging } from "../../src/providers/aws/awsTagging.js";
 import {
-  awsQueueResourceCommandMetadataLayer,
   providerResourceCommandPolicyLayerLive,
   stripeBillingConfigurationExportResourceCommandMetadataLayer,
   stripeBillingPortalConfigurationResourceCommandMetadataLayer,
@@ -142,57 +136,6 @@ const stripeBillingConfigurationExportFixtureLayer = Layer.effect(
         ),
     };
   }),
-);
-
-const awsSqsTransportFixtureLayer = Layer.effect(
-  AwsSqsTransport,
-  Effect.gen(function* () {
-    const capture = yield* ProviderCommandFixtureCapture;
-
-    return {
-      createQueue: (request) =>
-        capture.append("create aws queue").pipe(
-          Effect.map(() => ({
-            QueueUrl: `https://sqs.us-east-1.amazonaws.com/123456789012/${request.QueueName}`,
-          })),
-        ),
-      deleteQueue: () =>
-        capture.append("destroy aws queue").pipe(Effect.map(() => ({}))),
-      getQueueAttributes: () =>
-        Effect.succeed({
-          Attributes: {
-            QueueArn: "arn:aws:sqs:us-east-1:123456789012:events",
-          },
-        }),
-      getQueueUrl: (request) =>
-        Effect.succeed({
-          QueueUrl: `https://sqs.us-east-1.amazonaws.com/123456789012/${request.QueueName}`,
-        }),
-      listQueueTags: () =>
-        Effect.succeed({
-          Tags: {},
-        }),
-    };
-  }),
-);
-
-const awsQueueLifecycleFixtureLayer = Layer.effect(
-  QueueLifecycleService,
-  QueueLifecycleService.make,
-).pipe(Layer.provide(awsSqsTransportFixtureLayer));
-
-const awsQueueResourcePolicyFixtureLayer = Layer.effect(
-  QueueResourcePolicy,
-  QueueResourcePolicy.make,
-).pipe(
-  Layer.provideMerge(awsQueueLifecycleFixtureLayer),
-  Layer.provideMerge(
-    Layer.succeed(AwsTagging, {
-      reconcile: () => Effect.void,
-    }),
-  ),
-  Layer.provideMerge(resourceModelLayer),
-  Layer.provideMerge(resourcePolicyLayer),
 );
 
 const createdCustomer = {
@@ -677,7 +620,6 @@ const stripeBillingConfigurationExportResourcePolicyLayer = Layer.effect(
 );
 
 const providerCommandMetadataLayer = Layer.mergeAll(
-  awsQueueResourceCommandMetadataLayer,
   stripeCustomerResourceCommandMetadataLayer,
   stripeProductResourceCommandMetadataLayer,
   stripePriceResourceCommandMetadataLayer,
@@ -690,7 +632,6 @@ const providerResourcePolicyLayer = (
   scenario: ProviderCommandFixtureScenario,
 ) =>
   Layer.mergeAll(
-    awsQueueResourcePolicyFixtureLayer,
     stripeCustomerResourcePolicyLayer(scenario),
     stripeProductResourcePolicyLayer(scenario),
     stripePriceResourcePolicyLayer,
