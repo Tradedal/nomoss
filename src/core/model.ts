@@ -8,11 +8,45 @@ export const ResourceKeySchema = Schema.Struct({
 
 export type ResourceKey = Schema.Schema.Type<typeof ResourceKeySchema>;
 
-export const DependencyEdgeSchema = Schema.Struct({
+/**
+ * A dependent resource reads one output from an upstream resource through this
+ * edge. `ResourceOutputResolver` uses the two property paths to place the
+ * applied upstream value into the dependent provider props.
+ */
+export const PropertyDependencyEdgeSchema = Schema.Struct({
   kind: Schema.Literal("property"),
   property: Schema.NonEmptyString,
   sourceProperty: Schema.NonEmptyString,
 });
+
+export type PropertyDependencyEdge = Schema.Schema.Type<
+  typeof PropertyDependencyEdgeSchema
+>;
+
+/**
+ * Some provider actions must finish before another resource can be configured
+ * even when the later resource consumes no output from the earlier action.
+ * This edge records that ordering without asking output resolution to invent a
+ * value relationship.
+ */
+export const PrerequisiteDependencyEdgeSchema = Schema.Struct({
+  kind: Schema.Literal("prerequisite"),
+  reason: Schema.NonEmptyString,
+});
+
+export type PrerequisiteDependencyEdge = Schema.Schema.Type<
+  typeof PrerequisiteDependencyEdgeSchema
+>;
+
+/**
+ * The resource graph stores value dependencies and ordering-only prerequisites
+ * in one topology. Planning reads both edge forms for batching, while output
+ * resolution reads only property edges.
+ */
+export const DependencyEdgeSchema = Schema.Union([
+  PropertyDependencyEdgeSchema,
+  PrerequisiteDependencyEdgeSchema,
+]);
 
 export type DependencyEdge = Schema.Schema.Type<typeof DependencyEdgeSchema>;
 
@@ -51,10 +85,24 @@ export const ResourceSchemaAnnotationId = Symbol.for(
   "@nomoss/resourceSchemaAnnotation",
 );
 
+export const CloudFormationPropertyReferenceSchema = Schema.Struct({
+  targetCloudFormationType: Schema.NonEmptyString,
+  targetPropertyPath: Schema.NonEmptyString,
+});
+
+export type CloudFormationPropertyReference = Schema.Schema.Type<
+  typeof CloudFormationPropertyReferenceSchema
+>;
+
+export const CloudFormationPropertyReferencesAnnotationId = Symbol.for(
+  "@nomoss/cloudFormationPropertyReferences",
+);
+
 declare module "effect/Schema" {
   namespace Annotations {
     interface Annotations {
       readonly [ResourceSchemaAnnotationId]?: ResourceSchemaAnnotation;
+      readonly [CloudFormationPropertyReferencesAnnotationId]?: ReadonlyArray<CloudFormationPropertyReference>;
     }
   }
 }

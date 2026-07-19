@@ -1,10 +1,11 @@
-import { Array as Arr, Context, Effect, Ref, Schema } from "effect";
+import { Array as Arr, Context, Effect, Option, Ref, Schema } from "effect";
 
 import {
   type DependencyEdge,
   type ResourceKey,
   ResourceModel,
   type ResourceOutputRef,
+  ResourceOutputRefSchema,
 } from "./model.js";
 import { ResourceGraphStore } from "./resourceGraphStore.js";
 
@@ -42,8 +43,25 @@ export class ResourceGraphBuilder extends Context.Service<ResourceGraphBuilder>(
         resource: Effect.fn("ResourceGraphBuilder.resource")(function* (
           key: ResourceKey,
         ) {
-          const dependencies =
-            yield* Ref.make<ReadonlyArray<ResourceDependencyInput>>([]);
+          const dependencies = yield* Ref.make<
+            ReadonlyArray<ResourceDependencyInput>
+          >([]);
+          const registerDependencies = Effect.fn(
+            "ResourceGraphBuilder.resource.registerDependencies",
+          )(function* () {
+            const resourceDependencies = yield* Ref.get(dependencies);
+
+            yield* Effect.forEach(
+              resourceDependencies,
+              (dependency) =>
+                graph.addDependency(
+                  dependency.source,
+                  dependency.target,
+                  dependency.edge,
+                ),
+              { discard: true },
+            );
+          });
 
           return {
             after: Effect.fn("ResourceGraphBuilder.resource.after")(function* (
@@ -87,20 +105,58 @@ export class ResourceGraphBuilder extends Context.Service<ResourceGraphBuilder>(
                 });
 
                 yield* graph.addResource(node);
-                yield* Ref.get(dependencies).pipe(
-                  Effect.flatMap((resourceDependencies) =>
-                    Effect.forEach(
-                      resourceDependencies,
-                      (dependency) =>
-                        graph.addDependency(
-                          dependency.source,
-                          dependency.target,
-                          dependency.edge,
-                        ),
-                      { discard: true },
+                const declaredProps = yield* Schema.decodeUnknownEffect(
+                  Schema.Record(Schema.String, Schema.Json),
+                )(input.props);
+                yield* Effect.forEach(
+                  Object.entries(declaredProps),
+                  ([property, value]) =>
+                    Option.match(
+                      Schema.decodeUnknownOption(ResourceOutputRefSchema)(
+                        value,
+                      ),
+                      {
+                        onNone: () => Effect.void,
+                        onSome: (output) =>
+                          graph.addDependency(output.source, key, {
+                            kind: "property",
+                            property,
+                            sourceProperty: output.property,
+                          }),
+                      },
                     ),
-                  ),
+                  { discard: true },
                 );
+                yield* registerDependencies();
+
+                return node;
+              },
+            ),
+
+            materialize: Effect.fn("ResourceGraphBuilder.resource.materialize")(
+              function* <
+                Props,
+                Outputs,
+                PropsSchema extends Schema.Schema<Props>,
+                OutputsSchema extends Schema.Schema<Outputs>,
+              >(
+                input: ResourceDeclarationInput<
+                  Props,
+                  Outputs,
+                  PropsSchema,
+                  OutputsSchema
+                >,
+              ) {
+                const node = yield* model.nodeFromResource({
+                  key,
+                  propsSchema: input.propsSchema,
+                  outputsSchema: input.outputsSchema,
+                  props: input.props,
+                  outputs: input.outputs,
+                });
+
+                yield* graph.materializeResource(node);
+                yield* registerDependencies();
 
                 return node;
               },
@@ -127,9 +183,8 @@ export class ResourceGraphBuilder extends Context.Service<ResourceGraphBuilder>(
                   output.source,
                   output.property,
                 );
-                const decodedOutput = yield* Schema.decodeUnknownEffect(schema)(
-                  outputValue,
-                );
+                const decodedOutput =
+                  yield* Schema.decodeUnknownEffect(schema)(outputValue);
 
                 return decodedOutput;
               },
