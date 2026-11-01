@@ -1,0 +1,21 @@
+{
+  "version": "1.74.1",
+  "artifacts": [
+    {
+      "name": "smithy-utils",
+      "sha256": "40854236654b9122bb99079c3f4be8af009dedb20f5e11ea14a19deb1de62a52"
+    },
+    {
+      "name": "smithy-model",
+      "sha256": "d04a2c5ad5a727b619ed82ef87035e7e282c40e632cb06d9993e53049720c883"
+    },
+    {
+      "name": "smithy-jsonschema",
+      "sha256": "47584feccfe5879ba438d6ab11a646f890bd606ff39c82849c75be1f642fb493"
+    },
+    {
+      "name": "smithy-jmespath",
+      "sha256": "2abf99938ae88132c976d73880d42d75018ea9c68bab08c9e48d205306a381d6"
+    }
+  ]
+}

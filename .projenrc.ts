@@ -91,6 +91,7 @@ project.package.addField("packageManager", "yarn@4.17.1");
 project.package.addField("scripts", {
   check: "yarn lint && yarn typecheck:tsgo && vitest run --pool forks --passWithNoTests --exclude 'tests/**/*.integration.test.ts'",
   "generate:aws-resource-definition": "tsx tools/compileAwsResourceDefinition.ts",
+  "generate:aws-resources": "tsx tools/compileAwsCloudControlClient.ts",
   lint: "biome lint --reporter=summary",
   "lint:fix": "biome check --write",
   "tsgo:patch": "effect-tsgo patch",
