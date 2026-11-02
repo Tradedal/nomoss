@@ -4,12 +4,11 @@ import {
   Data,
   Effect,
   Graph,
-  Match,
   Option,
   Ref,
   Schema,
+  Semaphore,
 } from "effect";
-
 import {
   type DependencyEdge,
   DependencyEdgeSchema,
@@ -25,9 +24,9 @@ type ResourceGraphState = {
 };
 
 /**
- * Lifecycle code needs both the upstream resource key and the property mapping
- * recorded on the graph edge. This shape keeps output resolution tied to the
- * declaration graph instead of rediscovering dependencies from JSON props.
+ * A dependency identifies the source resource and the resource that uses it.
+ * For a property dependency, the edge also tells output resolution which
+ * output to read and which input to replace.
  */
 export type ResourceDependency = {
   readonly source: ResourceKey;
@@ -35,304 +34,186 @@ export type ResourceDependency = {
   readonly edge: DependencyEdge;
 };
 
-/**
- * Graph readers fail with the logical resource key that was requested so
- * planner, lifecycle, and diagnostics can report missing declarations without
- * manufacturing an empty node.
- */
 export class ResourceNotFound extends Data.TaggedError("ResourceNotFound")<{
   readonly key: ResourceKey;
 }> {}
 
-/**
- * Resource declarations must produce one node for each stable resource key.
- * Duplicate detection protects graph topology before planning or lifecycle
- * execution sees ambiguous nodes.
- */
 export class DuplicateResource extends Data.TaggedError("DuplicateResource")<{
   readonly key: ResourceKey;
 }> {}
 
 /**
- * Stack declarations write nodes and property-derived edges here while planner
- * and workflow code read the resulting topology through typed operations.
+ * Stores the resources and dependencies registered by stack declarations.
+ * Planning keeps a snapshot of the graph. Later declarations cannot change
+ * the resources or dependencies in that snapshot.
  */
 export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
-  "nomoss/core/resourceGraphStore",
+  "nomoss/core/resource/resourceGraphStore",
   {
     make: Effect.gen(function* () {
-      const resourceModel = yield* ResourceModel;
+      const model = yield* ResourceModel;
+
       const initialState: ResourceGraphState = {
         graph: Graph.directed<ResourceNode, DependencyEdge>(),
         indexByKey: new Map(),
       };
       const state = yield* Ref.make<ResourceGraphState>(initialState);
+      const mutation = yield* Semaphore.make(1);
       const dependencyEdgesEqual = Schema.toEquivalence(DependencyEdgeSchema);
-      const dependencyEdgeLabel = Match.type<DependencyEdge>().pipe(
-        Match.when(
-          { kind: "property" },
-          ({ property, sourceProperty }) => `${property} <- ${sourceProperty}`,
-        ),
-        Match.when({ kind: "prerequisite" }, ({ reason }) => reason),
-        Match.exhaustive,
-      );
-      /**
-       * Effect's graph API addresses nodes by index, while Nomoss callers use
-       * resource keys. The side index is the service invariant that lets every
-       * operation resolve a declared resource through the same key path.
-       */
-      const indexFor = (key: ResourceKey, graphState: ResourceGraphState) =>
-        Option.fromUndefinedOr(graphState.indexByKey.get(keyString(key))).pipe(
-          Option.match({
-            onNone: () => Effect.fail(new ResourceNotFound({ key })),
-            onSome: Effect.succeed,
-          }),
-        );
-      const nodeAt = (
-        graphState: ResourceGraphState,
-        key: ResourceKey,
-        index: Graph.NodeIndex,
-      ) =>
-        Option.fromUndefinedOr(graphState.graph.nodes.get(index)).pipe(
-          Option.match({
-            onNone: () => Effect.fail(new ResourceNotFound({ key })),
-            onSome: Effect.succeed,
-          }),
-        );
-      const nodesFor = Effect.fn("ResourceGraphStore.nodesFor")(function* (
-        key: ResourceKey,
-        direction: Graph.Direction,
-      ) {
-        const graphState = yield* Ref.get(state);
-        const nodeIndex = yield* indexFor(key, graphState);
-        const graphNodes = Arr.getSomes(
-          Arr.map(
-            Graph.neighborsDirected(graphState.graph, nodeIndex, direction),
-            (index) =>
-              Option.fromUndefinedOr(graphState.graph.nodes.get(index)),
-          ),
-        );
+      const reset = Ref.set(state, initialState).pipe(mutation.withPermits(1));
 
-        return graphNodes;
-      });
-      const insertResource = Effect.fn("ResourceGraphStore.insertResource")(
-        function* (graphState: ResourceGraphState, node: ResourceNode) {
+      const addResource = Effect.fn("ResourceGraphStore.addResource")(
+        function* (node: ResourceNode) {
+          const current = yield* Ref.get(state);
           const stableKey = keyString(node.key);
-          let nodeIndex: Graph.NodeIndex = -1;
-          const nextGraph = Graph.mutate(graphState.graph, (mutable) => {
-            nodeIndex = Graph.addNode(mutable, node);
-          });
-          const indexEntries: ReadonlyArray<
-            readonly [string, Graph.NodeIndex]
-          > = Arr.append(Arr.fromIterable(graphState.indexByKey), [
-            stableKey,
-            nodeIndex,
-          ]);
 
-          yield* Ref.set(state, {
-            graph: nextGraph,
-            indexByKey: new Map(indexEntries),
-          });
+          yield* Effect.fail(new DuplicateResource({ key: node.key })).pipe(
+            Effect.when(Effect.succeed(current.indexByKey.has(stableKey))),
+          );
+
+          const mutable = Graph.beginMutation(current.graph);
+          const index = Graph.addNode(mutable, node);
+          const next: ResourceGraphState = {
+            graph: Graph.endMutation(mutable),
+            indexByKey: new Map(current.indexByKey).set(stableKey, index),
+          };
+
+          yield* Ref.set(state, next);
         },
+        mutation.withPermits(1),
       );
 
-      return {
-        /**
-         * Stack preparation replays a declaration graph into this store. Each
-         * preparation starts from an empty graph so status and inspection calls
-         * can safely follow apply in the same application runtime.
-         */
-        reset: Ref.set(state, initialState),
-
-        /**
-         * Resource declaration services call this as each resource is declared.
-         * The duplicate check keeps the planning graph deterministic before
-         * dependency edges, topological planning, or lifecycle state are read.
-         */
-        addResource: Effect.fn("ResourceGraphStore.addResource")(function* (
-          node: ResourceNode,
-        ) {
-          const graphState = yield* Ref.get(state);
-          const stableKey = keyString(node.key);
-          yield* Effect.filterOrFail(
-            Effect.succeed(stableKey),
-            () => !graphState.indexByKey.has(stableKey),
-            () => new DuplicateResource({ key: node.key }),
-          );
-
-          yield* insertResource(graphState, node);
-        }),
-
-        /**
-         * Contribution-backed resources are rendered again when another
-         * contribution changes their desired provider document. The stable
-         * graph node is replaced in place so its dependency edges remain
-         * intact; ordinary declarations continue to use `addResource`.
-         */
-        materializeResource: Effect.fn(
-          "ResourceGraphStore.materializeResource",
-        )(function* (node: ResourceNode) {
-          const graphState = yield* Ref.get(state);
-          const stableKey = keyString(node.key);
-          const existing = Option.fromUndefinedOr(
-            graphState.indexByKey.get(stableKey),
-          );
-
-          yield* Option.match(existing, {
-            onNone: () => insertResource(graphState, node),
-            onSome: (nodeIndex) =>
-              Ref.set(state, {
-                graph: Graph.mutate(graphState.graph, (mutable) => {
-                  Graph.updateNode(mutable, nodeIndex, () => node);
-                }),
-                indexByKey: graphState.indexByKey,
-              }),
-          });
-        }),
-
-        /**
-         * Declaration-time `ResourceOutputRef` handling records the property
-         * relationship here. Planner code uses the edge for ordering, and stack
-         * lifecycle uses the same edge for output-value resolution immediately
-         * before provider execution.
-         */
-        addDependency: Effect.fn("ResourceGraphStore.addDependency")(function* (
+      const addDependency = Effect.fn("ResourceGraphStore.addDependency")(
+        function* (
           source: ResourceKey,
           target: ResourceKey,
           edge: DependencyEdge,
         ) {
-          const graphState = yield* Ref.get(state);
-          const sourceIndex = yield* indexFor(source, graphState);
-          const targetIndex = yield* indexFor(target, graphState);
+          const current = yield* Ref.get(state);
+
+          const sourceIndex = yield* Effect.fromOption(
+            Option.fromUndefinedOr(current.indexByKey.get(keyString(source))),
+          ).pipe(Effect.mapError(() => new ResourceNotFound({ key: source })));
+
+          const targetIndex = yield* Effect.fromOption(
+            Option.fromUndefinedOr(current.indexByKey.get(keyString(target))),
+          ).pipe(Effect.mapError(() => new ResourceNotFound({ key: target })));
+
           const duplicate = Graph.findEdge(
-            graphState.graph,
+            current.graph,
             (existing, existingSource, existingTarget) =>
               existingSource === sourceIndex &&
               existingTarget === targetIndex &&
               dependencyEdgesEqual(existing, edge),
           );
 
-          yield* Option.match(duplicate, {
-            onNone: () =>
-              Ref.set(state, {
-                graph: Graph.mutate(graphState.graph, (mutable) => {
+          yield* Ref.update(state, (latest) => {
+            const graph = Option.match(duplicate, {
+              onNone: () =>
+                Graph.mutate(latest.graph, (mutable) => {
                   Graph.addEdge(mutable, sourceIndex, targetIndex, edge);
                 }),
-                indexByKey: graphState.indexByKey,
-              }),
-            onSome: () => Effect.void,
+              onSome: () => latest.graph,
+            });
+            const updated: ResourceGraphState = {
+              graph,
+              indexByKey: latest.indexByKey,
+            };
+
+            return updated;
           });
+        },
+        mutation.withPermits(1),
+      );
+
+      const dependencyEdgesOf = Effect.fn(
+        "ResourceGraphStore.dependencyEdgesOf",
+      )(function* (
+        graph: Graph.DirectedGraph<ResourceNode, DependencyEdge>,
+        key: ResourceKey,
+      ) {
+        const targetIndex = yield* Graph.findNode(
+          graph,
+          (node) => keyString(node.key) === keyString(key),
+        ).pipe(
+          Effect.fromOption,
+          Effect.mapError(() => new ResourceNotFound({ key })),
+        );
+        const dependencies: ReadonlyArray<ResourceDependency> = Arr.getSomes(
+          Arr.map(Graph.incomingEdges(graph, targetIndex), (edgeIndex) =>
+            Option.flatMap(Graph.getEdge(graph, edgeIndex), (edge) =>
+              Option.map(Graph.getNode(graph, edge.source), (node) => ({
+                source: node.key,
+                target: key,
+                edge: edge.data,
+              })),
+            ),
+          ),
+        );
+
+        return dependencies;
+      });
+
+      const snapshot = Ref.get(state).pipe(
+        Effect.map((current) => {
+          const graph: Graph.DirectedGraph<ResourceNode, DependencyEdge> =
+            current.graph;
+
+          return graph;
         }),
+      );
 
-        /**
-         * Planners and diagnostics use incoming resource nodes when they need
-         * topology without property-path metadata.
-         */
-        dependenciesOf: (key: ResourceKey) => nodesFor(key, "incoming"),
-
-        /**
-         * Destroy planning and graph inspection use outgoing resource nodes to
-         * find declarations that depend on a resource.
-         */
-        dependentsOf: (key: ResourceKey) => nodesFor(key, "outgoing"),
-
-        /**
-         * Stack lifecycle asks for dependency edges before create/update
-         * provider commands so `ResourceOutputResolver` can replace declared
-         * `ResourceOutputRef` props with outputs from the applied upstream
-         * resource state. The graph remains the source for which property paths
-         * require resolution; the resolver does not rediscover refs by walking
-         * arbitrary JSON props.
-         */
-        dependencyEdgesOf: Effect.fn("ResourceGraphStore.dependencyEdgesOf")(
-          function* (key: ResourceKey) {
-            const graphState = yield* Ref.get(state);
-            const targetIndex = yield* indexFor(key, graphState);
-            const dependencyEdgeIndexes =
-              graphState.graph.reverseAdjacency.get(targetIndex) ?? [];
-            const dependencies: ReadonlyArray<ResourceDependency> =
-              Arr.getSomes(
-                Arr.map(dependencyEdgeIndexes, (edgeIndex) =>
-                  Option.flatMap(
-                    Option.fromUndefinedOr(
-                      graphState.graph.edges.get(edgeIndex),
-                    ),
-                    (dependencyEdge) =>
-                      Option.map(
-                        Option.fromUndefinedOr(
-                          graphState.graph.nodes.get(dependencyEdge.source),
-                        ),
-                        (sourceNode) => ({
-                          source: sourceNode.key,
-                          target: key,
-                          edge: dependencyEdge.data,
-                        }),
-                      ),
-                  ),
-                ),
-              );
-
-            return dependencies;
-          },
-        ),
-        /**
-         * CLI and debugging surfaces render the declared graph with resource
-         * labels and property mappings so humans can inspect the plan topology
-         * without reading persisted stack state.
-         */
-        get mermaid() {
-          return Ref.get(state).pipe(
-            Effect.map((graphState) =>
-              Graph.toMermaid(graphState.graph, {
-                edgeLabel: dependencyEdgeLabel,
-                nodeLabel: resourceModel.resourceLabel,
-              }),
-            ),
+      const topologicalLogicalIds = snapshot.pipe(
+        Effect.map((graph) => {
+          const logicalIds: ReadonlyArray<string> = Arr.map(
+            Arr.fromIterable(Graph.values(Graph.topo(graph))),
+            (node) => node.key.logicalId,
           );
-        },
 
-        /**
-         * Prepare and plan paths read the graph as a stable value after
-         * application declarations have run.
-         */
-        get snapshot() {
-          return Ref.get(state).pipe(
-            Effect.map((graphState) => graphState.graph),
-          );
-        },
+          return logicalIds;
+        }),
+      );
 
-        /**
-         * CLI status surfaces use topological ids when they need declaration
-         * order without materializing provider payloads.
-         */
-        get topologicalLogicalIds() {
-          return Ref.get(state).pipe(
-            Effect.map((graphState) =>
-              Arr.map(
-                Arr.fromIterable(Graph.values(Graph.topo(graphState.graph))),
-                (node) => node.key.logicalId,
-              ),
-            ),
-          );
-        },
-
-        /**
-         * Graph-backed diagnostics can inspect a resource output by key while
-         * still validating that outputs are JSON object data.
-         */
-        outputValue: Effect.fn("ResourceGraphStore.outputValue")(function* (
+      /**
+       * Reads an initial output from the declaration graph. ResourceModel
+       * checks the registered output schema and the caller's schema before
+       * returning the field. Read provider results from applied resource state.
+       */
+      const outputValue = Effect.fn("ResourceGraphStore.outputValue")(
+        function* <S extends Schema.Constraint>(
           key: ResourceKey,
           property: string,
+          schema: S,
         ) {
-          const graphState = yield* Ref.get(state);
-          const nodeIndex = yield* indexFor(key, graphState);
-          const node = yield* nodeAt(graphState, key, nodeIndex);
-          const output = yield* Schema.decodeUnknownEffect(
-            Schema.Record(Schema.String, Schema.Json),
-          )(node.outputs);
+          const current = yield* Ref.get(state);
 
-          return output[property];
-        }),
+          const index = yield* Effect.fromOption(
+            Option.fromUndefinedOr(current.indexByKey.get(keyString(key))),
+          ).pipe(Effect.mapError(() => new ResourceNotFound({ key })));
+
+          const node = yield* Graph.getNode(current.graph, index).pipe(
+            Effect.fromOption,
+            Effect.mapError(() => new ResourceNotFound({ key })),
+          );
+
+          const value: S["Type"] = yield* model.decodeOutput(
+            node,
+            property,
+            schema,
+          );
+
+          return value;
+        },
+      );
+
+      return {
+        reset,
+        addResource,
+        addDependency,
+        dependencyEdgesOf,
+        snapshot,
+        topologicalLogicalIds,
+        outputValue,
       };
     }),
   },

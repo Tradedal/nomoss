@@ -36,7 +36,7 @@ export const resourcePlannerLayer = Layer.effect(
 export const resourceOutputResolverLayer = Layer.effect(
   ResourceOutputResolver,
   ResourceOutputResolver.make,
-);
+).pipe(Layer.provideMerge(resourceModelLayer));
 
 export const resourcePolicyLayer = Layer.effect(
   ResourcePolicy,
