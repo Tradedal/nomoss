@@ -1,8 +1,8 @@
 import { Context, Data, Effect, Exit } from "effect";
 
 /**
- * `AwsStackLifecycle.prepare` receives a stack name from the CLI. It rejects a
- * mismatch before saving the loaded program's resources under that name.
+ * ResourceStackDefinitionMismatch identifies a requested stack name that does
+ * not match the application's declaration, retaining both names for diagnosis.
  */
 export class ResourceStackDefinitionMismatch extends Data.TaggedError(
   "ResourceStackDefinitionMismatch",
@@ -12,8 +12,9 @@ export class ResourceStackDefinitionMismatch extends Data.TaggedError(
 }> {}
 
 /**
- * An application can fail while registering resources. This error records the
- * affected stack so the lifecycle command can report that failure.
+ * ResourceStackDeclarationFailed preserves the application failure and stack
+ * name when resource declaration cannot complete. Command diagnostics can
+ * identify the stack even if registration failed before producing any nodes.
  */
 export class ResourceStackDeclarationFailed extends Data.TaggedError(
   "ResourceStackDeclarationFailed",
@@ -23,8 +24,9 @@ export class ResourceStackDeclarationFailed extends Data.TaggedError(
 }> {}
 
 /**
- * When a resource constructor fails, this function attaches the stack name
- * before `AwsStackLifecycle` returns the error.
+ * resourceStackDeclarationResult associates a failed declaration with its
+ * stack name for command diagnostics. A successful declaration remains a
+ * successful void result.
  */
 export const resourceStackDeclarationResult = Effect.fn(
   "ResourceStackDefinition.declarationResult",
@@ -39,16 +41,15 @@ export const resourceStackDeclarationResult = Effect.fn(
 type ResourceStackDefinitionService = {
   readonly stackName: string;
   readonly description: string;
-  readonly region: string;
   readonly program: ReturnType<typeof resourceStackDeclarationResult>;
 };
 
 /**
- * `AwsStackLifecycle` runs `program` whenever it prepares the stack.
- * `ResourceStateStore` saves the resulting graph under `stackName`. AWS calls
- * use `region`.
+ * ResourceStackDefinition identifies the application's stack and declaration
+ * program for stack operations. Its name scopes saved resources across runs;
+ * provider configuration belongs to the application's runtime Layers.
  */
 export class ResourceStackDefinition extends Context.Service<
   ResourceStackDefinition,
   ResourceStackDefinitionService
->()("nomoss/core/resourceStackDefinition") {}
+>()("nomoss/core/stack/resourceStackDefinition") {}

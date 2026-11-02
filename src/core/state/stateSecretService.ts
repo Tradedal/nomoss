@@ -12,17 +12,15 @@ import {
   Stream,
 } from "effect";
 
-import { ChildProcess } from "effect/unstable/process";
-import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
-import { type ResourceNode, ResourceNodeSchema } from "../resource/model.js";
-import { type ResourceState, ResourceStateSchema } from "./stateStore.js";
+import type { ResourceNode } from "../resource/model.js";
+import { type ResourceState, ResourceStateSchema } from "./resourceState.js";
 
 /**
- * The local resource-state file stores this reference after a provider has
- * emitted a value that later provider updates require but must not retain in
- * JSON. `StateSecretService` resolves it before lifecycle code receives the
- * corresponding `ResourceNode`.
+ * StateSecretReference identifies a Keychain value in a saved resource record.
+ * Lifecycle callers receive the restored value in memory, allowing later
+ * provider updates without storing the raw secret in the state document.
  */
 export const StateSecretReferenceSchema = Schema.TaggedStruct(
   "NomossStateSecretRef",
@@ -38,10 +36,6 @@ export type StateSecretReference = Schema.Schema.Type<
 
 const ResourceOutputRecordSchema = Schema.Record(Schema.String, Schema.Json);
 
-type ResourceOutputRecord = Schema.Schema.Type<
-  typeof ResourceOutputRecordSchema
->;
-
 type StateSecretOutputUpdate = {
   readonly output: Schema.Json;
   readonly outputKey: string;
@@ -52,54 +46,64 @@ enum MacOSKeychainServiceName {
 }
 
 /**
- * `ResourceStateStore` invokes this service while loading and saving each
- * lifecycle record. Stripe webhook endpoint updates need the original signing
- * secret even though Stripe does not return it again, so the selected macOS
- * implementation restores it in memory and persists only its Keychain record.
+ * StateSecretService preserves annotated resource outputs across state writes
+ * and reads. Stripe webhook updates depend on the signing secret returned only
+ * at creation. The Keychain implementation keeps that value externally and
+ * restores it for later use through the reference saved in resource state.
  */
 export class StateSecretService extends Context.Service<StateSecretService>()(
-  "nomoss/core/stateSecretService",
+  "nomoss/core/state/stateSecretService",
   {
     make: Effect.gen(function* () {
-      const childProcessSpawner = yield* ChildProcessSpawner;
+      const childProcessSpawner =
+        yield* ChildProcessSpawner.ChildProcessSpawner;
 
-      return {
-        persistStateSecrets: Effect.fn(
-          "StateSecretService.persistStateSecrets",
-        )(function* (
-          stack: string,
-          resourceStates: ReadonlyArray<ResourceState>,
-        ) {
-          const persistedResourceStates: ReadonlyArray<ResourceState> =
-            yield* Effect.forEach(resourceStates, (resourceState) =>
-              persistResourceStateSecrets(stack, resourceState).pipe(
-                Effect.provideService(ChildProcessSpawner, childProcessSpawner),
+      const persistStateSecrets = Effect.fn(
+        "StateSecretService.persistStateSecrets",
+      )(function* (
+        stack: string,
+        resourceStates: ReadonlyArray<ResourceState>,
+      ) {
+        const persisted: ReadonlyArray<ResourceState> = yield* Effect.forEach(
+          resourceStates,
+          (resourceState) =>
+            persistResourceStateSecrets(stack, resourceState).pipe(
+              Effect.provideService(
+                ChildProcessSpawner.ChildProcessSpawner,
+                childProcessSpawner,
               ),
-            );
+            ),
+        );
 
-          return persistedResourceStates;
-        }),
-        restoreStateSecrets: Effect.fn(
-          "StateSecretService.restoreStateSecrets",
-        )(function* (resourceStates: ReadonlyArray<ResourceState>) {
-          const hydratedResourceStates: ReadonlyArray<ResourceState> =
-            yield* Effect.forEach(resourceStates, (resourceState) =>
-              restoreResourceStateSecrets(resourceState).pipe(
-                Effect.provideService(ChildProcessSpawner, childProcessSpawner),
+        return persisted;
+      });
+
+      const restoreStateSecrets = Effect.fn(
+        "StateSecretService.restoreStateSecrets",
+      )(function* (resourceStates: ReadonlyArray<ResourceState>) {
+        const restored: ReadonlyArray<ResourceState> = yield* Effect.forEach(
+          resourceStates,
+          (resourceState) =>
+            restoreResourceStateSecrets(resourceState).pipe(
+              Effect.provideService(
+                ChildProcessSpawner.ChildProcessSpawner,
+                childProcessSpawner,
               ),
-            );
+            ),
+        );
 
-          return hydratedResourceStates;
-        }),
-      };
+        return restored;
+      });
+
+      return { persistStateSecrets, restoreStateSecrets };
     }),
   },
 ) {}
 
 /**
- * A Keychain read or write failed for a state value that Stripe cannot recover
- * from its endpoint API. Failing state handling preserves the signing secret
- * instead of letting a later endpoint update silently drop it.
+ * StateSecretServiceError identifies the secret and storage operation that
+ * failed. State loading or saving fails with it so a provider update cannot
+ * silently proceed after losing a required secret.
  */
 export class StateSecretServiceError extends Data.TaggedError(
   "StateSecretServiceError",
@@ -120,17 +124,11 @@ const stateSecretReferenceFor = (
     store: "macos-keychain",
   });
 
-const resourceNodeWithOutputs = (
-  node: ResourceNode,
-  outputs: ResourceOutputRecord,
-) =>
-  ResourceNodeSchema.make({
-    key: node.key,
-    props: node.props,
-    schema: node.schema,
-    outputs,
-  });
-
+/**
+ * executeSecurity runs a Keychain command in the caller's process scope.
+ * Process completion and stdout consumption run together so buffered output
+ * cannot block completion. Nonzero exit status produces a typed storage error.
+ */
 const executeSecurity = Effect.fn("StateSecretService.executeSecurity")(
   function* (
     args: ReadonlyArray<string>,
@@ -147,6 +145,7 @@ const executeSecurity = Effect.fn("StateSecretService.executeSecurity")(
           }),
       ),
     );
+
     const [exitCode, stdout] = yield* Effect.all(
       [
         process.exitCode.pipe(
@@ -230,6 +229,11 @@ const readMacOSKeychainSecret = Effect.fn(
   return secret.replace(/\n$/, "");
 });
 
+/**
+ * persistStateSecretOutput replaces an annotated output with its Keychain
+ * reference for persistence. Existing references remain intact; a raw string
+ * must be stored in Keychain before its reference can replace it in state.
+ */
 const persistStateSecretOutput = Effect.fn(
   "StateSecretService.persistStateSecretOutput",
 )(function* (
@@ -257,6 +261,7 @@ const persistStateSecretOutput = Effect.fn(
               }),
           ),
         );
+
         const persistedReference = stateSecretReferenceFor(
           stack,
           node,
@@ -271,12 +276,15 @@ const persistStateSecretOutput = Effect.fn(
         });
       }),
     onSome: () =>
-      Effect.succeed(
-        Option.some<StateSecretOutputUpdate>({ output, outputKey }),
-      ),
+      Effect.succeedSome<StateSecretOutputUpdate>({ output, outputKey }),
   });
 });
 
+/**
+ * restoreStateSecretOutput returns an annotated output for provider use.
+ * References require successful Keychain reads; raw strings in older state
+ * remain usable without a lookup. Invalid values fail hydration.
+ */
 const restoreStateSecretOutput = Effect.fn(
   "StateSecretService.restoreStateSecretOutput",
 )(function* (node: ResourceNode, outputKey: string, output: Schema.Json) {
@@ -305,6 +313,11 @@ const restoreStateSecretOutput = Effect.fn(
   });
 });
 
+/**
+ * persistResourceNodeSecrets replaces annotated secret outputs with references
+ * in the node prepared for storage. Missing optional outputs remain absent,
+ * and unannotated values remain part of the resource document.
+ */
 const persistResourceNodeSecrets = Effect.fn(
   "StateSecretService.persistResourceNodeSecrets",
 )(function* (stack: string, node: ResourceNode) {
@@ -320,7 +333,8 @@ const persistResourceNodeSecrets = Effect.fn(
         }),
     ),
   );
-  const persistedResourceNode: ResourceNode = yield* Effect.forEach(
+
+  const outputUpdates = yield* Effect.forEach(
     node.schema.stateSecretOutputKeys,
     (outputKey) =>
       Option.fromUndefinedOr(outputs[outputKey]).pipe(
@@ -330,24 +344,30 @@ const persistResourceNodeSecrets = Effect.fn(
             persistStateSecretOutput(stack, node, outputKey, output),
         }),
       ),
-  ).pipe(
-    Effect.map((outputUpdates) =>
-      resourceNodeWithOutputs(
-        node,
-        Arr.reduce(outputUpdates, outputs, (currentOutputs, outputUpdate) =>
-          Option.match(outputUpdate, {
-            onNone: () => currentOutputs,
-            onSome: ({ output, outputKey }) =>
-              Record.set(currentOutputs, outputKey, output),
-          }),
-        ),
-      ),
-    ),
   );
+
+  const persistedResourceNode: ResourceNode = {
+    ...node,
+    outputs: Arr.reduce(
+      outputUpdates,
+      outputs,
+      (currentOutputs, outputUpdate) =>
+        Option.match(outputUpdate, {
+          onNone: () => currentOutputs,
+          onSome: ({ output, outputKey }) =>
+            Record.set(currentOutputs, outputKey, output),
+        }),
+    ),
+  };
 
   return persistedResourceNode;
 });
 
+/**
+ * restoreResourceNodeSecrets restores a saved node's annotated secret outputs
+ * for lifecycle operations. A failed secret read fails hydration so consumers
+ * cannot mistake an incomplete output document for usable provider state.
+ */
 const restoreResourceNodeSecrets = Effect.fn(
   "StateSecretService.restoreResourceNodeSecrets",
 )(function* (node: ResourceNode) {
@@ -363,7 +383,8 @@ const restoreResourceNodeSecrets = Effect.fn(
         }),
     ),
   );
-  const restoredResourceNode: ResourceNode = yield* Effect.forEach(
+
+  const outputUpdates = yield* Effect.forEach(
     node.schema.stateSecretOutputKeys,
     (outputKey) =>
       Option.fromUndefinedOr(outputs[outputKey]).pipe(
@@ -372,24 +393,31 @@ const restoreResourceNodeSecrets = Effect.fn(
           onSome: (output) => restoreStateSecretOutput(node, outputKey, output),
         }),
       ),
-  ).pipe(
-    Effect.map((outputUpdates) =>
-      resourceNodeWithOutputs(
-        node,
-        Arr.reduce(outputUpdates, outputs, (currentOutputs, outputUpdate) =>
-          Option.match(outputUpdate, {
-            onNone: () => currentOutputs,
-            onSome: ({ output, outputKey }) =>
-              Record.set(currentOutputs, outputKey, output),
-          }),
-        ),
-      ),
-    ),
   );
+
+  const restoredResourceNode: ResourceNode = {
+    ...node,
+    outputs: Arr.reduce(
+      outputUpdates,
+      outputs,
+      (currentOutputs, outputUpdate) =>
+        Option.match(outputUpdate, {
+          onNone: () => currentOutputs,
+          onSome: ({ output, outputKey }) =>
+            Record.set(currentOutputs, outputKey, output),
+        }),
+    ),
+  };
 
   return restoredResourceNode;
 });
 
+/**
+ * persistResourceStateSecrets prepares resource values for storage without
+ * changing their lifecycle phase.
+ * Updating records contain desired and previous nodes, both of which may carry
+ * a secret that must survive an interrupted update.
+ */
 const persistResourceStateSecrets = (
   stack: string,
   resourceState: ResourceState,
@@ -450,6 +478,11 @@ const persistResourceStateSecrets = (
     Match.exhaustive,
   );
 
+/**
+ * restoreResourceStateSecrets restores secrets without changing saved status,
+ * timestamps, or failure. Both nodes of an unfinished update must be usable by
+ * consumers comparing requested values with the previous provider state.
+ */
 const restoreResourceStateSecrets = (resourceState: ResourceState) =>
   Match.value(resourceState).pipe(
     Match.when({ _tag: "Updating" }, (updating) =>
@@ -508,9 +541,9 @@ const restoreResourceStateSecrets = (resourceState: ResourceState) =>
   );
 
 /**
- * General Nomoss runtime composition has no selected external secret store.
- * This service keeps ordinary state files unchanged until a CLI or provider
- * runtime explicitly chooses the macOS Keychain implementation.
+ * StateSecretServiceDefaultLayer retains secret outputs in local resource
+ * state. Applications selecting external secret storage use the configured
+ * Layer to replace this behavior.
  */
 export const StateSecretServiceDefaultLayer = Layer.succeed(
   StateSecretService,
@@ -522,13 +555,13 @@ export const StateSecretServiceDefaultLayer = Layer.succeed(
 );
 
 /**
- * CLI and provider runtime composition reads `NOMOSS_STATE_SECRET_STORE` so
- * local Stripe lifecycle runs can use Keychain records without changing the
- * regular file-state contract for other executions.
+ * ConfiguredStateSecretServiceLayer selects storage through
+ * `NOMOSS_STATE_SECRET_STORE`. macos-keychain keeps annotated values in the
+ * login Keychain; the default retains them in resource state.
  */
 export const ConfiguredStateSecretServiceLayer = Layer.unwrap(
   Effect.gen(function* () {
-    const store = yield* Config.literals(
+    const store = yield* Config.Literals(
       ["none", "macos-keychain"],
       "NOMOSS_STATE_SECRET_STORE",
     ).pipe(Config.withDefault("none"));
@@ -542,9 +575,9 @@ export const ConfiguredStateSecretServiceLayer = Layer.unwrap(
 );
 
 /**
- * Local Stripe lifecycle runs receive the Keychain implementation only when
- * `NOMOSS_STATE_SECRET_STORE` selects it. The login Keychain retains the
- * signing secret while the resource-state file retains its stable reference.
+ * MacOSKeychainStateSecretServiceLayer stores annotated values in the login
+ * Keychain and their references in resource state. Configuration selects this
+ * implementation when `NOMOSS_STATE_SECRET_STORE` is macos-keychain.
  */
 export const MacOSKeychainStateSecretServiceLayer = Layer.effect(
   StateSecretService,

@@ -4,6 +4,7 @@ import {
   Data,
   Effect,
   Graph,
+  Layer,
   Option,
   Ref,
   Schema,
@@ -16,6 +17,7 @@ import {
   type ResourceKey,
   ResourceModel,
   type ResourceNode,
+  resourceModelLayer,
 } from "./model.js";
 
 type ResourceGraphState = {
@@ -24,9 +26,9 @@ type ResourceGraphState = {
 };
 
 /**
- * A dependency identifies the source resource and the resource that uses it.
- * For a property dependency, the edge also tells output resolution which
- * output to read and which input to replace.
+ * ResourceDependency relates a source resource to the resource that must wait
+ * for it. Property edges also identify the output and target input required
+ * for value substitution during apply.
  */
 export type ResourceDependency = {
   readonly source: ResourceKey;
@@ -43,9 +45,9 @@ export class DuplicateResource extends Data.TaggedError("DuplicateResource")<{
 }> {}
 
 /**
- * Stores the resources and dependencies registered by stack declarations.
- * Planning keeps a snapshot of the graph. Later declarations cannot change
- * the resources or dependencies in that snapshot.
+ * ResourceGraphStore retains the application's declared resources and ordering
+ * constraints. Its immutable snapshots allow a prepared stack to remain usable
+ * after another declaration changes the active graph.
  */
 export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
   "nomoss/core/resource/resourceGraphStore",
@@ -57,11 +59,22 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
         graph: Graph.directed<ResourceNode, DependencyEdge>(),
         indexByKey: new Map(),
       };
+
       const state = yield* Ref.make<ResourceGraphState>(initialState);
       const mutation = yield* Semaphore.make(1);
       const dependencyEdgesEqual = Schema.toEquivalence(DependencyEdgeSchema);
+      /**
+       * reset starts an empty declaration graph without modifying snapshots
+       * already retained by prepared stacks. Its mutation permit serializes
+       * reset with registration and dependency changes.
+       */
       const reset = Ref.set(state, initialState).pipe(mutation.withPermits(1));
 
+      /**
+       * addResource registers one stable resource key in the active graph.
+       * Duplicate keys fail without changing the graph, and the node and its
+       * lookup index are published together under the mutation permit.
+       */
       const addResource = Effect.fn("ResourceGraphStore.addResource")(
         function* (node: ResourceNode) {
           const current = yield* Ref.get(state);
@@ -83,6 +96,12 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
         mutation.withPermits(1),
       );
 
+      /**
+       * addDependency records an ordering or output dependency between existing
+       * resources. Missing endpoints fail, and an identical existing edge is
+       * retained once. Mutation creates a new graph so earlier snapshots keep
+       * their original dependencies.
+       */
       const addDependency = Effect.fn("ResourceGraphStore.addDependency")(
         function* (
           source: ResourceKey,
@@ -115,6 +134,7 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
                 }),
               onSome: () => latest.graph,
             });
+
             const updated: ResourceGraphState = {
               graph,
               indexByKey: latest.indexByKey,
@@ -126,6 +146,12 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
         mutation.withPermits(1),
       );
 
+      /**
+       * dependencyEdgesOf returns dependencies targeting a resource in the
+       * supplied snapshot. Output resolution can therefore follow a prepared
+       * stack's graph after another declaration changes the active graph.
+       * A target absent from the supplied snapshot produces ResourceNotFound.
+       */
       const dependencyEdgesOf = Effect.fn(
         "ResourceGraphStore.dependencyEdgesOf",
       )(function* (
@@ -139,6 +165,7 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
           Effect.fromOption,
           Effect.mapError(() => new ResourceNotFound({ key })),
         );
+
         const dependencies: ReadonlyArray<ResourceDependency> = Arr.getSomes(
           Arr.map(Graph.incomingEdges(graph, targetIndex), (edgeIndex) =>
             Option.flatMap(Graph.getEdge(graph, edgeIndex), (edge) =>
@@ -154,6 +181,11 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
         return dependencies;
       });
 
+      /**
+       * snapshot returns the immutable graph currently registered for planning.
+       * Subsequent mutations publish another graph and leave this value usable
+       * by plans or embedded callers retaining it.
+       */
       const snapshot = Ref.get(state).pipe(
         Effect.map((current) => {
           const graph: Graph.DirectedGraph<ResourceNode, DependencyEdge> =
@@ -163,6 +195,10 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
         }),
       );
 
+      /**
+       * topologicalLogicalIds returns declaration identities in dependency
+       * order for graph inspection, with sources preceding their dependents.
+       */
       const topologicalLogicalIds = snapshot.pipe(
         Effect.map((graph) => {
           const logicalIds: ReadonlyArray<string> = Arr.map(
@@ -175,9 +211,9 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
       );
 
       /**
-       * Reads an initial output from the declaration graph. ResourceModel
-       * checks the registered output schema and the caller's schema before
-       * returning the field. Read provider results from applied resource state.
+       * outputValue returns an initial declaration output validated against
+       * its registered schema and the caller's schema. Results produced by
+       * provider operations are available from applied resource state.
        */
       const outputValue = Effect.fn("ResourceGraphStore.outputValue")(
         function* <S extends Schema.Constraint>(
@@ -218,3 +254,8 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
     }),
   },
 ) {}
+
+export const resourceGraphStoreLayer = Layer.effect(
+  ResourceGraphStore,
+  ResourceGraphStore.make,
+).pipe(Layer.provideMerge(resourceModelLayer));

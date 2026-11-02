@@ -3,6 +3,7 @@ import {
   Context,
   Data,
   Effect,
+  Layer,
   Match,
   Option,
   Record as Rec,
@@ -16,14 +17,15 @@ import {
   type ResourceOutputRef,
   ResourceOutputResolutionMissing,
   type ResourcePropertyPath,
+  resourceModelLayer,
   resourceOutputRef,
 } from "./model.js";
 import type { ResourceDependency } from "./resourceGraphStore.js";
 
 /**
- * The input path recorded for a dependency does not exist in the resource's
- * props. Lifecycle execution reports the resource and path before calling
- * its provider.
+ * ResourceOutputPropertyPathInvalid identifies a dependency whose target input
+ * does not exist in the declared props. Resolution fails before the provider
+ * call so the request cannot silently omit the required output substitution.
  */
 export class ResourceOutputPropertyPathInvalid extends Data.TaggedError(
   "ResourceOutputPropertyPathInvalid",
@@ -33,9 +35,9 @@ export class ResourceOutputPropertyPathInvalid extends Data.TaggedError(
 }> {}
 
 /**
- * Stack execution uses this service to read outputs from applied resources and
- * put their values into dependent inputs. It checks outputs through the same
- * ResourceModel that registered the declarations' output schemas.
+ * ResourceOutputResolver reads validated provider values for application use
+ * and dependent resource inputs. It must share the ResourceModel used during
+ * declaration so registered output schemas remain available during execution.
  */
 export class ResourceOutputResolver extends Context.Service<ResourceOutputResolver>()(
   "nomoss/core/resource/resourceOutputResolver",
@@ -44,10 +46,10 @@ export class ResourceOutputResolver extends Context.Service<ResourceOutputResolv
       const model = yield* ResourceModel;
 
       /**
-       * Reads the referenced output from applied resource nodes using the
-       * caller's schema. A missing resource or field fails with
-       * ResourceOutputResolutionMissing. Invalid provider data or a value that
-       * fails the caller's schema produces SchemaError.
+       * resolveOutput returns a referenced value from applied resources using
+       * the caller's expected schema. Missing resources or fields produce
+       * ResourceOutputResolutionMissing; invalid provider data or a value
+       * rejected by the caller's schema produces SchemaError.
        */
       const resolveOutput = Effect.fn("ResourceOutputResolver.resolveOutput")(
         function* <S extends Schema.Constraint>(
@@ -80,12 +82,11 @@ export class ResourceOutputResolver extends Context.Service<ResourceOutputResolv
       );
 
       /**
-       * Stack lifecycle calls this method before invoking the provider. It
-       * copies outputs from applied resources into this node's props. Each
-       * property dependency must point to an existing object field or array
-       * element. Prerequisites determine execution order and need no property
-       * replacement. The returned node keeps its provider identifier,
-       * metadata, and outputs.
+       * resolveNode returns a node with its property references resolved for
+       * the provider request.
+       * Each target must already exist as an object field or array element;
+       * prerequisites affect ordering without substituting values. Resolution
+       * preserves the node's provider identifier, metadata, and outputs.
        */
       const resolveNode = Effect.fn("ResourceOutputResolver.resolveNode")(
         function* (
@@ -196,3 +197,8 @@ export class ResourceOutputResolver extends Context.Service<ResourceOutputResolv
     }),
   },
 ) {}
+
+export const resourceOutputResolverLayer = Layer.effect(
+  ResourceOutputResolver,
+  ResourceOutputResolver.make,
+).pipe(Layer.provideMerge(resourceModelLayer));

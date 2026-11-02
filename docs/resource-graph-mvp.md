@@ -1,31 +1,33 @@
-# Resource Graph Specification
+# Resource graph
 
-## Direction
+Applications must be able to declare resources that need values from other resources before those values exist. For example, an SQS queue can use a KMS key's ARN for encryption. Nomoss must apply the key before the queue and use the ARN returned by AWS when configuring the queue. The resource graph describes these dependencies so the application does not have to arrange provider calls itself.
 
-Nomoss models infrastructure as Effect programs that produce schema-bound resource graph nodes. The graph records resource identity, dependency edges, ordering, and query data. Resource behavior runs through Effect services and layers.
+## Resource declarations
 
-AWS is the first provider target. Distilled AWS schemas define AWS operation payloads. Nomoss binds those schemas to resource definitions, graph nodes, persisted state, plan inputs, and execution results.
+A declaration describes the resource the application wants to manage. Nomoss needs to know which provider handles it, what type of resource it is, and whether its properties are valid. The resource schema must carry the provider and resource type in Effect annotations, and registration must validate that information together with the declared properties.
 
-## Schema Binding
+AWS declarations must follow the resource properties and outputs defined by CloudFormation Registry. Requests to AWS must follow the Smithy-derived contracts described in the [AWS resource specification](aws-resource-lifecycle-management.md). These contracts must remain available during planning and execution so every service interprets the same resource consistently.
 
-Every resource has real schemas for its supported operations. For AWS, create, read, update, and delete payloads use Distilled schemas where they exist, such as `S3.CreateBucketRequest`, `SQS.CreateQueueRequest`, and `S3.PutBucketNotificationConfigurationRequest`.
+## Dependencies and output values
 
-Graph and state records store schema-encoded resource data. Decoding uses the schema bound to the resource node or state record.
+An application connects resources by passing an output reference as an input to another declaration. That reference identifies the resource that will produce the value and the output to read from it. References inside objects and arrays must establish the same dependencies as references used directly as properties.
 
-The an Effect application Amplify metadata pattern is the reference design: schemas carry metadata, runtime reads metadata from the schema, decodes that metadata through a schema, and uses the same schema path to decode and validate payloads. Nomoss applies the same principle to Distilled resource schemas.
+Before applying a dependent resource, Nomoss must obtain the required values from resources already applied and validate them against their output schemas. Declaration and execution must share one ResourceModel instance so the schemas registered by the application are available when provider results arrive. The [output API](resource-outputs.md) explains how applications declare these references and read values after apply.
 
-## Graph Model
+Some operations need to wait for another resource without consuming one of its outputs. The graph must also support these explicit prerequisites. Both kinds of dependency belong in Effect's directed graph model and determine the order in which actions may execute.
 
-If Effect `Graph` supports structured node values, the graph node value carries schema-bound resource data directly. Strings are reserved for stable resource labels, Graph-required identifiers, CLI output, and Mermaid rendering.
+## Preparing and planning a stack
 
-A resource graph node represents stable resource identity, schema-bound desired props, schema-bound outputs or output refs, operation metadata derived from the bound schema, and dependency edges produced by consuming resource outputs.
+A prepared stack must keep the resources and dependencies declared for that run. An application may prepare another stack before executing the first; doing so must leave the first stack's graph unchanged. Plans therefore require immutable graph snapshots.
 
-The graph is extensible across AWS resource types. Adding a resource type adds schemas and lifecycle behavior without rewriting graph storage.
+Preparation must begin with an empty graph and allow only one declaration to run at a time. A failed or interrupted declaration must clear its partially registered resources so they cannot appear in a later run. Declaration, planning, provider execution, and output resolution must use the same application Layer graph.
 
-## Lifecycle
+Planning compares the declared properties with the last applied state and groups the required actions by dependency order. Output references may remain unresolved while planning. Execution must replace them with validated values immediately before the dependent provider operation.
 
-Planning reads desired graph data and hydrated state data through their bound schemas. Create, update, delete, destroy, and refresh decisions are made from decoded schema-valid values.
+## Saved state
 
-Execution uses Effect services supplied by provider layers. Parallel execution is derived from graph dependency batches: independent nodes in the same batch may run with `Effect.all(..., { concurrency: "unbounded" })`; dependent batches run after their prerequisites.
+Later commands need to find the resources already managed by the stack and understand any unfinished operation. Saved state must preserve applied resource nodes and lifecycle records according to the canonical [state schemas](../src/core/state/resourceState.ts). ResourceStateStore must validate reads and encode writes through Effect's KeyValueStore schema support.
 
-State persistence stores schema-encoded resource records plus the schema binding required to decode them on hydration. Hydration validates persisted state before reconciliation.
+File storage keeps one JSON document per stack under .nomoss/state. Tests must use the same state service with an in-memory KeyValueStore so storage validation and lifecycle behavior remain the same. Outputs marked as secret must follow the selected secret-storage policy when saved and restored.
+
+During Cloud Control reconciliation, Nomoss must use the saved provider identifiers to find resources in AWS. Returned outputs must pass the schemas registered by the application's declarations before they can become saved state or inputs to another resource.

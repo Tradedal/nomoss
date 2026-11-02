@@ -11,9 +11,10 @@ export default defineConfig({
       "@nomoss/providers": fileURLToPath(
         new URL("./src/providers/index.ts", import.meta.url),
       ),
+      "@nomoss/providers/aws": fileURLToPath(
+        new URL("./src/providers/aws/index.ts", import.meta.url),
+      ),
     },
   },
-  test: {
-    include: ["tests/**/*.integration.test.ts"],
-  },
+  test: { include: ["tests/**/*.integration.test.ts"] },
 });

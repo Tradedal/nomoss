@@ -5,6 +5,7 @@ import {
   Graph,
   HashMap,
   HashSet,
+  Layer,
   Match,
   Option,
   Order,
@@ -18,6 +19,7 @@ import {
   ResourceModel,
   type ResourceNode,
   type ResourcePlan,
+  resourceModelLayer,
 } from "../resource/model.js";
 
 export type ResourceDependencyGraph = Graph.DirectedGraph<
@@ -26,40 +28,38 @@ export type ResourceDependencyGraph = Graph.DirectedGraph<
 >;
 
 /**
- * Stack lifecycle preparation compares the desired graph with persisted provider
- * state before rendering a plan or executing provider commands. This service
- * turns that comparison into dependency-safe batches for those two consumers.
+ * ResourcePlannerService defines action selection from declared and saved
+ * resources. Dependency batches are part of the returned plan so presentation
+ * and execution agree on which actions can proceed in order.
  */
 export type ResourcePlannerService = {
   /**
-   * Apply uses these batches when a resource must be created or its declared
-   * properties differ from persisted state. Dependencies run before consumers
-   * so provider commands can resolve the outputs they require.
+   * createOrUpdateBatches selects missing resources and changed properties. The
+   * batches place source resources before resources that use their outputs.
    */
   readonly createOrUpdateBatches: (
     desired: ResourceDependencyGraph,
     current: ReadonlyArray<ResourceNode>,
   ) => ReadonlyArray<ReadonlyArray<PlanAction>>;
   /**
-   * Stack reconciliation uses these actions to remove persisted resources that
-   * no longer appear in the desired graph.
+   * deleteBatches selects saved resources absent from the declaration graph
+   * so apply can ask their providers to delete them.
    */
   readonly deleteBatches: (
     desired: ResourceDependencyGraph,
     current: ReadonlyArray<ResourceNode>,
   ) => ReadonlyArray<ReadonlyArray<PlanAction>>;
   /**
-   * Replacement and explicit teardown start from selected roots, then include
-   * graph dependents so no surviving resource retains an output reference to a
-   * resource being removed.
+   * destroyBatches selects requested resources and their dependents.
+   * The batches remove dependents before their source resources.
    */
   readonly destroyBatches: (
     desired: ResourceDependencyGraph,
     destroyRoots: ReadonlyArray<ResourceKey>,
   ) => ReadonlyArray<ReadonlyArray<PlanAction>>;
   /**
-   * Plan rendering and stack execution consume one resource plan so create,
-   * delete, and replacement work describe the same desired/current comparison.
+   * planFromGraph returns the resource actions selected from the graph and
+   * saved state. Rendering and execution receive the same plan.
    */
   readonly planFromGraph: (
     desired: ResourceDependencyGraph,
@@ -69,9 +69,9 @@ export type ResourcePlannerService = {
 };
 
 /**
- * Dependency lookup needs the graph node index, while stack rendering and
- * provider execution consume `PlanAction` without graph internals. The planner
- * keeps both facts together until it has assigned the action to a batch.
+ * SelectedAction retains the graph location used to assign a planned action
+ * to a dependency batch. The public plan exposes the action without requiring
+ * rendering or execution to repeat that graph lookup.
  */
 type SelectedAction = {
   readonly action: PlanAction;
@@ -79,6 +79,10 @@ type SelectedAction = {
   readonly key: string;
 };
 
+/**
+ * batchDepthOrder determines whether dependency batches execute from sources
+ * to dependents for apply or from dependents to sources for teardown.
+ */
 const batchDepthOrder = (direction: "forward" | "reverse") =>
   Match.value(direction).pipe(
     Match.when("forward", () => Order.Number),
@@ -86,9 +90,9 @@ const batchDepthOrder = (direction: "forward" | "reverse") =>
   );
 
 /**
- * Replacement roots cannot be destroyed alone when graph consumers still
- * depend on their outputs. This traversal selects each root and every outgoing
- * dependent before reverse-depth batching tears them down.
+ * collectDestroyDependents includes resources that would still depend on a
+ * requested removal. Selecting them together allows teardown to remove those
+ * dependents before their source resources.
  */
 const collectDestroyDependents = (
   desired: ResourceDependencyGraph,
@@ -100,7 +104,7 @@ const collectDestroyDependents = (
     onSome: (index) =>
       Option.match(
         Option.filter(
-          Option.fromUndefinedOr(desired.nodes.get(index)),
+          Graph.getNode(desired, index),
           (node) => HashSet.has(selected, keyString(node.key)) === false,
         ),
         {
@@ -119,6 +123,11 @@ const collectDestroyDependents = (
       ),
   });
 
+/**
+ * selectDestroyActions returns teardown actions for the selected resource
+ * keys in graph order. Their graph indexes remain attached so removal batches
+ * can account for dependencies before reversing execution order.
+ */
 const selectDestroyActions = (
   desired: ResourceDependencyGraph,
   destroyKeys: HashSet.HashSet<string>,
@@ -139,11 +148,9 @@ const selectDestroyActions = (
   );
 
 /**
- * Stack lifecycle sends provider commands only for resources that need create
- * or update work. A prerequisite that already matches persisted provider state
- * therefore has no action or batch depth; treating it as depth `-1` lets its
- * changed dependent enter the first batch instead of waiting for work Nomoss
- * will not run.
+ * depthByKey returns dependency depths for actions supplied in topological
+ * order. Dependencies without a selected action contribute no pending work,
+ * so an action with no selected prerequisites starts at depth zero.
  */
 const depthByKey = (
   desired: ResourceDependencyGraph,
@@ -164,7 +171,7 @@ const depthByKey = (
               highest,
               Option.getOrElse(
                 Option.flatMap(
-                  Option.fromUndefinedOr(desired.nodes.get(dependencyIndex)),
+                  Graph.getNode(desired, dependencyIndex),
                   (dependencyNode) =>
                     HashMap.get(depths, keyString(dependencyNode.key)),
                 ),
@@ -176,9 +183,9 @@ const depthByKey = (
   );
 
 /**
- * Provider execution can run independent actions together, but an action's
- * incoming graph dependencies must finish first. Depth groups the selected
- * actions into those execution batches for stack lifecycle and AWS apply.
+ * batchesFor groups selected actions by dependency depth. Forward ordering
+ * places prerequisites before dependents; reverse ordering allows teardown
+ * to remove resources before the resources they still depend on.
  */
 const batchesFor = (
   desired: ResourceDependencyGraph,
@@ -186,6 +193,7 @@ const batchesFor = (
   direction: "forward" | "reverse",
 ): ReadonlyArray<ReadonlyArray<PlanAction>> => {
   const depths = depthByKey(desired, selectedActions);
+
   const actionsByDepth = Arr.reduce(
     selectedActions,
     HashMap.empty<number, ReadonlyArray<PlanAction>>(),
@@ -214,25 +222,32 @@ const batchesFor = (
 };
 
 /**
- * The stack lifecycle and AWS apply path share this planner so a rendered plan
- * and the provider commands it drives follow the same dependency ordering.
+ * ResourcePlanner selects lifecycle actions and dependency batches for the
+ * shared plan consumed by presentation and provider execution.
  */
 export class ResourcePlanner extends Context.Service<
   ResourcePlanner,
   ResourcePlannerService
->()("nomoss/core/planner/ResourcePlanner", {
+>()("nomoss/core/stack/planner/ResourcePlanner", {
   make: Effect.gen(function* () {
     const resourceModel = yield* ResourceModel;
 
     /**
-     * Persisted nodes establish whether the desired graph needs a create or an
-     * update. Unchanged nodes are omitted so the resulting batches describe
-     * only provider work that can alter the stack.
+     * currentResourcesByKey returns last-applied nodes indexed by stable
+     * resource key. The keys match saved nodes with desired declarations
+     * independently of property changes, preserving the previous provider
+     * state used to select creation or update.
      */
     const currentResourcesByKey = (current: ReadonlyArray<ResourceNode>) =>
       HashMap.fromIterable(
         Arr.map(current, (node) => [keyString(node.key), node] as const),
       );
+    /**
+     * selectCreateOrUpdateActions selects creation for declarations absent from
+     * saved state and update for managed resources with different properties.
+     * Unchanged resources are excluded. Updates retain their previous node,
+     * and selected actions preserve graph order for dependency batching.
+     */
     const selectCreateOrUpdateActions = (
       desired: ResourceDependencyGraph,
       current: ReadonlyArray<ResourceNode>,
@@ -242,14 +257,13 @@ export class ResourcePlanner extends Context.Service<
           Arr.fromIterable(Graph.topo(desired)),
           ([index, node]): ReadonlyArray<SelectedAction> =>
             Option.match(HashMap.get(currentByKey, keyString(node.key)), {
-              onNone: () =>
-                [
-                  {
-                    action: PlanAction.Create({ node }),
-                    index,
-                    key: keyString(node.key),
-                  },
-                ] satisfies ReadonlyArray<SelectedAction>,
+              onNone: () => [
+                {
+                  action: PlanAction.Create({ node }),
+                  index,
+                  key: keyString(node.key),
+                },
+              ],
               onSome: (currentNode) =>
                 Option.match(
                   Option.liftPredicate(
@@ -259,33 +273,44 @@ export class ResourcePlanner extends Context.Service<
                   ),
                   {
                     onNone: () => [],
-                    onSome: (candidate) =>
-                      [
-                        {
-                          action: PlanAction.Update({
-                            current: candidate,
-                            node,
-                          }),
-                          index,
-                          key: keyString(node.key),
-                        },
-                      ] satisfies ReadonlyArray<SelectedAction>,
+                    onSome: (candidate) => [
+                      {
+                        action: PlanAction.Update({
+                          current: candidate,
+                          node,
+                        }),
+                        index,
+                        key: keyString(node.key),
+                      },
+                    ],
                   },
                 ),
             }),
         ),
       );
 
+    /**
+     * createOrUpdateBatches returns creation and update actions ordered so a
+     * resource's changed prerequisites complete before its own operation.
+     * Resources requiring no mutation contribute no action to the batches.
+     */
     const createOrUpdateBatches = (
       desired: ResourceDependencyGraph,
       current: ReadonlyArray<ResourceNode>,
-    ) =>
-      batchesFor(
+    ) => {
+      const batches: ResourcePlan["createOrUpdate"] = batchesFor(
         desired,
         selectCreateOrUpdateActions(desired, current),
         "forward",
       );
 
+      return batches;
+    };
+
+    /**
+     * desiredResourceKeys identifies the resources retained by the declaration.
+     * Saved keys absent from this set are candidates for deletion during apply.
+     */
     const desiredResourceKeys = (graph: ResourceDependencyGraph) =>
       HashSet.fromIterable(
         Arr.map(Arr.fromIterable(Graph.topo(graph)), ([, node]) =>
@@ -293,20 +318,34 @@ export class ResourcePlanner extends Context.Service<
         ),
       );
 
+    /**
+     * deleteBatches selects saved resources no longer declared by the stack.
+     * Each deletion occupies its own batch in saved-resource order because
+     * these nodes are absent from the desired graph used for other ordering.
+     */
     const deleteBatches = (
       desired: ResourceDependencyGraph,
       current: ReadonlyArray<ResourceNode>,
-    ) =>
-      desiredResourceKeys(desired).pipe((desiredKeys) =>
-        Arr.map(
-          Arr.filter(
-            current,
-            (node) => HashSet.has(desiredKeys, keyString(node.key)) === false,
+    ) => {
+      const batches: ResourcePlan["delete"] = desiredResourceKeys(desired).pipe(
+        (desiredKeys) =>
+          Arr.map(
+            Arr.filter(
+              current,
+              (node) => HashSet.has(desiredKeys, keyString(node.key)) === false,
+            ),
+            (node) => [PlanAction.Delete({ node })],
           ),
-          (node) => [PlanAction.Delete({ node })],
-        ),
       );
 
+      return batches;
+    };
+
+    /**
+     * resourceIndexes associates stable resource keys with locations in this
+     * graph. Requested teardown roots can then identify graph nodes without
+     * treating an index from another snapshot as the same resource.
+     */
     const resourceIndexes = (graph: ResourceDependencyGraph) =>
       HashMap.fromIterable(
         Arr.map(
@@ -314,6 +353,11 @@ export class ResourcePlanner extends Context.Service<
           ([index, node]) => [keyString(node.key), index] as const,
         ),
       );
+    /**
+     * destroyKeysFor returns requested teardown roots and their reachable
+     * dependents. Roots absent from the graph select nothing; shared dependents
+     * appear only once even when several roots reach them.
+     */
     const destroyKeysFor = (
       desired: ResourceDependencyGraph,
       destroyRoots: ReadonlyArray<ResourceKey>,
@@ -328,11 +372,19 @@ export class ResourcePlanner extends Context.Service<
         ),
       );
 
+    /**
+     * destroyBatches returns teardown actions for the selected roots and their
+     * dependents in reverse dependency order. Resources still using a source
+     * are removed before that source can be destroyed.
+     */
     const destroyBatches = (
       desired: ResourceDependencyGraph,
       destroyRoots: ReadonlyArray<ResourceKey>,
-    ) =>
-      destroyKeysFor(desired, destroyRoots).pipe((destroyKeys) =>
+    ) => {
+      const batches: ResourcePlan["destroy"] = destroyKeysFor(
+        desired,
+        destroyRoots,
+      ).pipe((destroyKeys) =>
         batchesFor(
           desired,
           selectDestroyActions(desired, destroyKeys),
@@ -340,15 +392,38 @@ export class ResourcePlanner extends Context.Service<
         ),
       );
 
+      return batches;
+    };
+
+    /**
+     * planFromGraph combines desired changes, deletions, and explicitly
+     * requested teardown into one plan. The plan retains separate action
+     * groups so apply and destroy can execute their assigned operations.
+     */
+    const planFromGraph = (
+      desired: ResourceDependencyGraph,
+      current: ReadonlyArray<ResourceNode>,
+      destroyRoots: ReadonlyArray<ResourceKey> = [],
+    ) => {
+      const plan: ResourcePlan = {
+        createOrUpdate: createOrUpdateBatches(desired, current),
+        delete: deleteBatches(desired, current),
+        destroy: destroyBatches(desired, destroyRoots),
+      };
+
+      return plan;
+    };
+
     return {
       createOrUpdateBatches,
       deleteBatches,
       destroyBatches,
-      planFromGraph: (desired, current, destroyRoots = []) => ({
-        createOrUpdate: createOrUpdateBatches(desired, current),
-        delete: deleteBatches(desired, current),
-        destroy: destroyBatches(desired, destroyRoots),
-      }),
+      planFromGraph,
     };
   }),
 }) {}
+
+export const resourcePlannerLayer = Layer.effect(
+  ResourcePlanner,
+  ResourcePlanner.make,
+).pipe(Layer.provideMerge(resourceModelLayer));

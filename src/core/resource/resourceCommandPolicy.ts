@@ -1,79 +1,38 @@
-import { type Cause, Context, Data, Effect, Match } from "effect";
-
-import type { ResourceCommandResult as ResourceCommandResultValue } from "./lifecycle.js";
-import {
-  PlanDecision,
-  type ResourceCommand,
-  ResourceCommandResult,
-  ResourceCommandUnsupported,
-} from "./lifecycle.js";
+import { type Cause, Context, Data, type Effect } from "effect";
+import type { ResourceCommand, ResourceCommandResult } from "./lifecycle.js";
 
 export type ResourceCommandFailure = Cause.YieldableError & {
   readonly _tag: string;
 };
 
 /**
- * Provider dispatch preserves a typed provider failure for lifecycle state
- * recording instead of reducing it to an unstructured cause.
+ * ResourceCommandExecutionFailed reports a provider failure together with the
+ * resource command that failed. The provider's typed cause and message remain
+ * available for diagnostics and the saved record of the unfinished operation.
  */
 export class ResourceCommandExecutionFailed extends Data.TaggedError(
   "ResourceCommandExecutionFailed",
 )<{
   readonly command: ResourceCommand;
   readonly cause: ResourceCommandFailure;
-}> {}
+}> {
+  override get message() {
+    return this.cause.message;
+  }
+}
 
 /**
- * Provider packages satisfy this service with their resource command
- * dispatcher. Core stack execution depends on this contract instead of
- * importing provider implementations.
+ * ResourceCommandPolicy executes resource commands through the provider
+ * configured by the application. Results distinguish observations, planning
+ * decisions, and completed mutations. Provider failures retain their typed
+ * cause in ResourceCommandExecutionFailed, and provider registrations must be
+ * available in the same application runtime.
  */
-export class ResourceCommandPolicy extends Context.Service<ResourceCommandPolicy>()(
-  "nomoss/core/resourceCommandPolicy",
+export class ResourceCommandPolicy extends Context.Service<
+  ResourceCommandPolicy,
   {
-    make: Effect.succeed({
-      execute: Effect.fn("ResourceCommandPolicy.execute")(function* (
-        command: ResourceCommand,
-      ) {
-        const fallbackResult = Match.value(command).pipe(
-          Match.tagsExhaustive({
-            Read: ({ node: readNode }) =>
-              ResourceCommandResult.Observed({
-                observation: {
-                  _tag: "Missing",
-                  node: readNode,
-                },
-              }),
-            Diff: ({ node: diffNode }) =>
-              ResourceCommandResult.Decided({
-                decision: PlanDecision.NoOp({ node: diffNode }),
-              }),
-            Apply: ({ decision }) =>
-              ResourceCommandResult.Decided({ decision }),
-            Create: ({ node: createdNode }) =>
-              ResourceCommandResult.Created({ node: createdNode }),
-            Update: ({ node: updatedNode }) =>
-              ResourceCommandResult.Updated({ node: updatedNode }),
-            Delete: ({ node: deletedNode }) =>
-              ResourceCommandResult.Deleted({ node: deletedNode }),
-            Destroy: ({ node: destroyedNode }) =>
-              ResourceCommandResult.Destroyed({ node: destroyedNode }),
-          }),
-        );
-        const commandResult: ResourceCommandResultValue = fallbackResult;
-        const result = yield* Effect.succeed(commandResult).pipe(
-          Effect.filterOrFail(
-            () => false,
-            () =>
-              new ResourceCommandExecutionFailed({
-                command,
-                cause: new ResourceCommandUnsupported({ command }),
-              }),
-          ),
-        );
-
-        return result;
-      }),
-    }),
-  },
-) {}
+    readonly execute: (
+      command: ResourceCommand,
+    ) => Effect.Effect<ResourceCommandResult, ResourceCommandExecutionFailed>;
+  }
+>()("nomoss/core/resource/resourceCommandPolicy") {}

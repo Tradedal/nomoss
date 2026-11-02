@@ -2,6 +2,7 @@ import {
   Array as Arr,
   Context,
   Effect,
+  Layer,
   Match,
   Record,
   Ref,
@@ -16,7 +17,10 @@ import {
   ResourceOutputRefSchema,
   type ResourcePropertyPath,
 } from "./model.js";
-import { ResourceGraphStore } from "./resourceGraphStore.js";
+import {
+  ResourceGraphStore,
+  resourceGraphStoreLayer,
+} from "./resourceGraphStore.js";
 
 export type ResourceDependencyInput = {
   readonly source: ResourceKey;
@@ -37,9 +41,9 @@ export type ResourceDeclarationInput<
 };
 
 /**
- * Resource declarations use this service to add nodes and output dependencies
- * to the graph before the stack is planned. The shared ResourceModel stores
- * their output schemas for provider execution and later reads.
+ * ResourceGraphBuilder registers declarations and their dependencies for stack
+ * planning. Output schemas belong to the shared ResourceModel so provider
+ * execution can validate the values promised by those declarations.
  */
 export class ResourceGraphBuilder extends Context.Service<ResourceGraphBuilder>()(
   "nomoss/core/resource/resourceGraphBuilder",
@@ -56,9 +60,9 @@ export class ResourceGraphBuilder extends Context.Service<ResourceGraphBuilder>(
         >([]);
 
         /**
-         * Records where apply should replace an initial input value with an
-         * output from another resource. Registration automatically finds
-         * references passed directly in props.
+         * dependsOn declares an input to replace with another resource's output
+         * during apply. It supports initial values whose dependencies are not
+         * already expressed as output references in props.
          */
         const dependsOn = Effect.fn("ResourceGraphBuilder.resource.dependsOn")(
           function* (
@@ -80,10 +84,10 @@ export class ResourceGraphBuilder extends Context.Service<ResourceGraphBuilder>(
         );
 
         /**
-         * Adds the validated resource to the graph and registers its output
-         * schema. It records dependencies from references inside JSON props
-         * and from calls to dependsOn. Each source resource must already be
-         * registered before another resource can refer to it.
+         * register adds a resource with the schemas used to validate its inputs
+         * and eventual outputs. Source resources must already be registered
+         * before they can be referenced, including inside JSON objects and
+         * arrays or through an explicit dependsOn declaration.
          */
         const register = Effect.fn("ResourceGraphBuilder.resource.register")(
           function* <
@@ -163,9 +167,10 @@ export class ResourceGraphBuilder extends Context.Service<ResourceGraphBuilder>(
         );
 
         /**
-         * Reads an initial output using the supplied schema. If the read
-         * succeeds, it records where apply should put that output's value.
-         * Use ResourceOutputResolver to read values from applied resource state.
+         * valueFrom returns a validated declaration-time output and records
+         * the input it will supply during apply. A failed read leaves no
+         * dependency behind. ResourceOutputResolver reads applied provider
+         * values after execution.
          */
         const valueFrom = Effect.fn("ResourceGraphBuilder.resource.valueFrom")(
           function* <S extends Schema.Constraint>(
@@ -186,9 +191,9 @@ export class ResourceGraphBuilder extends Context.Service<ResourceGraphBuilder>(
         );
 
         /**
-         * Reads an initial output as a string and records its input dependency
-         * after the read succeeds. If the value is missing, the error names
-         * the source resource and output.
+         * stringFrom returns a declaration-time string output and records its
+         * dependency only if the read succeeds. A missing value identifies the
+         * source resource and output for reporting the unresolved input.
          */
         const stringFrom = Effect.fn(
           "ResourceGraphBuilder.resource.stringFrom",
@@ -212,3 +217,8 @@ export class ResourceGraphBuilder extends Context.Service<ResourceGraphBuilder>(
     }),
   },
 ) {}
+
+export const resourceGraphBuilderLayer = Layer.effect(
+  ResourceGraphBuilder,
+  ResourceGraphBuilder.make,
+).pipe(Layer.provideMerge(resourceGraphStoreLayer));

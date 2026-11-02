@@ -3,6 +3,7 @@ import {
   Data,
   Effect,
   HashMap,
+  Layer,
   Option,
   Record,
   Ref,
@@ -18,18 +19,19 @@ export const ResourceKeySchema = Schema.Struct({
 export type ResourceKey = Schema.Schema.Type<typeof ResourceKeySchema>;
 
 /**
- * A path selects a value inside resource props. Its segments are object
- * property names or decimal array indexes. An empty path selects all props,
- * and punctuation in a property name is part of the name.
+ * ResourcePropertyPath identifies the declared input that output resolution
+ * will replace. Segments name object properties or decimal array indexes; an
+ * empty path addresses all props. Property names retain punctuation so a name
+ * containing a period is not interpreted as several nested fields.
  */
 export const ResourcePropertyPathSchema = Schema.Array(Schema.String);
 
 export type ResourcePropertyPath = typeof ResourcePropertyPathSchema.Type;
 
 /**
- * One resource uses another resource's output as an input. This edge tells
- * ResourceOutputResolver which output to read and where to put its value in
- * the dependent resource's props before calling the provider.
+ * Property dependencies require the source resource to finish before its
+ * output can be used in the target's provider request. The edge identifies
+ * which output supplies the value and which target input receives it.
  */
 export const PropertyDependencyEdgeSchema = Schema.Struct({
   kind: Schema.Literal("property"),
@@ -42,9 +44,9 @@ export type PropertyDependencyEdge = Schema.Schema.Type<
 >;
 
 /**
- * A resource can require another resource's operation to finish even when it
- * uses none of that resource's outputs. This edge tells the planner to apply
- * the prerequisite first.
+ * Prerequisite dependencies require an earlier resource operation to finish
+ * without substituting any of its outputs into the target's properties.
+ * Their recorded reason explains the resource behavior requiring that order.
  */
 export const PrerequisiteDependencyEdgeSchema = Schema.Struct({
   kind: Schema.Literal("prerequisite"),
@@ -56,9 +58,9 @@ export type PrerequisiteDependencyEdge = Schema.Schema.Type<
 >;
 
 /**
- * Both property dependencies and prerequisites determine the order of resource
- * operations. The planner uses both kinds of edge to group actions. Output
- * resolution reads property edges to fill in dependent inputs.
+ * DependencyEdge preserves both kinds of ordering constraint in the resource
+ * graph. Property edges additionally authorize output substitution, which
+ * input resolution must not attempt for a prerequisite edge.
  */
 export const DependencyEdgeSchema = Schema.Union([
   PropertyDependencyEdgeSchema,
@@ -68,9 +70,9 @@ export const DependencyEdgeSchema = Schema.Union([
 export type DependencyEdge = Schema.Schema.Type<typeof DependencyEdgeSchema>;
 
 /**
- * A declaration can refer to an output before the provider returns its value.
- * The reference records the source resource and output name as JSON. During
- * apply, lifecycle execution reads the value from the applied source resource.
+ * ResourceOutputRef lets a declaration use another resource's output before
+ * its provider value exists. Its JSON representation survives planning and
+ * identifies the source value that apply must obtain for the dependent input.
  */
 export const ResourceOutputRefSchema = Schema.TaggedStruct(
   "ResourceOutputRef",
@@ -85,18 +87,18 @@ export type ResourceOutputRef = Schema.Schema.Type<
 >;
 
 /**
- * Generated declarations return a reference for each output property. Apply
- * reads the actual values from resource state when it prepares requests for
- * dependent resources.
+ * ResourceOutputReferences exposes each declared output name for use by other
+ * resources before creation. An optional provider output still has a reference;
+ * reading that reference later requires an actual value.
  */
 export type ResourceOutputReferences<Outputs> = {
   readonly [Property in keyof Outputs]-?: ResourceOutputRef;
 };
 
 /**
- * A resource declaration returns its validated inputs and references to its
- * outputs. Stack code can pass those references to other declarations. Apply
- * reads their values from the source resource's applied state.
+ * ResourceDeclaration gives stack code the declared resource together with
+ * typed references usable by subsequent declarations. Those references can
+ * connect resources without making provider requests during declaration.
  */
 export interface ResourceDeclaration<Props, Outputs> {
   readonly key: ResourceKey;
@@ -105,11 +107,10 @@ export interface ResourceDeclaration<Props, Outputs> {
 }
 
 /**
- * Provider declarations attach this metadata to their props schema.
- * `ResourceModel.nodeFromResource` saves it with each `ResourceNode` so
- * lifecycle planning can select the provider command from saved state.
- * `ResourceStateStore` also uses it to identify secret outputs and keep their
- * values out of the state file.
+ * ResourceSchemaAnnotation preserves provider identity and lifecycle rules in
+ * saved nodes. Command dispatch can then select the registered provider after
+ * a restart, and secret storage can recognize outputs requiring external
+ * storage without access to the original schema declaration.
  */
 export const ResourceSchemaAnnotationSchema = Schema.Struct({
   provider: ProviderIdSchema,
@@ -203,8 +204,9 @@ export class ResourceOutputSchemaMissing extends Data.TaggedError(
 )<{ readonly schema: ResourceSchemaAnnotation }> {}
 
 /**
- * An output read could not find the source resource or the requested field.
- * The error identifies both so callers can report which value is missing.
+ * ResourceOutputResolutionMissing identifies a value required by an output
+ * read when either its source resource or requested field is absent. The
+ * source logical id and output name let callers identify the missing value.
  */
 export class ResourceOutputResolutionMissing extends Data.TaggedError(
   "ResourceOutputResolutionMissing",
@@ -262,10 +264,10 @@ export const resourceOutputRef = (
 };
 
 /**
- * Resource declarations and provider policies use this service to validate
- * resource data and convert it to and from JSON. The service stores output
- * schemas so later provider reads use the same validation as declarations.
- * It also supplies resource labels for plans and diagnostics.
+ * ResourceModel validates resource values and converts them to and from JSON
+ * for declaration, provider operations, and persistence. Its registered output
+ * schemas remain available to provider reads in the same runtime, and its
+ * resource labels keep plans and diagnostics consistent.
  */
 export class ResourceModel extends Context.Service<ResourceModel>()(
   "nomoss/core/resource/model/ResourceModel",
@@ -276,9 +278,9 @@ export class ResourceModel extends Context.Service<ResourceModel>()(
       );
 
       /**
-       * Registers the resource's output schema for later provider reads in
-       * this runtime. Schema.toType checks decoded values without requiring
-       * the services used to decode the transport format.
+       * registerOutputsSchema retains a declaration's schema for provider
+       * outputs read later in this runtime. Validation uses decoded values
+       * without requiring services used only for transport decoding.
        */
       const registerOutputsSchema = Effect.fn(
         "ResourceModel.registerOutputsSchema",
@@ -301,9 +303,9 @@ export class ResourceModel extends Context.Service<ResourceModel>()(
       });
 
       /**
-       * Checks provider outputs against the registered resource schema and
-       * returns the complete JSON model for observations and saved state.
-       * The read fails if the output schema has not been registered.
+       * validateResourceOutputs checks declared outputs and returns the full
+       * provider JSON model for observations and persistence. The output schema
+       * must be registered before this operation can succeed.
        */
       const validateResourceOutputs = Effect.fn(
         "ResourceModel.validateResourceOutputs",
@@ -323,6 +325,12 @@ export class ResourceModel extends Context.Service<ResourceModel>()(
         return outputs;
       });
 
+      /**
+       * nodeFromResource returns a validated JSON node from a typed declaration.
+       * Provider metadata is required, and the output schema remains registered
+       * in this model for later provider reads and output resolution. Invalid
+       * inputs fail before a node is available for graph registration.
+       */
       const nodeFromResource = Effect.fn("ResourceModel.nodeFromResource")(
         function* <
           Props,
@@ -374,8 +382,9 @@ export class ResourceModel extends Context.Service<ResourceModel>()(
       );
 
       /**
-       * Provider policies call this method to check outputs against the
-       * registered schema and attach them to the node before saving it.
+       * withOutputs returns a node containing validated provider outputs for
+       * persistence and dependent resources. Invalid outputs fail before a node
+       * containing them can be returned.
        */
       const withOutputs = Effect.fn("ResourceModel.withOutputs")(function* (
         node: ResourceNode,
@@ -390,6 +399,11 @@ export class ResourceModel extends Context.Service<ResourceModel>()(
         return updated;
       });
 
+      /**
+       * decodeProps returns typed declared properties using the supplied domain
+       * schema. A resource policy receives a schema failure when saved or
+       * resolved properties do not satisfy its operation's contract.
+       */
       const decodeProps = Effect.fn("ResourceModel.decodeProps")(function* <
         Props,
       >(node: ResourceNode, schema: Schema.Schema<Props>) {
@@ -399,9 +413,9 @@ export class ResourceModel extends Context.Service<ResourceModel>()(
       });
 
       /**
-       * Reads all outputs using the caller's schema. Fields marked optional
-       * in that schema can be absent. Use decodeOutput or
-       * ResourceOutputResolver.resolveOutput when a particular field is needed.
+       * decodeOutputs returns the complete output document decoded through the
+       * caller's schema, which may permit absent fields. decodeOutput and
+       * resolveOutput require a particular output value to be present.
        */
       const decodeOutputs = Effect.fn("ResourceModel.decodeOutputs")(function* <
         Outputs,
@@ -412,10 +426,10 @@ export class ResourceModel extends Context.Service<ResourceModel>()(
       });
 
       /**
-       * Checks the resource's outputs against its registered schema, then
-       * reads the requested field using the caller's schema. A missing field
-       * fails with ResourceOutputResolutionMissing. Invalid values fail with
-       * SchemaError. The output schema must be registered in this ResourceModel.
+       * decodeOutput returns one output validated against the registered
+       * provider model and the caller's field schema. An absent field fails
+       * with ResourceOutputResolutionMissing; a value rejected by
+       * either schema fails with SchemaError.
        */
       const decodeOutput = Effect.fn("ResourceModel.decodeOutput")(function* <
         S extends Schema.Constraint,
@@ -445,6 +459,11 @@ export class ResourceModel extends Context.Service<ResourceModel>()(
         return output;
       });
 
+      /**
+       * decodeJson validates a stored JSON value against a schema's decoded
+       * type. Transport-only transformations and their required services do not
+       * participate in reading an already decoded resource value.
+       */
       const decodeJson = Effect.fn("ResourceModel.decodeJson")(function* <
         Resource,
       >(schema: Schema.Schema<Resource>, encoded: Schema.Json) {
@@ -455,6 +474,11 @@ export class ResourceModel extends Context.Service<ResourceModel>()(
         return decoded;
       });
 
+      /**
+       * encodeJson validates a decoded domain value and converts it to JSON for
+       * graph storage. Values incompatible with either the domain schema or
+       * JSON fail before entering the resource node.
+       */
       const encodeJson = Effect.fn("ResourceModel.encodeJson")(function* <
         Resource,
       >(schema: Schema.Schema<Resource>, value: NoInfer<Resource>) {
@@ -465,6 +489,11 @@ export class ResourceModel extends Context.Service<ResourceModel>()(
         return json;
       });
 
+      /**
+       * propsEqual compares declared JSON properties for mutation selection.
+       * Provider outputs and other node metadata do not make otherwise equal
+       * desired properties count as an update.
+       */
       const propsEqual = (left: ResourceNode, right: ResourceNode) => {
         const equal: boolean = Schema.toEquivalence(Schema.Json)(
           left.props,
@@ -503,3 +532,12 @@ export class ResourceModel extends Context.Service<ResourceModel>()(
     }),
   },
 ) {}
+
+/**
+ * Declaration and provider execution reuse this Layer so output schemas
+ * registered while declaring resources remain available during execution.
+ */
+export const resourceModelLayer = Layer.effect(
+  ResourceModel,
+  ResourceModel.make,
+);

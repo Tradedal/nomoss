@@ -3,8 +3,8 @@ import { Data, type Schema } from "effect";
 import type { ResourceNode } from "./model.js";
 
 /**
- * Repair decisions describe provider drift as explicit operations so renderers
- * do not infer behavior from ad hoc action strings.
+ * PlanRepairChange describes provider drift in a form that presentation can
+ * report without interpreting provider-specific action strings.
  */
 export type PlanRepairChange = Data.TaggedEnum<{
   Added: {
@@ -24,6 +24,11 @@ export type PlanRepairChange = Data.TaggedEnum<{
 
 export const PlanRepairChange = Data.taggedEnum<PlanRepairChange>();
 
+/**
+ * ResourceObservation describes the provider's current resource state for
+ * reconciliation. Missing, unreadable, and drifted resources remain distinct
+ * so planning does not mistake a failed read for confirmed absence.
+ */
 export type ResourceObservation = Data.TaggedEnum<{
   Present: {
     readonly node: ResourceNode;
@@ -44,6 +49,11 @@ export type ResourceObservation = Data.TaggedEnum<{
 
 export const ResourceObservation = Data.taggedEnum<ResourceObservation>();
 
+/**
+ * PlanDecision records the selected resource action for review and execution.
+ * Decisions retain resource nodes so an apply request does not have to infer
+ * its target from a display label or reconstruct the planning inputs.
+ */
 export type PlanDecision = Data.TaggedEnum<{
   NoOp: {
     readonly node: ResourceNode;
@@ -70,6 +80,11 @@ export type PlanDecision = Data.TaggedEnum<{
 
 export const PlanDecision = Data.taggedEnum<PlanDecision>();
 
+/**
+ * ResourceCommand identifies the provider capability requested by lifecycle
+ * callers. Apply retains the reviewed decision, while direct commands carry
+ * the resource and any observation needed by that operation.
+ */
 export type ResourceCommand = Data.TaggedEnum<{
   Read: {
     readonly node: ResourceNode;
@@ -97,6 +112,11 @@ export type ResourceCommand = Data.TaggedEnum<{
 
 export const ResourceCommand = Data.taggedEnum<ResourceCommand>();
 
+/**
+ * ResourceCommandResult preserves the distinction between observing or
+ * selecting an action and actually completing a mutation. Lifecycle callers
+ * use completed nodes for saved state and downstream output resolution.
+ */
 export type ResourceCommandResult = Data.TaggedEnum<{
   Observed: {
     readonly observation: ResourceObservation;

@@ -3,237 +3,273 @@ import {
   Console,
   Context,
   Effect,
-  Record as EffectRecord,
-  Formatter,
+  Layer,
   Match,
   Option,
-  Schema,
 } from "effect";
-
-import { keyString, type ResourcePlan } from "../resource/model.js";
+import {
+  keyString,
+  type PlanAction,
+  ResourceModel,
+  type ResourceNode,
+  type ResourcePlan,
+  resourceModelLayer,
+} from "../resource/model.js";
 import type {
   ResourceApplyResult,
   ResourceDestroyResult,
+  ResourceReconcileResult,
 } from "./resourceStackLifecycle.js";
 
-const ResourceOutputSummarySchema = Schema.Record(Schema.String, Schema.Json);
-
-/** Formats resource outputs while keeping Stripe webhook state secret-free in CLI output. */
-const renderResourceOutputSummary = (node: {
-  readonly outputs: unknown;
-  readonly schema: { readonly provider: string; readonly resource: string };
-}) =>
-  Option.getOrElse(
-    Option.filter(
-      Option.map(
-        Schema.decodeUnknownOption(ResourceOutputSummarySchema)(node.outputs),
-        (outputs) =>
-          Arr.map(EffectRecord.toEntries(outputs), ([key, value]) =>
-            Match.value({
-              key,
-              provider: node.schema.provider,
-              resource: node.schema.resource,
-            }).pipe(
-              Match.when(
-                {
-                  key: "WebhookSigningSecret",
-                  provider: "stripe",
-                  resource: "webhook-endpoint",
-                },
-                () => "WebhookSigningSecret=<redacted>",
-              ),
-              Match.orElse(() => `${key}=${Formatter.format(value)}`),
-            ),
-          ).join(" "),
-      ),
-      (summary) => summary.length > 0,
-    ),
-    () => "",
-  );
-
-const resourceOutputLabel = (
-  resourcesByKey: ReadonlyMap<
-    string,
-    {
-      readonly outputs: unknown;
-      readonly schema: { readonly provider: string; readonly resource: string };
-    }
-  >,
-  key: string,
-) =>
-  Option.getOrElse(
-    Option.map(
-      Option.fromUndefinedOr(resourcesByKey.get(key)),
-      renderResourceOutputSummary,
-    ),
-    () => "",
-  );
-
-const renderApplyAction = (
-  action: ResourceApplyResult["plan"]["createOrUpdate"][number][number],
-  resourcesByKey: ReadonlyMap<
-    string,
-    {
-      readonly outputs: unknown;
-      readonly schema: { readonly provider: string; readonly resource: string };
-    }
-  >,
-) => {
-  const label = resourceOutputLabel(resourcesByKey, keyString(action.node.key));
-
-  return Match.value(action).pipe(
-    Match.when(
-      { _tag: "Create" },
-      ({ node }) =>
-        `\u001b[32m[+] ${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId} created ${label}\u001b[0m`,
-    ),
-    Match.when(
-      { _tag: "Update" },
-      ({ node }) =>
-        `\u001b[33m[~] ${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId} updated ${label}\u001b[0m`,
-    ),
-    Match.orElse(
-      ({ node }) =>
-        `\u001b[31m[-] ${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId}\u001b[0m`,
-    ),
-  );
-};
-
-const renderDestroyAction = (
-  action: ResourceDestroyResult["plan"]["destroy"][number][number],
-  resourcesByKey: ReadonlyMap<
-    string,
-    {
-      readonly outputs: unknown;
-      readonly schema: { readonly provider: string; readonly resource: string };
-    }
-  >,
-) => {
-  const label = resourceOutputLabel(resourcesByKey, keyString(action.node.key));
-
-  return Match.value(action).pipe(
-    Match.when(
-      { _tag: "Destroy" },
-      ({ node }) =>
-        `\u001b[31m[-] ${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId} destroyed ${label}\u001b[0m`,
-    ),
-    Match.orElse(
-      ({ node }) =>
-        `\u001b[31m[-] ${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId}\u001b[0m`,
-    ),
-  );
-};
-
 /**
- * Resource applications use this service for operator output after the core
- * planner and lifecycle return structured stack results. The service keeps
- * display formatting in core so provider packages do not define app-facing
- * workflow renderers.
+ * StackWorkflowRenderer presents lifecycle plans and results to operators.
+ * Resource labels and available provider identifiers come from lifecycle nodes
+ * so displayed actions refer to the same resources execution manages.
  */
 export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer>()(
-  "nomoss/core/stackWorkflowRenderer",
+  "nomoss/core/stack/stackWorkflowRenderer",
   {
-    make: Effect.succeed({
-      renderPlan: Effect.fn("StackWorkflowRenderer.renderPlan")(
+    make: Effect.gen(function* () {
+      const model = yield* ResourceModel;
+
+      const renderResourceIdentifier = (node: ResourceNode) => {
+        const identifier: string = Option.fromUndefinedOr(
+          node.cloudControlIdentifier,
+        ).pipe(
+          Option.map((value) => `id=${value}`),
+          Option.getOrElse(() => ""),
+        );
+
+        return identifier;
+      };
+
+      /**
+       * renderPlan displays the selected resource actions in the lifecycle
+       * plan's group order. An empty action set is reported as no changes for
+       * the named stack.
+       */
+      const renderPlan = Effect.fn("StackWorkflowRenderer.renderPlan")(
         function* (input: {
           readonly stackName: string;
           readonly plan: ResourcePlan;
         }) {
-          const actions = Arr.appendAll(
-            Arr.flatten(input.plan.createOrUpdate),
-            Arr.appendAll(
-              Arr.flatten(input.plan.delete),
-              Arr.flatten(input.plan.destroy),
-            ),
+          const actions = Arr.flatMap(
+            [input.plan.delete, input.plan.createOrUpdate, input.plan.destroy],
+            Arr.flatten,
           );
 
           yield* Console.log(`Stack "${input.stackName}"`);
           yield* Console.log("Resources");
+
           yield* Effect.forEach(
             actions,
-            (action) =>
-              Console.log(
-                Match.value(action).pipe(
-                  Match.tagsExhaustive({
-                    Create: ({ node }) =>
-                      `\u001b[32m[+] ${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId}\u001b[0m`,
-                    Update: ({ node }) =>
-                      `\u001b[33m[~] ${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId}\u001b[0m`,
-                    Delete: ({ node }) =>
-                      `\u001b[31m[-] ${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId}\u001b[0m`,
-                    Destroy: ({ node }) =>
-                      `\u001b[31m[-] ${node.schema.provider}:${node.schema.service}:${node.schema.resource} ${node.key.logicalId}\u001b[0m`,
-                  }),
-                ),
+            (action) => {
+              const line: string = Match.value(action).pipe(
+                Match.tagsExhaustive({
+                  Create: ({ node }) =>
+                    `\u001b[32m[+] ${model.resourceLabel(node)}\u001b[0m`,
+                  Update: ({ node }) =>
+                    `\u001b[33m[~] ${model.resourceLabel(node)}\u001b[0m`,
+                  Delete: ({ node }) =>
+                    `\u001b[31m[-] ${model.resourceLabel(node)}\u001b[0m`,
+                  Destroy: ({ node }) =>
+                    `\u001b[31m[-] ${model.resourceLabel(node)}\u001b[0m`,
+                }),
+              );
+
+              return Console.log(line);
+            },
+            { discard: true },
+          );
+
+          yield* Console.log(`no changes for stack ${input.stackName}`).pipe(
+            Effect.when(Effect.succeed(actions.length === 0)),
+          );
+        },
+      );
+
+      /**
+       * renderActionStart labels each planned operation before execution.
+       * These static start lines identify intended actions; they are not live
+       * observations of provider acceptance or resource progress.
+       */
+      const renderActionStart = Effect.fn(
+        "StackWorkflowRenderer.renderActionStart",
+      )(function* (input: {
+        readonly actions: ReadonlyArray<ReadonlyArray<PlanAction>>;
+      }) {
+        yield* Effect.forEach(
+          Arr.flatten(input.actions),
+          (action) => {
+            const status: string = Match.value(action).pipe(
+              Match.tagsExhaustive({
+                Create: () => "creating",
+                Update: () => "updating",
+                Delete: () => "deleting",
+                Destroy: () => "destroying",
+              }),
+            );
+
+            const node = action.node;
+
+            return Console.log(`[.] ${model.resourceLabel(node)} ${status}`);
+          },
+          { discard: true },
+        );
+      });
+
+      /**
+       * renderApplyResult reports every applied action, including deletion when
+       * the final resource collection no longer contains that node. The planned
+       * node retains its identifier for the deletion summary.
+       */
+      const renderApplyResult = Effect.fn(
+        "StackWorkflowRenderer.renderApplyResult",
+      )(function* (result: ResourceApplyResult) {
+        const resourcesByKey = new Map(
+          Arr.map(result.resources, (node) => [keyString(node.key), node]),
+        );
+
+        const actions = Arr.flatten(
+          Arr.appendAll(result.plan.delete, result.plan.createOrUpdate),
+        );
+
+        yield* Console.log(`Stack "${result.stackName}"`);
+        yield* Console.log("Resources");
+
+        yield* Effect.forEach(
+          actions,
+          (action) => {
+            const identifier = Option.fromUndefinedOr(
+              resourcesByKey.get(keyString(action.node.key)),
+            ).pipe(
+              Option.getOrElse(() => action.node),
+              renderResourceIdentifier,
+            );
+
+            const line: string = Match.value(action).pipe(
+              Match.tag(
+                "Create",
+                ({ node }) =>
+                  `\u001b[32m[+] ${model.resourceLabel(node)} created ${identifier}\u001b[0m`,
               ),
-            {
-              discard: true,
-            },
-          );
-          yield* Option.match(
-            Option.liftPredicate(actions, (value) => value.length === 0),
-            {
-              onNone: () => Effect.void,
-              onSome: () =>
-                Console.log(`no changes for stack ${input.stackName}`),
-            },
-          );
-        },
-      ),
+              Match.tag(
+                "Update",
+                ({ node }) =>
+                  `\u001b[33m[~] ${model.resourceLabel(node)} updated ${identifier}\u001b[0m`,
+              ),
+              Match.tag(
+                "Delete",
+                ({ node }) =>
+                  `\u001b[31m[-] ${model.resourceLabel(node)} deleted ${identifier}\u001b[0m`,
+              ),
+              Match.orElse(
+                ({ node }) =>
+                  `\u001b[31m[-] ${model.resourceLabel(node)}\u001b[0m`,
+              ),
+            );
 
-      renderApplyResult: Effect.fn("StackWorkflowRenderer.renderApplyResult")(
-        function* (result: ResourceApplyResult) {
-          const resourcesByKey = new Map(
-            Arr.map(result.resources, (node) => [keyString(node.key), node]),
-          );
-          const actions = Arr.flatten(result.plan.createOrUpdate);
+            return Console.log(line);
+          },
+          { discard: true },
+        );
 
-          yield* Console.log(`Stack "${result.stackName}"`);
-          yield* Console.log("Resources");
-          yield* Effect.forEach(
-            actions,
-            (action) => Console.log(renderApplyAction(action, resourcesByKey)),
-            {
-              discard: true,
-            },
-          );
-          yield* Option.match(
-            Option.liftPredicate(actions, (value) => value.length === 0),
-            {
-              onNone: () => Effect.void,
-              onSome: () =>
-                Console.log(`no changes for stack ${result.stackName}`),
-            },
-          );
-        },
-      ),
+        yield* Console.log(`no changes for stack ${result.stackName}`).pipe(
+          Effect.when(Effect.succeed(actions.length === 0)),
+        );
+      });
 
-      renderDestroyResult: Effect.fn(
+      /**
+       * renderDestroyResult identifies resources removed by the teardown plan
+       * using the provider nodes retained in its result. An empty teardown
+       * reports no changes for the stack.
+       */
+      const renderDestroyResult = Effect.fn(
         "StackWorkflowRenderer.renderDestroyResult",
       )(function* (result: ResourceDestroyResult) {
         const resourcesByKey = new Map(
           Arr.map(result.resources, (node) => [keyString(node.key), node]),
         );
+
         const actions = Arr.flatten(result.plan.destroy);
 
         yield* Console.log(`Stack "${result.stackName}"`);
         yield* Console.log("Resources");
+
         yield* Effect.forEach(
           actions,
-          (action) => Console.log(renderDestroyAction(action, resourcesByKey)),
-          {
-            discard: true,
+          (action) => {
+            const identifier = Option.fromUndefinedOr(
+              resourcesByKey.get(keyString(action.node.key)),
+            ).pipe(
+              Option.map(renderResourceIdentifier),
+              Option.getOrElse(() => ""),
+            );
+
+            const line: string = Match.value(action).pipe(
+              Match.tag(
+                "Destroy",
+                ({ node }) =>
+                  `\u001b[31m[-] ${model.resourceLabel(node)} destroyed ${identifier}\u001b[0m`,
+              ),
+              Match.orElse(
+                ({ node }) =>
+                  `\u001b[31m[-] ${model.resourceLabel(node)}\u001b[0m`,
+              ),
+            );
+
+            return Console.log(line);
           },
+          { discard: true },
         );
-        yield* Option.match(
-          Option.liftPredicate(actions, (value) => value.length === 0),
-          {
-            onNone: () => Effect.void,
-            onSome: () =>
-              Console.log(`no changes for stack ${result.stackName}`),
-          },
+
+        yield* Console.log(`no changes for stack ${result.stackName}`).pipe(
+          Effect.when(Effect.succeed(actions.length === 0)),
         );
-      }),
+      });
+
+      /**
+       * renderReconcileResult reports resources found by their providers and
+       * resources confirmed missing. Available provider identifiers accompany
+       * the observed resources for subsequent operator diagnosis.
+       */
+      const renderReconcileResult = Effect.fn(
+        "StackWorkflowRenderer.renderReconcileResult",
+      )(function* (result: ResourceReconcileResult) {
+        yield* Console.log(`Stack "${result.stackName}"`);
+        yield* Console.log("Resources");
+
+        yield* Effect.forEach(
+          result.resources,
+          (node) =>
+            Console.log(
+              `\u001b[36m[=] ${model.resourceLabel(node)} reconciled ${renderResourceIdentifier(node)}\u001b[0m`,
+            ),
+          { discard: true },
+        );
+
+        yield* Effect.forEach(
+          result.missing,
+          (node) =>
+            Console.log(
+              `\u001b[33m[?] ${model.resourceLabel(node)} not found\u001b[0m`,
+            ),
+          { discard: true },
+        );
+      });
+
+      return {
+        renderPlan,
+        renderActionStart,
+        renderApplyResult,
+        renderDestroyResult,
+        renderReconcileResult,
+      };
     }),
   },
 ) {}
+
+export const stackWorkflowRendererLayer = Layer.effect(
+  StackWorkflowRenderer,
+  StackWorkflowRenderer.make,
+).pipe(Layer.provideMerge(resourceModelLayer));

@@ -1,14 +1,13 @@
 import { assert, layer } from "@effect/vitest";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import {
   ResourceModel,
   resourceOutputRef,
 } from "../src/core/resource/model.js";
-import { ResourceOutputResolver } from "../src/core/resource/resourceOutputResolver.js";
 import {
-  resourceModelLayer,
+  ResourceOutputResolver,
   resourceOutputResolverLayer,
-} from "../src/core/runtime/runtimeLayer.js";
+} from "../src/core/resource/resourceOutputResolver.js";
 import {
   BucketOutputsSchema,
   BucketPropsSchema,
@@ -26,7 +25,7 @@ const queueInput = {
   outputs: { Arn: "arn:aws:sqs:us-east-1:123456789012:source-queue" },
 };
 
-layer(Layer.merge(resourceModelLayer, resourceOutputResolverLayer), {
+layer(resourceOutputResolverLayer, {
   buildPerTest: true,
 })("ResourceOutputResolver", (it) => {
   it.effect(
@@ -113,6 +112,7 @@ layer(Layer.merge(resourceModelLayer, resourceOutputResolverLayer), {
         ...queueInput,
         outputs: {},
       });
+
       const reference = resourceOutputRef(queue.key, "Arn");
 
       const missingSource = yield* resolver
