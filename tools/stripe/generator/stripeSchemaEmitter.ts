@@ -18,7 +18,12 @@ import {
   VariableDeclarationKind,
   type VariableStatementStructure,
 } from "ts-morph";
-import { access, call, identifier, printer } from "./typeScriptNodes.js";
+import {
+  access,
+  call,
+  identifier,
+  printer,
+} from "../../codegen/typeScriptNodes.js";
 
 const factory = ts.factory;
 

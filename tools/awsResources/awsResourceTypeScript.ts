@@ -136,14 +136,14 @@ export class AwsResourceTypeScript extends Context.Service<AwsResourceTypeScript
       };
 
       /**
-       * The compileSchemas helper preserves the Registry model's required
+       * The importSchemas helper preserves the Registry model's required
        * properties and shared definitions in its input and output schemas.
        * Effect handles schema normalization and validation compilation.
        *
        * Resources without read-only fields use Effect's empty Struct for their
        * output view. Provider model members remain available in persisted nodes.
        */
-      const compileSchemas = (definition: CloudFormationResourceDefinition) => {
+      const importSchemas = (definition: CloudFormationResourceDefinition) => {
         const { registry } = definition;
         const outputs = Record.keys(definition.outputCatalog.outputs);
         const props = Arr.filter(
@@ -151,6 +151,9 @@ export class AwsResourceTypeScript extends Context.Service<AwsResourceTypeScript
           (name) => !Arr.contains(outputs, name),
         );
 
+        // Registry output classification separates writable declaration values
+        // from saved outputs. Both views retain shared definitions, while each
+        // view requires only the properties classified for that use.
         const schemas: ReadonlyArray<JsonSchema.JsonSchema> = [
           {
             type: "object",
@@ -180,6 +183,9 @@ export class AwsResourceTypeScript extends Context.Service<AwsResourceTypeScript
           },
         ];
 
+        // Normalize both views through Effect's supported JSON Schema dialect.
+        // Provider defaults remain annotations for generation; they do not fill
+        // omitted application properties during declaration decoding.
         const documents = Arr.map(schemas, (schema) =>
           JsonSchema.fromSchemaDraft07(schema),
         );
@@ -201,11 +207,20 @@ export class AwsResourceTypeScript extends Context.Service<AwsResourceTypeScript
           Match.orElse(() => imported[1].ast),
         );
 
+        return [imported[0], Schema.make(outputAst)] as const;
+      };
+
+      /**
+       * The compileSchemas helper compiles the Registry input and output views
+       * together so their shared definitions have consistent generated names.
+       */
+      const compileSchemas = (definition: CloudFormationResourceDefinition) => {
+        const imported = importSchemas(definition);
         const code: SchemaRepresentation.CodeDocument =
           SchemaRepresentation.toCodeDocument(
             SchemaRepresentation.toRepresentations([
               imported[0].ast,
-              outputAst,
+              imported[1].ast,
             ]),
           );
 
@@ -333,8 +348,8 @@ export class AwsResourceTypeScript extends Context.Service<AwsResourceTypeScript
         module: SourceFile,
         definition: CloudFormationResourceDefinition,
         code: SchemaRepresentation.CodeDocument,
+        resourceName = Str.split(definition.registry.typeName, "::")[2],
       ) => {
-        const resource = Str.split(definition.registry.typeName, "::")[2];
         Arr.forEach(code.artifacts, (artifact) =>
           Match.value(artifact).pipe(
             Match.tag("Import", ({ importDeclaration }) => {
@@ -355,7 +370,7 @@ export class AwsResourceTypeScript extends Context.Service<AwsResourceTypeScript
         Arr.forEach(["Props", "Outputs"], (kind, index) => {
           const statement = emitSchema(
             module,
-            `${resource}${kind}Schema`,
+            `${resourceName}${kind}Schema`,
             code.codes[index],
             true,
           );
@@ -665,8 +680,6 @@ export class AwsResourceTypeScript extends Context.Service<AwsResourceTypeScript
        * Reading them requires a known provider value; preparation restores saved
        * values and successful execution publishes changes through shared state.
        */
-      // CLEANUP_Q [resource-entities] Applications can declare related AWS resources directly
-      // and have Nomoss apply them correctly through Cloud Control, including after replacement.
       const emitResourceRegistration = (
         module: SourceFile,
         definition: CloudFormationResourceDefinition,
@@ -888,6 +901,7 @@ export class AwsResourceTypeScript extends Context.Service<AwsResourceTypeScript
 
       return {
         createModule,
+        importSchemas,
         compileSchemas,
         emitSchema,
         emitRecursiveSchema,

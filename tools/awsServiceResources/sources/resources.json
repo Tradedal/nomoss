@@ -1,0 +1,30 @@
+{
+  "region": "us-east-1",
+  "relationships": {
+    "specification": "refs/aws-cdk-service-spec/sources/OobRelationships/relationships.json",
+    "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+    "sha256": "6c650d20b4487e56cd5e8423376d8af0cfa2ff42e1b9dcb02eb7f2edd9935c0e"
+  },
+  "resources": [
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-sqs-queue.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "2e484214f7c5fdc7f97ae2e5bce027293b2ea55776a3c133ee0326cbde8cedf6"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-s3-bucket.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "c60060e0af9d6132fc9f9a283e07f0d2a4b99d8e1be841ddd961e4463c22a7f3"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-sns-topic.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "7e777eee64b69542af94fc3e68d6dadc37fa30e03d07105e459441fb8eca435b"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-kms-key.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "418c1eead905b74a900218ec918469dc8c3aaff97e9ba3986cedbad6bb1960b4"
+    }
+  ]
+}

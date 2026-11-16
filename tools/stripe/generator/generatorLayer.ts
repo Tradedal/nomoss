@@ -1,6 +1,7 @@
 import { Layer } from "effect";
 import { operationCatalogsLayer } from "../../codegen/operationCatalogs.js";
 import { resourceCatalogServicesLayer } from "../../codegen/resourceCatalogLayers.js";
+import { resourceDeclarationsLayer } from "../../codegen/resourceDeclarations.js";
 import { schemaCompilationLayer } from "../../codegen/schemaCompilation.js";
 import { stripeAnnotationsLayer } from "./stripeAnnotations.js";
 import { stripeCatalogEmitterLayer } from "./stripeCatalogEmitter.js";
@@ -22,6 +23,7 @@ const resourceEmissionLayer = stripeResourceBindingsEmitterLayer.pipe(
   Layer.provideMerge(
     Layer.mergeAll(
       stripeResourceDeclarationsLayer,
+      resourceDeclarationsLayer,
       stripeResourceClientEmitterLayer,
       stripeAnnotationsLayer,
     ),

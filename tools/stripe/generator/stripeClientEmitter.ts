@@ -6,7 +6,6 @@ import {
   VariableDeclarationKind,
   type VariableStatement,
 } from "ts-morph";
-import type { StripeOpenApiInvocation } from "../model.js";
 import {
   access,
   call,
@@ -18,7 +17,8 @@ import {
   property,
   strings,
   yieldAll,
-} from "./typeScriptNodes.js";
+} from "../../codegen/typeScriptNodes.js";
+import type { StripeOpenApiInvocation } from "../model.js";
 
 const factory = ts.factory;
 

@@ -15,7 +15,6 @@ import {
   VariableDeclarationKind,
 } from "ts-morph";
 import type { ResourceOutputCatalog } from "../../codegen/resourceSchemas.js";
-import type { StripeOpenApiInvocation } from "../model.js";
 import {
   access,
   call,
@@ -26,7 +25,8 @@ import {
   print,
   property,
   yieldAll,
-} from "./typeScriptNodes.js";
+} from "../../codegen/typeScriptNodes.js";
+import type { StripeOpenApiInvocation } from "../model.js";
 
 const factory = ts.factory;
 

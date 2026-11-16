@@ -429,8 +429,11 @@ export class OperationCatalogs extends Context.Service<OperationCatalogs>()(
       });
 
       /**
-       * Writes validated catalog data into a generated TypeScript module.
-       * Provider generators publish that module with their compiled clients.
+       * The emitOperationCatalog service method preserves validated metadata
+       * in a generated module. Document extension references name existing
+       * module variables that contain those extensions' values. Callers must
+       * verify that the shared values match every entry before supplying a
+       * reference; the published entries then retain their original fields.
        */
       const emitOperationCatalog = Effect.fn(
         "OperationCatalogs.emitOperationCatalog",
@@ -438,16 +441,76 @@ export class OperationCatalogs extends Context.Service<OperationCatalogs>()(
         module: SourceFile,
         name: string,
         entries: ReadonlyArray<OperationMetadata>,
+        documentMetadataReferences: Readonly<Record<string, string>> = {},
       ) {
-        const values: Schema.Json = yield* Schema.encodeEffect(
+        const values = yield* Schema.encodeEffect(
           Schema.Array(OperationMetadata),
         )(entries);
+
+        const elements = Arr.map(values, (entry) => {
+          const documentFields = Arr.map(
+            Record.toEntries(entry.providerMetadata.document),
+            ([key, value]) => {
+              const reference = Record.get(documentMetadataReferences, key);
+              const expression = Option.match(reference, {
+                onNone: () => jsonExpression(value),
+                onSome: (name) => ts.factory.createIdentifier(name),
+              });
+
+              return ts.factory.createPropertyAssignment(
+                ts.factory.createStringLiteral(key),
+                expression,
+              );
+            },
+          );
+
+          const documentMetadata = ts.factory.createObjectLiteralExpression(
+            documentFields,
+            true,
+          );
+          const operationMetadata = jsonExpression(
+            entry.providerMetadata.operation,
+          );
+
+          const providerMetadata = ts.factory.createObjectLiteralExpression(
+            [
+              ts.factory.createPropertyAssignment(
+                ts.factory.createStringLiteral("document"),
+                documentMetadata,
+              ),
+              ts.factory.createPropertyAssignment(
+                ts.factory.createStringLiteral("operation"),
+                operationMetadata,
+              ),
+            ],
+            true,
+          );
+
+          const serialized: Schema.JsonObject = entry;
+
+          const fields = Arr.map(
+            Record.toEntries(serialized),
+            ([key, value]) => {
+              const expression = Match.value(key).pipe(
+                Match.when("providerMetadata", () => providerMetadata),
+                Match.orElse(() => jsonExpression(value)),
+              );
+
+              return ts.factory.createPropertyAssignment(
+                ts.factory.createStringLiteral(key),
+                expression,
+              );
+            },
+          );
+
+          return ts.factory.createObjectLiteralExpression(fields, true);
+        });
 
         const initializer = ts
           .createPrinter()
           .printNode(
             ts.EmitHint.Expression,
-            jsonExpression(values),
+            ts.factory.createArrayLiteralExpression(elements, true),
             ts.createSourceFile("metadata.ts", "", ts.ScriptTarget.Latest),
           );
 

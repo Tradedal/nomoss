@@ -1,6 +1,16 @@
 {
   "dependencies": [
     {
+      "name": "@aws-cdk/service-spec-importers",
+      "version": "0.0.145",
+      "type": "build"
+    },
+    {
+      "name": "@aws-cdk/service-spec-types",
+      "version": "0.0.289",
+      "type": "build"
+    },
+    {
       "name": "@biomejs/biome",
       "version": "2.6.3",
       "type": "build"

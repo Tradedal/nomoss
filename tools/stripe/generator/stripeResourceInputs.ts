@@ -8,44 +8,39 @@ import {
   Option,
   Record,
   Schema,
-  SchemaAST,
-  SchemaGetter,
+  type SchemaAST,
   type SchemaRepresentation,
   String as Str,
 } from "effect";
 import {
-  Project,
+  type Project,
   type SourceFile,
   ts,
   VariableDeclarationKind,
 } from "ts-morph";
-import {
-  type ResourceInputJson,
-  ResourceInputJsonSchema,
-  ResourceReferenceSchema,
-  type ResourceRequestMapping,
-  type ResourceType,
-} from "../../../src/core/resource/model.js";
+import type { ResourceRequestMapping } from "../../../src/core/resource/model.js";
 import type { OperationCatalog } from "../../codegen/catalogSchemas.js";
 import { OperationCatalogs } from "../../codegen/operationCatalogs.js";
 import { ResourceSourceInvalid } from "../../codegen/resourceErrors.js";
+import {
+  applyResourceRelationships,
+  referenceSchema,
+} from "../../codegen/resourceInputSchemas.js";
 import type {
   JsonSchemaResourcePreparation,
   OpenApiResourceCatalog,
 } from "../../codegen/resourceSchemas.js";
 import { SchemaCompilation } from "../../codegen/schemaCompilation.js";
-import { jsonExpression } from "../../codegen/typeScriptJson.js";
-import { StripeAnnotations } from "./stripeAnnotations.js";
-import { StripeSchemaEmitter } from "./stripeSchemaEmitter.js";
 import {
   access,
   call,
   identifier,
   literal,
   print,
-  printer,
   property,
-} from "./typeScriptNodes.js";
+} from "../../codegen/typeScriptNodes.js";
+import { StripeAnnotations } from "./stripeAnnotations.js";
+import { StripeSchemaEmitter } from "./stripeSchemaEmitter.js";
 
 const factory = ts.factory;
 
@@ -63,310 +58,6 @@ export class StripeResourceInputs extends Context.Service<StripeResourceInputs>(
       const compilation = yield* SchemaCompilation;
       const emitter = yield* StripeSchemaEmitter;
       const annotations = yield* StripeAnnotations;
-      const expressionProject = new Project({ useInMemoryFileSystem: true });
-
-      /**
-       * The applyResourceRelationships function includes changed fields' entity
-       * codecs in dictionary values because TypeScript applies index signatures
-       * to named fields too. Optional properties keep their metadata on those
-       * fields; the dictionary's union accepts values without making its keys
-       * required or changing the provider's checks on other properties.
-       *
-       * Each propertyPath names properties and uses '*' to select
-       * array elements. An empty path selects the current node. A union or
-       * deferred schema adds no property, so the same path applies inside it.
-       * If a path does not match, the value schema stays unchanged. JSON
-       * dictionaries can still accept references inside their values.
-       */
-      const applyResourceRelationships = (
-        ast: SchemaAST.AST,
-        relationships: ReadonlyArray<{
-          readonly propertyPath: ReadonlyArray<string>;
-          readonly reference: SchemaAST.AST;
-        }>,
-      ): SchemaAST.AST => {
-        const references = Arr.map(
-          Arr.filter(
-            relationships,
-            (relationship) => relationship.propertyPath.length === 0,
-          ),
-          (relationship) => relationship.reference,
-        );
-
-        const result: SchemaAST.AST = Match.value(relationships.length).pipe(
-          Match.when(0, () => ast),
-          Match.orElse(() =>
-            Arr.match(references, {
-              onNonEmpty: (references) =>
-                new SchemaAST.Union(
-                  references,
-                  undefined,
-                  undefined,
-                  undefined,
-                  undefined,
-                  ast.context,
-                ),
-              onEmpty: () =>
-                Match.value(ast).pipe(
-                  Match.tag("Objects", (node) => {
-                    /**
-                     * The ResourceInputJsonSchema schema preserves references
-                     * inside a dictionary when a declaration is saved. A provider's
-                     * JSON schema describes resolved values, so these dependencies
-                     * need the domain schema that can encode them.
-                     */
-                    const fields = Arr.map(node.propertySignatures, (field) => {
-                      const nested = Arr.map(
-                        Arr.filter(
-                          relationships,
-                          (relationship) =>
-                            relationship.propertyPath[0] === field.name,
-                        ),
-                        (relationship) => ({
-                          propertyPath: Arr.drop(relationship.propertyPath, 1),
-                          reference: relationship.reference,
-                        }),
-                      );
-                      const value = applyResourceRelationships(
-                        field.type,
-                        nested,
-                      );
-
-                      const property: SchemaAST.PropertySignature =
-                        new SchemaAST.PropertySignature(field.name, value);
-
-                      return property;
-                    });
-
-                    const relatedFields = Arr.filter(
-                      fields,
-                      (field, index) =>
-                        field.type !== node.propertySignatures[index].type,
-                    );
-
-                    const dictionaries = Arr.map(
-                      node.indexSignatures,
-                      (signature) => {
-                        const value = Match.value(signature.type).pipe(
-                          Match.when(
-                            {
-                              _tag: "Declaration",
-                              annotations: {
-                                representation: { id: "effect/schema/Json" },
-                              },
-                            },
-                            () => {
-                              const json = Schema.declare<ResourceInputJson>(
-                                Schema.is(ResourceInputJsonSchema),
-                                {
-                                  toCode: () => {
-                                    const code: SchemaRepresentation.Generation.DeclarationOutput =
-                                      {
-                                        runtime: print(
-                                          identifier("ResourceInputJsonSchema"),
-                                        ),
-                                        Type: print(
-                                          factory.createTypeReferenceNode(
-                                            "ResourceInputJson",
-                                          ),
-                                        ),
-                                      };
-
-                                    return code;
-                                  },
-                                  toCodec: () =>
-                                    Schema.link<ResourceInputJson>()(
-                                      ResourceInputJsonSchema,
-                                      {
-                                        decode: SchemaGetter.passthrough(),
-                                        encode: SchemaGetter.passthrough(),
-                                      },
-                                    ),
-                                },
-                              );
-
-                              const dictionaryValue: SchemaAST.AST = json.ast;
-
-                              return dictionaryValue;
-                            },
-                          ),
-                          Match.orElse((ast) => ast),
-                        );
-
-                        const dictionary: SchemaAST.IndexSignature =
-                          new SchemaAST.IndexSignature(
-                            signature.parameter,
-                            new SchemaAST.Union([
-                              value,
-                              ...Arr.map(relatedFields, (field) => field.type),
-                            ]),
-                          );
-
-                        return dictionary;
-                      },
-                    );
-
-                    const result: SchemaAST.AST = new SchemaAST.Objects(
-                      fields,
-                      dictionaries,
-                      node.annotations,
-                      node.checks,
-                      node.encoding,
-                      node.context,
-                      node.encodingChecks,
-                    );
-
-                    return result;
-                  }),
-                  Match.tag("Arrays", (node) => {
-                    /**
-                     * The array schema must enforce its checks even when an
-                     * element refers to a value that execution has not produced.
-                     * A tuple's optional positions also retain their meaning
-                     * during declaration validation.
-                     */
-                    const nested = Arr.map(
-                      Arr.filter(
-                        relationships,
-                        (relationship) => relationship.propertyPath[0] === "*",
-                      ),
-                      (relationship) => ({
-                        propertyPath: Arr.drop(relationship.propertyPath, 1),
-                        reference: relationship.reference,
-                      }),
-                    );
-                    const elements = Arr.map(node.elements, (element) =>
-                      applyResourceRelationships(element, nested),
-                    );
-                    const rest = Arr.map(node.rest, (element) =>
-                      applyResourceRelationships(element, nested),
-                    );
-
-                    const result: SchemaAST.AST = new SchemaAST.Arrays(
-                      node.isMutable,
-                      elements,
-                      rest,
-                      node.annotations,
-                      node.checks,
-                      node.encoding,
-                      node.context,
-                      node.encodingChecks,
-                    );
-
-                    return result;
-                  }),
-                  /**
-                   * The path recorded for a relationship names properties inside
-                   * each union member or deferred schema. Neither kind of schema
-                   * adds a field, so the path must keep its position within the
-                   * value that the schema validates.
-                   */
-                  Match.tag("Union", (node) => {
-                    const result: SchemaAST.AST = new SchemaAST.Union(
-                      Arr.map(node.types, (member) =>
-                        applyResourceRelationships(member, relationships),
-                      ),
-                      node.options,
-                      node.annotations,
-                      node.checks,
-                      node.encoding,
-                      node.context,
-                      node.encodingChecks,
-                    );
-
-                    return result;
-                  }),
-                  Match.tag("Suspend", (node) => {
-                    const result: SchemaAST.AST = new SchemaAST.Suspend(
-                      () =>
-                        applyResourceRelationships(node.thunk(), relationships),
-                      node.annotations,
-                      undefined,
-                      node.encoding,
-                      node.context,
-                    );
-
-                    return result;
-                  }),
-                  Match.orElse((node) => node),
-                ),
-            }),
-          ),
-        );
-
-        return result;
-      };
-
-      /**
-       * The referenceSchema helper gives generated declaration fields the
-       * resource identity and output mapping needed to save a dependency.
-       * Effect's compiler uses its code annotation to emit ResourceEntity as
-       * the accepted TypeScript input and ResourceReferenceSchema as the codec
-       * that preserves the dependency until execution resolves its value.
-       */
-      const referenceSchema = <Type extends ResourceType>(
-        resourceType: Schema.Schema<Type>,
-        mapping: ResourceRequestMapping,
-      ) => {
-        const reference = ResourceReferenceSchema(
-          resourceType,
-          mapping,
-        ).annotate({
-          toCode: ({
-            typeParameters,
-          }: SchemaRepresentation.Generation.DeclarationInput) => {
-            const parsed = expressionProject.createSourceFile(
-              "entity.ts",
-              typeParameters[0].runtime,
-              { overwrite: true },
-            );
-            const runtimeType = parsed
-              .getFirstDescendantByKindOrThrow(
-                ts.SyntaxKind.ExpressionStatement,
-              )
-              .getExpression().compilerNode;
-
-            const typeModule = expressionProject.createSourceFile(
-              "type.ts",
-              "",
-              { overwrite: true },
-            );
-            const entityType = typeModule
-              .addTypeAlias({
-                name: "Identity",
-                type: typeParameters[0].Type,
-              })
-              .getTypeNodeOrThrow().compilerNode;
-
-            const runtime: ts.CallExpression = factory.createCallExpression(
-              identifier("ResourceReferenceSchema"),
-              undefined,
-              [runtimeType, jsonExpression(mapping)],
-            );
-            const type: ts.TypeReferenceNode = factory.createTypeReferenceNode(
-              "ResourceEntity",
-              [entityType],
-            );
-
-            const code: SchemaRepresentation.Generation.DeclarationOutput = {
-              runtime: printer.printNode(
-                ts.EmitHint.Expression,
-                runtime,
-                parsed.compilerNode,
-              ),
-              Type: printer.printNode(
-                ts.EmitHint.Unspecified,
-                type,
-                typeModule.compilerNode,
-              ),
-            };
-
-            return code;
-          },
-        });
-
-        return reference;
-      };
 
       /**
        * The prepareResourceInputSchemas service method gives callers schemas
@@ -390,8 +81,6 @@ export class StripeResourceInputs extends Context.Service<StripeResourceInputs>(
        * resolved, or no executable inputs exist. Invalid components and failures
        * from schema conversion through Effect also propagate to the caller.
        */
-      // CLEANUP_Q [resource-entities] Applications can use the relationships described by the
-      // provider across its resource catalog and understand which relationships remain unsupported.
       const prepareResourceInputSchemas = Effect.fn(
         "StripeResourceInputs.prepareResourceInputSchemas",
       )(function* (

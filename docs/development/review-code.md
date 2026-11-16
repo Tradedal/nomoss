@@ -40,6 +40,8 @@ For a batch of mechanical changes of low risk, commit without waiting for the us
 
 - [ ] Inspect lint fixes for deeply nested callbacks, unrelated inputs collected into an object, or helpers added only to silence a diagnostic. Rewrite the affected operation through readable native Effect composition. Preserve execution order and keep local parsing and decisions beside the work that uses them.
 
+- [ ] Read the layout of each changed operation, including generated functions. Separate logical groups with blank lines. Give nested AST operations and repeated field selections meaningful local names before constructing the value that uses them. Construct common metadata once, then keep each decision beside the complete value it selects. Read the code after formatting to verify these conditions; a successful formatter run establishes only the checks configured in that tool.
+
 - [ ] Check validation against the canonical schema for the domain. Replace copied contracts and local validators that make a business decision with that schema and the responsible service operation. Preserve the typed failures promised to callers instead of hiding them through fallback values.
 
 - [ ] Review generator changes with the contracts their consumers import. Make corrections in the generator and reproduce its output through TypeScript AST operations and Effect schema compilation. Remove hand-edited generated contracts and source templates. For AWS operations, verify the generated Smithy contract is executed by the internal client under the [AWS resource contract](../application/aws-resource-lifecycle-management.md).

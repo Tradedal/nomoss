@@ -1,7 +1,10 @@
-import { Context, Effect, FileSystem, Layer, Path, Schema } from "effect";
-import { Digest } from "effect/crypto";
+import { Context, Effect, Layer } from "effect";
 import type { OpenApiSpecification } from "../../codegen/catalogSchemas.js";
 import { OperationCatalogs } from "../../codegen/operationCatalogs.js";
+import {
+  SpecificationSources,
+  specificationSourcesLayer,
+} from "../../codegen/specificationSources.js";
 import {
   type StripeOpenApiSource,
   StripeOpenApiSourceMismatch,
@@ -16,9 +19,7 @@ export class StripeSourceLoader extends Context.Service<StripeSourceLoader>()(
   "nomoss/tools/stripe/generator/stripeSourceLoader",
   {
     make: Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const digest = yield* Digest.Digest;
+      const sources = yield* SpecificationSources;
       const catalogs = yield* OperationCatalogs;
 
       /**
@@ -39,24 +40,17 @@ export class StripeSourceLoader extends Context.Service<StripeSourceLoader>()(
         referenceDirectory: string,
         source: typeof StripeOpenApiSource.Type,
       ) {
-        const bytes = yield* fs.readFile(
-          path.join(referenceDirectory, source.specification),
-        );
-
-        yield* digest.digestHex(Digest.sha256, bytes).pipe(
-          Effect.filterOrFail(
-            (checksum) => checksum === source.sha256,
-            (actual) =>
-              new StripeOpenApiSourceMismatch({
-                expected: source.sha256,
-                actual,
-              }),
-          ),
-        );
-
-        const snapshot = yield* Schema.decodeEffect(
-          Schema.fromJsonString(Schema.JsonObject),
-        )(new TextDecoder().decode(bytes));
+        const snapshot = yield* sources
+          .readJson(referenceDirectory, source)
+          .pipe(
+            Effect.catchTag(
+              "SpecificationSourceMismatch",
+              ({ expected, actual }) =>
+                Effect.fail(
+                  new StripeOpenApiSourceMismatch({ expected, actual }),
+                ),
+            ),
+          );
 
         const corrected = yield* catalogs.prepareOpenApiDocument(
           {
@@ -82,4 +76,4 @@ export class StripeSourceLoader extends Context.Service<StripeSourceLoader>()(
 export const stripeSourceLoaderLayer = Layer.effect(
   StripeSourceLoader,
   StripeSourceLoader.make,
-);
+).pipe(Layer.provide(specificationSourcesLayer));

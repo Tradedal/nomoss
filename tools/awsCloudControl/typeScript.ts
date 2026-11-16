@@ -4,6 +4,7 @@ import {
   Effect,
   type JsonSchema,
   Match,
+  Option,
   Record,
   type Schema,
   type SchemaRepresentation,
@@ -150,10 +151,8 @@ export class AwsOpenApiTypeScript extends Context.Service<AwsOpenApiTypeScript>(
           { moduleSpecifier: "../awsClient.js", namedImports: ["AwsClient"] },
           {
             moduleSpecifier: "../awsClientModel.js",
-            namedImports: [
-              { name: "AwsServiceDefinition", isTypeOnly: true },
-              { name: "AwsJsonRpcOperation", isTypeOnly: true },
-            ],
+            isTypeOnly: true,
+            namedImports: ["AwsServiceDefinition", "AwsJsonRpcOperation"],
           },
         ]);
 
@@ -226,7 +225,7 @@ export class AwsOpenApiTypeScript extends Context.Service<AwsOpenApiTypeScript>(
           const names = Arr.dedupe(
             Arr.flatMap(operations, (operation) => [
               operation.input,
-              operation.output,
+              ...Option.toArray(Option.fromNullOr(operation.output)),
               ...Arr.map(operation.errors, (error) => error.name),
             ]),
           );
@@ -272,7 +271,21 @@ export class AwsOpenApiTypeScript extends Context.Service<AwsOpenApiTypeScript>(
           serviceName: string,
           operations: ReadonlyArray<AwsOpenApiInvocation>,
         ) {
-          const prefix = Str.uncapitalize(serviceName);
+          const prefix = Str.camelCase(serviceName);
+          const responseImports = Match.value(
+            Arr.some(operations, (operation) => operation.output === null),
+          ).pipe(
+            Match.when(true, () => [
+              {
+                moduleSpecifier: "effect/http-api",
+                namedImports: ["HttpApiSchema"],
+              },
+            ]),
+            Match.orElse(() => []),
+          );
+
+          module.addImportDeclarations(responseImports);
+
           const errorCatalog = `${prefix}Errors`;
           const errors = Arr.dedupeWith(
             Arr.flatMap(operations, (operation) => operation.errors),
@@ -343,10 +356,24 @@ export class AwsOpenApiTypeScript extends Context.Service<AwsOpenApiTypeScript>(
 
                 const {
                   input,
-                  output,
+                  output: outputSchema,
                   errors: _errors,
                   ...metadata
                 } = operation;
+
+                const output = outputSchema ?? `${operation.name}Output`;
+
+                Option.match(Option.fromNullOr(outputSchema), {
+                  onNone: () =>
+                    emitConstant(
+                      module,
+                      output,
+                      call(access("HttpApiSchema", "Empty"), [
+                        factory.createNumericLiteral(200),
+                      ]),
+                    ),
+                  onSome: () => undefined,
+                });
 
                 const operationType = factory.createIntersectionTypeNode([
                   factory.createTypeReferenceNode("AwsJsonRpcOperation"),
@@ -492,7 +519,7 @@ export class AwsOpenApiTypeScript extends Context.Service<AwsOpenApiTypeScript>(
         service: AwsOpenApiDocument["x-aws-service"],
         operations: ReadonlyArray<AwsOpenApiInvocation>,
       ) => {
-        const serviceIdentifier = `${Str.uncapitalize(serviceName)}Service`;
+        const serviceIdentifier = `${Str.camelCase(serviceName)}Service`;
         emitConstant(
           module,
           serviceIdentifier,

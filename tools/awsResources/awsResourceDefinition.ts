@@ -5,13 +5,17 @@ import {
 } from "../codegen/resourceSchemas.js";
 
 /**
- * RegistryResourceSchema validates the AWS resource definition used to generate
- * declarations. Property classifications retain identity and mutability rules
- * required by later Cloud Control operations.
+ * Registry classifications determine which properties applications may set
+ * and which identity values must survive reads. Replacement strategies must
+ * use one of the Registry's defined orders so native generation can preserve
+ * the required order in resource planning metadata.
  */
 export const RegistryResourceSchema = Schema.Struct({
   ...ResourceDefinition.fields,
   typeName: Schema.String.check(Schema.isPattern(/^AWS::[^:]+::[^:]+$/)),
+  replacementStrategy: Schema.optionalKey(
+    Schema.Literals(["create_then_delete", "delete_then_create"]),
+  ),
 });
 
 /**

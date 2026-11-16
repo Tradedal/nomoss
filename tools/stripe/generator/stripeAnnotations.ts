@@ -21,7 +21,13 @@ import {
 import { ResourceSourceInvalid } from "../../codegen/resourceErrors.js";
 import type { ResourceOutputCatalog } from "../../codegen/resourceSchemas.js";
 import { jsonExpression } from "../../codegen/typeScriptJson.js";
-import { access, call, identifier, print, printer } from "./typeScriptNodes.js";
+import {
+  access,
+  call,
+  identifier,
+  print,
+  printer,
+} from "../../codegen/typeScriptNodes.js";
 
 /**
  * The StripeAnnotations service requires generated declarations and command

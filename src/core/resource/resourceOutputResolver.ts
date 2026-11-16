@@ -84,8 +84,6 @@ export class ResourceOutputResolver extends Context.Service<ResourceOutputResolv
        * type and its complete outputs must pass their registered schema before
        * any selected value can be used.
        */
-      // CLEANUP_Q [resource-entities] Related resources receive the current provider values they
-      // need, even when a dependency is replaced or belongs to another provider.
       const resolveReference = Effect.fn(
         "ResourceOutputResolver.resolveReference",
       )(function* (
@@ -219,8 +217,6 @@ export class ResourceOutputResolver extends Context.Service<ResourceOutputResolv
        * prerequisites affect execution order and do not substitute values.
        * Resolution preserves the node's provider identifier, metadata, and outputs.
        */
-      // CLEANUP_Q [resource-entities] Applications can apply complex resource configurations
-      // containing related resources and recover interrupted work with the relationships intact.
       const resolveNode = Effect.fn("ResourceOutputResolver.resolveNode")(
         function* (
           node: ResourceNode,

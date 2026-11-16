@@ -16,6 +16,7 @@ import software.amazon.smithy.model.shapes.OperationShape;
 import software.amazon.smithy.model.shapes.StructureShape;
 import software.amazon.smithy.model.traits.TimestampFormatTrait;
 import software.amazon.smithy.model.traits.Trait;
+import software.amazon.smithy.model.traits.UnitTypeTrait;
 import software.amazon.smithy.openapi.OpenApiConfig;
 import software.amazon.smithy.openapi.fromsmithy.Context;
 import software.amazon.smithy.openapi.fromsmithy.OpenApiMapper;
@@ -85,6 +86,14 @@ public final class AwsJsonOpenApiExtension implements Smithy2OpenApiExtension {
             var tokens = context.getModel().expectShape(operation.getInputShape(), StructureShape.class)
                     .members().stream().filter(member -> member.hasTrait("smithy.api#idempotencyToken"))
                     .map(member -> Node.from(member.getMemberName())).collect(ArrayNode.collect());
+
+            ResponseObject.Builder success = ResponseObject.builder()
+                    .description("Successful operation response");
+            if (!operation.getOutputShape().equals(UnitTypeTrait.UNIT)) {
+                success.putContent(CONTENT_TYPE, MediaTypeObject.builder()
+                        .schema(context.createRef(operation.getOutputShape())).build());
+            }
+
             OperationObject.Builder result = OperationObject.builder()
                     .operationId(operation.getId().getName())
                     .addParameter(ParameterObject.builder().name("X-Amz-Target").in("header").required(true)
@@ -92,9 +101,7 @@ public final class AwsJsonOpenApiExtension implements Smithy2OpenApiExtension {
                     .requestBody(RequestBodyObject.builder().required(true)
                             .putContent(CONTENT_TYPE, MediaTypeObject.builder()
                                     .schema(context.createRef(operation.getInputShape())).build()).build())
-                    .putResponse("200", ResponseObject.builder().description("Successful operation response")
-                            .putContent(CONTENT_TYPE, MediaTypeObject.builder()
-                                    .schema(context.createRef(operation.getOutputShape())).build()).build())
+                    .putResponse("200", success.build())
                     .putExtension("x-aws-idempotency-tokens", tokens)
                     .putExtension("x-aws-pagination", operation.findTrait("smithy.api#paginated")
                             .map(Trait::toNode).orElse(Node.objectNode()))

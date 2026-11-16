@@ -16,6 +16,7 @@ import {
   ts,
   VariableDeclarationKind,
 } from "ts-morph";
+import { ResourceDeclarations } from "../../codegen/resourceDeclarations.js";
 import { ResourceSourceInvalid } from "../../codegen/resourceErrors.js";
 import type {
   OpenApiResourceCatalog,
@@ -23,9 +24,6 @@ import type {
 } from "../../codegen/resourceSchemas.js";
 import { ResourceReadBinding } from "../../codegen/resourceSchemas.js";
 import { jsonExpression } from "../../codegen/typeScriptJson.js";
-import type { StripeOpenApiInvocation } from "../model.js";
-import { StripeResourceClientEmitter } from "./stripeResourceClientEmitter.js";
-import { StripeResourceDeclarations } from "./stripeResourceDeclarations.js";
 import {
   access,
   call,
@@ -36,7 +34,10 @@ import {
   print,
   property,
   yieldAll,
-} from "./typeScriptNodes.js";
+} from "../../codegen/typeScriptNodes.js";
+import type { StripeOpenApiInvocation } from "../model.js";
+import { StripeResourceClientEmitter } from "./stripeResourceClientEmitter.js";
+import { StripeResourceDeclarations } from "./stripeResourceDeclarations.js";
 
 const factory = ts.factory;
 
@@ -51,6 +52,7 @@ export class StripeResourceBindingsEmitter extends Context.Service<StripeResourc
   {
     make: Effect.gen(function* () {
       const declarations = yield* StripeResourceDeclarations;
+      const entities = yield* ResourceDeclarations;
       const clients = yield* StripeResourceClientEmitter;
 
       /**
@@ -265,12 +267,14 @@ export class StripeResourceBindingsEmitter extends Context.Service<StripeResourc
                 Arr.head(update).pipe(Option.getOrUndefined),
               );
 
-              yield* declarations.emitResourceDeclaration(
+              yield* entities.emitResourceDeclaration(
                 module,
                 resource,
                 factory.createTypeReferenceNode(
                   Str.replace(/Schema$/, "")(entityInputName),
                 ),
+                "stripe",
+                "../../../../../core/resource/resourceOutputBinding.js",
               );
             }),
           ),
@@ -301,10 +305,12 @@ export class StripeResourceBindingsEmitter extends Context.Service<StripeResourc
                 },
               ]);
 
-              yield* declarations.emitResourceDeclaration(
+              yield* entities.emitResourceDeclaration(
                 module,
                 resource,
                 factory.createTypeReferenceNode(entityType),
+                "stripe",
+                "../../../../../core/resource/resourceOutputBinding.js",
               );
             }),
           ),

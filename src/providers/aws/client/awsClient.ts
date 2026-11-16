@@ -241,13 +241,15 @@ export class AwsClient extends Context.Service<AwsClient>()(
        * bindOperation makes a service's generated contracts callable.
        * Input encoding and output decoding use the generated schemas, while
        * request preparation and execution remain shared across operations.
+       * Output schemas carry HTTP encoding so modeled Unit responses complete
+       * through Effect's empty-response schema.
        */
       const bindOperation =
         (service: AwsServiceDefinition) =>
-        <Input, Output>(
+        <Input, Output, Encoded>(
           operation: AwsJsonRpcOperation & {
             readonly input: Schema.Codec<Input, AwsJsonRpcPayload>;
-            readonly output: Schema.Codec<Output, AwsJsonRpcPayload>;
+            readonly output: Schema.Codec<Output, Encoded>;
           },
         ) => {
           const api = HttpApi.make("AwsJsonOperation").add(

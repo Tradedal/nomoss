@@ -4,11 +4,14 @@ import {
   Effect,
   type JsonSchema,
   Match,
+  Option,
   Record,
   Schema,
   String as Str,
+  Tuple,
 } from "effect";
 import type { OperationCatalog } from "../codegen/catalogSchemas.js";
+import { OperationCatalogError } from "../codegen/operationCatalogs.js";
 import {
   type AwsOpenApiDocument,
   AwsOpenApiError,
@@ -28,23 +31,49 @@ export class AwsOpenApi extends Context.Service<AwsOpenApi>()(
   {
     make: Effect.sync(() => {
       /**
-       * Returns shared component definitions for native Effect normalization
-       * and compilation with the selected operation roots.
+       * The collectSchemaDefinitions service method supplies the definitions
+       * needed to compile all selected operations together. Conflicting
+       * definitions with the same component name fail before emission because
+       * the generated module can provide only one schema under that name.
        */
-      const collectSchemaDefinitions = (
-        documents: ReadonlyArray<AwsOpenApiDocument>,
-      ) => {
-        const components = Arr.reduce(
-          documents,
-          Record.empty<string, JsonSchema.JsonSchema>(),
-          (schemas, document) =>
-            Record.union(schemas, document.components.schemas, (left) => left),
+      const collectSchemaDefinitions = Effect.fn(
+        "AwsOpenApi.collectSchemaDefinitions",
+      )(function* (documents: ReadonlyArray<AwsOpenApiDocument>) {
+        const components = Arr.groupBy(
+          Arr.flatMap(documents, (document) =>
+            Record.toEntries(document.components.schemas),
+          ),
+          ([name]) => name,
         );
 
-        const definitions: JsonSchema.Definitions = components;
+        const equivalent = Schema.toEquivalence(Schema.JsonObject);
+
+        const entries = yield* Effect.forEach(
+          Record.toEntries(components),
+          ([name, definitions]) => {
+            const first = definitions[0][1];
+            const consistent = Arr.every(definitions, ([, definition]) =>
+              equivalent(first, definition),
+            );
+            const entry = Tuple.make(name, first);
+
+            return Effect.succeed(entry).pipe(
+              Effect.filterOrFail(
+                () => consistent,
+                () =>
+                  new OperationCatalogError({
+                    source: name,
+                    message: `Conflicting component definitions for ${name} cannot share a generated schema`,
+                  }),
+              ),
+            );
+          },
+        );
+
+        const definitions: JsonSchema.Definitions = Record.fromEntries(entries);
 
         return definitions;
-      };
+      });
 
       /**
        * Binds request, response, and AWS invocation facts from
@@ -80,22 +109,48 @@ export class AwsOpenApi extends Context.Service<AwsOpenApi>()(
                   Record.get(post.responses, "200"),
                 );
 
-                const response = yield* Effect.fromOption(
-                  Record.get(success.content, contentType),
+                const output = yield* Option.fromUndefinedOr(
+                  success.content,
+                ).pipe(
+                  Option.map((content) =>
+                    Record.get(content, contentType).pipe(
+                      Effect.fromOption(
+                        () =>
+                          new OperationCatalogError({
+                            source: catalog.source.name,
+                            message: `Operation ${post.operationId} must declare response content for ${contentType}`,
+                          }),
+                      ),
+                      Effect.flatMap((response) =>
+                        Schema.decodeUnknownEffect(OpenApiComponentReference)(
+                          response.schema,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Effect.transposeOption,
                 );
 
-                const output = yield* Schema.decodeUnknownEffect(
-                  OpenApiComponentReference,
-                )(response.schema);
-
-                const errorSchemas = Arr.flatMap(
-                  Record.values(
+                const errorSchemas = yield* Effect.forEach(
+                  Record.toEntries(
                     Record.filter(
                       post.responses,
                       (_, status) => Number(status) >= 300,
                     ),
                   ),
-                  (response) => Record.values(response.content),
+                  ([status, response]) =>
+                    Option.fromUndefinedOr(response.content).pipe(
+                      Option.flatMap((content) =>
+                        Record.get(content, contentType),
+                      ),
+                      Effect.fromOption(
+                        () =>
+                          new OperationCatalogError({
+                            source: catalog.source.name,
+                            message: `Operation ${post.operationId} response ${status} must declare modeled errors for ${contentType}`,
+                          }),
+                      ),
+                    ),
                 );
 
                 const errorReferences = Arr.flatMap(
@@ -143,6 +198,12 @@ export class AwsOpenApi extends Context.Service<AwsOpenApi>()(
                   contentType,
                 );
 
+                const outputName = Option.match(output, {
+                  onNone: () => null,
+                  onSome: (reference) =>
+                    Str.replace("#/components/schemas/", "")(reference.$ref),
+                });
+
                 const operation: AwsOpenApiInvocation = {
                   name: post.operationId,
                   method: "POST",
@@ -151,7 +212,7 @@ export class AwsOpenApi extends Context.Service<AwsOpenApi>()(
                     "#/components/schemas/",
                     "",
                   )(request.schema.$ref),
-                  output: Str.replace("#/components/schemas/", "")(output.$ref),
+                  output: outputName,
                   headers,
                   idempotencyTokens: post["x-aws-idempotency-tokens"],
                   pagination: post["x-aws-pagination"],

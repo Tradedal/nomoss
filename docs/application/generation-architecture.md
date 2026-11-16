@@ -6,6 +6,51 @@ A declaration must return a typed resource entity before the provider creates it
 
 CloudFormation Registry defines which AWS properties an application can set and which fields distinguish resource instances. For Stripe, discovery examines OpenAPI schemas and operations to pair a creation request with a read that accepts the returned id. The [source configuration](../../tools/stripe/openapi-source.json) supplies the application namespace and webhook exceptions that the provider document does not define. Generated validation must preserve the provider's property constraints, and operation bindings must select the corresponding requests.
 
+## AWS resource declarations and operation clients
+
+Nomoss generates two kinds of TypeScript code because an application's resource declaration and an AWS API request describe different things. The generated `declareAWSQueue` function lets an application describe a desired SQS queue. The generated SQS operation client provides methods such as `createQueue` and `getQueueAttributes` for calls to AWS.
+
+```text
+CloudFormation Queue definition → resource generator → declareAWSQueue
+Smithy SQS service model        → client generator   → SQS operation client
+```
+
+The [CloudFormation Registry definition for AWS::SQS::Queue](../../refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-sqs-queue.json) specifies accepted resource properties, resource identity, and replacement rules. The [Smithy model for Amazon SQS](../../refs/aws-api-models/models/sqs/service/2012-11-05/sqs-2012-11-05.json) specifies API request fields, response fields, and service errors. The [resource source manifest](../../tools/awsServiceResources/sources/resources.json) selects Registry definitions and records their revisions and checksums. The [SQS source manifest](../../tools/awsServiceResources/sources/sqs.json) also selects the Smithy service model. The source-verification service, `AwsServiceResourceSources`, checks the selected source contents before generation.
+
+The [resource-generation service, AwsServiceResourceDeclarations](../../tools/awsServiceResources/resourceDeclarations.ts), turns the Queue definition into the declaration function application code uses. Within the application's stack declaration, the generated `declareAWSQueue` function registers the desired queue with core's `ResourceGraphBuilder` service and returns a Queue resource entity:
+
+```ts
+const queue = yield* declareAWSQueue({
+  logicalId: "Events",
+  props: { VisibilityTimeout: 45 },
+});
+```
+
+The logical ID `"Events"` gives core a stable identity within the stack. The `VisibilityTimeout` property specifies the desired queue setting. The Queue resource entity lets another resource declaration depend on the queue before AWS assigns the queue's URL and ARN.
+
+The generated `declareAWSBucket` function accepts the Queue resource entity as a notification destination. Within the same stack declaration, an application can describe an S3 bucket whose object-creation notifications target the queue:
+
+```ts
+const bucket = yield* declareAWSBucket({
+  logicalId: "Uploads",
+  props: {
+    NotificationConfiguration: {
+      QueueConfigurations: [
+        { Event: "s3:ObjectCreated:*", Queue: queue },
+      ],
+    },
+  },
+});
+```
+
+The [resource metadata importer, AwsResourceMetadataImporter](../../tools/awsResources/awsResourceMetadata.ts), obtains the S3-to-SQS relationship through CDK's `DatabaseBuilder` definition importer. The relationship identifies the SQS Queue's `Arn` output as the value accepted by the S3 Bucket's notification `Queue` property. The resource-generation service uses the relationship to produce a declaration schema that accepts the Queue resource entity at that property.
+
+```text
+Queue entity in Bucket properties → recorded dependency → ARN in resolved Bucket request
+```
+
+Core uses the recorded dependency to plan resource changes. Core's `ResourceOutputResolver` service substitutes the saved queue ARN when it prepares the bucket request. The generated request schema then validates the resolved bucket properties against the original CloudFormation Registry constraints. The [declaration integration case](../../tests/awsResourceDeclarations.integration.test.ts) exercises this relationship through core's declaration, planning, output-resolution, and saved-state services with controlled provider results. The [AWS native resource tracker](../../attempts/dev-attempts_aws-smithy-resource-generation.md) defines the separate work for native lifecycle execution and delivery permissions.
+
 ## Provider contracts and resource metadata
 
 Stripe supplies OpenAPI directly. AWS supplies Smithy models, which Nomoss converts to OpenAPI before schema compilation. The Stripe generator verifies the pinned specification before it applies corrections, and each correction must match its expected source value. Resource metadata and client contracts must use the same corrected document so declaration properties and provider requests retain consistent validation.
@@ -15,51 +60,74 @@ The generated declaration schema must identify the resource types accepted by ea
 ```mermaid
 ---
 config:
+  layout: elk
   theme: neutral
+  themeVariables:
+    fontSize: "14px"
+    background: "#ffffff"
   flowchart:
-    curve: linear
+    curve: stepAfter
+    padding: 8
+    wrappingWidth: 220
+    nodeSpacing: 16
+    rankSpacing: 24
 ---
-flowchart TB
-  subgraph Sources["Source definitions"]
-    Stripe["Stripe OpenAPI"]
-    Smithy["AWS Smithy models"]
-    Registry["CloudFormation Registry schemas"]
-    Local["StripeBillingConfigurationExportInputSchema"]
-  end
-  Conversion["Smithy OpenAPI conversion"]
-  Operations["OperationCatalogs"]
-  Resources["Resource catalog services"]
-  Compilation["SchemaCompilation<br/>Effect Schema"]
-  StripeGenerator["StripeClientGenerator<br/>TypeScript AST"]
-  AwsClientGenerator["AwsOpenApiTypeScript<br/>TypeScript AST"]
-  AwsResourceGenerator["AwsResourceTypeScript<br/>TypeScript AST"]
-  StripeClient["Stripe generated operation contracts"]
-  StripeResources["Stripe generated resource contracts"]
-  AwsClient["AWS generated operation contracts"]
-  AwsResources["AWS generated resource declarations"]
+flowchart LR
+  subgraph Clients["Generate clients for provider API calls"]
+    direction LR
+    Stripe["Stripe's OpenAPI specification describes the accepted inputs and possible responses for Stripe API calls."]
+    Smithy["AWS's Smithy service models describe API inputs, responses, errors and request protocols."]
+    Conversion["Smithy's OpenAPI converter translates AWS service models into OpenAPI so AWS and Stripe can use the same schema compiler."]
+    Operations["The operation catalog associates each API operation with its request and response schemas for client generation."]
+    ClientCompilation["Effect Schema compiles API request and response schemas into TypeScript types and runtime validators."]
+    StripeGenerator["ts-morph and TypeScript AST operations produce Stripe client methods that validate arguments and decode responses."]
+    AwsClientGenerator["ts-morph and TypeScript AST operations produce AWS client methods that execute through the shared AWS request client."]
+    StripeClient["Applications call Stripe APIs through generated methods with validated requests and responses."]
+    AwsClient["Applications call AWS APIs through generated methods with validated requests and responses."]
 
-  Stripe -->|"pinned specification and checked corrections"| Operations
-  Smithy --> Conversion --> Operations
-  Operations -->|"operation payload schemas"| Compilation
-  Operations -->|"corrected schemas and selected operations"| Resources
-  Registry -->|"identity and property classifications"| Resources
-  Local -->|"selected native Effect fields"| Resources
-  Resources -->|"source-derived schemas"| Compilation
-  Compilation -->|"native CodeDocument"| StripeGenerator & AwsClientGenerator & AwsResourceGenerator
-  Resources -->|"resource metadata"| StripeGenerator & AwsResourceGenerator
-  StripeGenerator --> StripeClient & StripeResources
-  AwsClientGenerator --> AwsClient
-  AwsResourceGenerator --> AwsResources
+    Stripe -->|"verified specification and checked corrections"| Operations
+    Smithy --> Conversion --> Operations
+    Operations -->|"operation payload schemas"| ClientCompilation
+    ClientCompilation -->|"compiled types and validators"| StripeGenerator
+    ClientCompilation -->|"compiled types and validators"| AwsClientGenerator
+    StripeGenerator --> StripeClient
+    AwsClientGenerator --> AwsClient
+  end
+
+  subgraph Declarations["Generate resource declarations for applications"]
+    direction LR
+    ResourceOperations["Resource discovery compares API request and response schemas to pair creation calls with reads of the created resource."]
+    Registry["AWS CloudFormation Registry resource schemas in the CDK service-spec checkout describe writable properties, resource identities and replacement rules."]
+    Resources["The resource catalog records each resource's declaration schema, saved outputs and operation mappings for declaration generation."]
+    ResourceCompilation["Effect Schema produces TypeScript types and runtime validators for declared properties and saved resource outputs."]
+    Metadata["Resource identity and relationship mappings let core locate saved resources and resolve values in dependent requests."]
+    ResourceGenerators["ts-morph and TypeScript AST operations produce resource schemas and declaration functions that register desired resources with core."]
+    StripeResources["Applications use generated Stripe resource declarations to describe desired Stripe resources and pass related resource entities as properties."]
+    AwsResources["Applications use generated AWS resource declarations to describe desired AWS resources. Core validates their properties and saved outputs with the generated schemas."]
+
+    ResourceOperations -->|"corrected schemas and selected operations"| Resources
+    Registry -->|"identity and property classifications"| Resources
+    Resources -->|"source-derived schemas"| ResourceCompilation
+    Resources --> Metadata
+    ResourceCompilation -->|"compiled types and validators"| ResourceGenerators
+    Metadata --> ResourceGenerators
+    ResourceGenerators --> StripeResources
+    ResourceGenerators --> AwsResources
+  end
+
+  style Clients fill:#ffffff,stroke:#cbd5e1,color:#0f172a
+  style Declarations fill:#ffffff,stroke:#cbd5e1,color:#0f172a
+  linkStyle default stroke:#15803d,stroke-width:2px,color:#166534
 
   classDef source fill:#f0fdf4,stroke:#15803d,color:#14532d
   classDef service fill:#eff6ff,stroke:#2563eb,color:#172554
-  class Stripe,Smithy,Registry,Local source
-  class Operations,Resources,Compilation,StripeGenerator,AwsClientGenerator,AwsResourceGenerator service
+  class Stripe,Smithy,Registry,Metadata,StripeClient,AwsClient,StripeResources,AwsResources source
+  class Conversion,Operations,ClientCompilation,StripeGenerator,AwsClientGenerator,ResourceOperations,Resources,ResourceCompilation,ResourceGenerators service
 ```
 
 AWS resource generation must preserve the identity and property classifications defined by CloudFormation Registry. Smithy defines the outer Cloud Control requests and responses. Cloud Control returns both the resource model and an Identifier used by later requests. Nomoss must retain that Identifier separately from the identity fields inside the model because subsequent Cloud Control operations require the returned value.
 
-Local resources must retain the validation defined by their canonical Effect schemas. The [billing export schema](../../src/providers/stripe/resources/billingConfigurationExport/schemas.ts) defines the document that the local file resource accepts. Generation must compile its selected native fields directly so it preserves that validation. Nomoss must save the output path as the resource identity so later reads can find the published file.
+Local resources must retain the validation from their canonical Effect schemas. Generation must compile selected native fields directly so the generated declarations preserve the application's validation rules. A local file resource must save its output path as its identity so later reads can locate the published file.
 
 ## Discovery through the schema graph
 
@@ -135,6 +203,6 @@ The published [resource catalog](../../src/providers/stripe/client/generated/res
 
 Stripe uses the provider directory organization described above. Its generated declarations register canonical schemas internally and accept typed resource entities at resolved relationship paths. Core execution checks the source type, obtains its current applied values, and validates the completed request before mutation.
 
-Discovery still leaves relationships unresolved when it cannot identify their targets. AWS generation still needs schemas that accept resource entities. Stripe's local file resource still requires a handwritten policy for native operations, and generated updates require the same identity mapping as reads. Customer's generated registration selects its deleted-response rule through a hint. ResourceCommandExecutionFailed identifies a failed command and retains its provider or validation error. Replacement uses generated rules to compose ordinary lifecycle operations in the reviewed plan. The [resource lifecycle requirements](resource-operations.md) describe these contracts, and the [unified tracker](../../attempts/dev-attempts_unified-resource-generation.md) records the remaining work.
+Discovery still leaves relationships unresolved when it cannot identify their targets. Generated native AWS declarations accept resource entities at unambiguous relationship properties identified through CDK metadata. Stripe's local file resource still requires a handwritten policy for native operations, and generated updates require the same identity mapping as reads. Customer's generated registration selects its deleted-response rule through a hint. ResourceCommandExecutionFailed identifies a failed command and retains its provider or validation error. Replacement uses generated rules to compose ordinary lifecycle operations in the reviewed plan. The [resource lifecycle requirements](resource-operations.md) describe these contracts, and the [unified tracker](../../attempts/dev-attempts_unified-resource-generation.md) records the remaining work.
 
 Acceptance must demonstrate that applications pass entities directly and that unrelated resource types fail before a dependent mutation. Production services must preserve relationships across providers, nested properties, saved state, and source replacement. Source checks must establish that generation retains the allowed targets and request mappings across the complete catalog. The [resource mapping specification](resource-mapping.md) defines the remaining requirements for discovery and provider operations.

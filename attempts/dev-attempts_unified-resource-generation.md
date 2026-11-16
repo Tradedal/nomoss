@@ -18,7 +18,7 @@ Generate from the complete corrected provider source. Determine resource support
 
 Run one bounded generation process at a time. Prepare input candidates outside src before replacing published inputs, and compile the complete entity input set together because it shares schema names. Regenerate command registration separately when needed. Keep full client generation outside the iteration loop.
 
-Keep deleted APIs absent. Retain CLEANUP_Q [resource-entities] annotations until their assigned behavior works, and preserve DESIGN_Q and REVIEW_Q annotations under their existing review conditions.
+Keep deleted APIs absent. Preserve DESIGN_Q and REVIEW_Q annotations under their existing review conditions.
 
 ## Working features
 

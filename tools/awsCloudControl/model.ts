@@ -63,11 +63,18 @@ const ResponseSchema = Schema.Union([
   Schema.Struct({ anyOf: Schema.NonEmptyArray(OpenApiComponentReference) }),
 ]);
 
+/**
+ * The AwsOpenApiResponseContent schema retains the modeled errors and success
+ * payloads used to compile decoding schemas. A declared error response must
+ * supply content for the operation's protocol before generation can continue.
+ */
+export const AwsOpenApiResponseContent = Schema.Record(
+  Schema.String,
+  Schema.Struct({ schema: ResponseSchema }),
+);
+
 const Response = Schema.Struct({
-  content: Schema.Record(
-    Schema.String,
-    Schema.Struct({ schema: ResponseSchema }),
-  ),
+  content: Schema.optionalKey(AwsOpenApiResponseContent),
 });
 
 /**
@@ -126,7 +133,7 @@ export interface AwsOpenApiInvocation {
   readonly method: "POST";
   readonly path: `/${string}`;
   readonly input: string;
-  readonly output: string;
+  readonly output: string | null;
   readonly headers: Readonly<Record<string, string>>;
   readonly idempotencyTokens: ReadonlyArray<string>;
   readonly pagination: Readonly<Record<string, Schema.Json>>;

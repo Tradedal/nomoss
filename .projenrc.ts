@@ -28,6 +28,8 @@ const project = new javascript.NodeProject({
   ],
   copyrightOwner: "Roman Naumenko",
   devDeps: [
+    "@aws-cdk/service-spec-importers@0.0.145",
+    "@aws-cdk/service-spec-types@0.0.289",
     "@biomejs/biome@2.6.3",
     "@catenarycloud/linteffect@0.1.0",
     "@effect/tsgo@0.63.0",

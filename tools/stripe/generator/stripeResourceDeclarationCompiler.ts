@@ -9,10 +9,10 @@ import {
   String as Str,
 } from "effect";
 import { Project } from "ts-morph";
+import { ResourceDeclarations } from "../../codegen/resourceDeclarations.js";
 import { ResourceCatalog } from "../../codegen/resourceSchemas.js";
 import type { TypeScriptModuleSource } from "../../typeScriptModulePublisher.js";
 import { StripeResourceBindingsEmitter } from "./stripeResourceBindingsEmitter.js";
-import { StripeResourceDeclarations } from "./stripeResourceDeclarations.js";
 
 /**
  * The StripeResourceDeclarationCompiler service lets generation changes refresh
@@ -27,7 +27,7 @@ export class StripeResourceDeclarationCompiler extends Context.Service<StripeRes
     make: Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const declarations = yield* StripeResourceDeclarations;
+      const declarations = yield* ResourceDeclarations;
       const emitter = yield* StripeResourceBindingsEmitter;
 
       /**
@@ -70,6 +70,8 @@ export class StripeResourceDeclarationCompiler extends Context.Service<StripeRes
             const refreshed = yield* declarations.refreshResourceDeclaration(
               module,
               resource,
+              "stripe",
+              "../../../../../core/resource/resourceOutputBinding.js",
             );
 
             const artifact: TypeScriptModuleSource = {

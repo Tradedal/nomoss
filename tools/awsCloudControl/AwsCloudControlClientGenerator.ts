@@ -20,7 +20,11 @@ import {
 } from "../codegen/catalogSchemas.js";
 import { OperationCatalogs } from "../codegen/operationCatalogs.js";
 import { TypeScriptModulePublisher } from "../typeScriptModulePublisher.js";
-import { AwsOpenApiDocument, SmithyDependencies } from "./model.js";
+import {
+  AwsOpenApiDocument,
+  AwsOpenApiService,
+  SmithyDependencies,
+} from "./model.js";
 import { AwsOpenApi } from "./openApi.js";
 import { AwsOpenApiTypeScript } from "./typeScript.js";
 
@@ -240,9 +244,11 @@ export class AwsCloudControlClientGenerator extends Context.Service<AwsCloudCont
       });
 
       /**
-       * Emits generated TypeScript for inspection before
-       * publication. Data and HTTP contracts come from published OpenAPI
-       * documents, with invocation delegated to AwsClient.
+       * The emitClientModule service method accepts operation documents from
+       * one AWS service so catalog readers and runtime calls use the same
+       * execution definition. An empty collection or conflicting service
+       * metadata fails before schema emission. Callers receive source for
+       * inspection before publication.
        */
       const emitClientModule = Effect.fn(
         "AwsCloudControlClientGenerator.emitClientModule",
@@ -254,13 +260,34 @@ export class AwsCloudControlClientGenerator extends Context.Service<AwsCloudCont
           Schema.decodeUnknownEffect(AwsOpenApiDocument)(document),
         );
         const first = yield* Effect.fromOption(Arr.head(providerDocuments));
-        const definitions = openApi.collectSchemaDefinitions(providerDocuments);
+        const serviceDefinition = first["x-aws-service"];
+        const equivalentService = Schema.toEquivalence(AwsOpenApiService);
+
+        yield* Effect.forEach(providerDocuments, (document) => {
+          const selectedService = document["x-aws-service"];
+
+          return Effect.succeed(selectedService).pipe(
+            Effect.filterOrFail(
+              (selected) => equivalentService(serviceDefinition, selected),
+              () =>
+                new AwsCloudControlGenerationError({
+                  message: `Operation documents must describe the same AWS service and execution rules: ${selectedService.service}`,
+                }),
+            ),
+          );
+        });
+
+        const definitions =
+          yield* openApi.collectSchemaDefinitions(providerDocuments);
+
         const discovered = yield* Effect.forEach(documents, (document, index) =>
           Effect.gen(function* () {
             const providerDocument = providerDocuments[index];
+
             const operation = yield* Effect.fromOption(
               Arr.head(Record.values(providerDocument.paths)),
             );
+
             const catalog = yield* catalogs.buildOperationCatalog(
               {
                 provider: "AWS",
@@ -270,25 +297,31 @@ export class AwsCloudControlClientGenerator extends Context.Service<AwsCloudCont
               },
               document,
             );
+
             return catalog;
           }),
         );
-        const operations = yield* openApi.bindClientOperations(discovered);
-        const module = typeScript.createModule();
 
-        yield* catalogs.emitOperationCatalog(
-          module,
-          `${Str.uncapitalize(serviceName)}OperationCatalog`,
-          Arr.flatMap(discovered, (catalog) => catalog.metadata),
-        );
+        const operations = yield* openApi.bindClientOperations(discovered);
+
+        const module = typeScript.createModule();
 
         yield* typeScript.emitSchemas(module, definitions, operations);
         yield* typeScript.emitOperations(module, serviceName, operations);
         typeScript.emitClient(
           module,
           serviceName,
-          first["x-aws-service"],
+          serviceDefinition,
           operations,
+        );
+
+        const prefix = Str.camelCase(serviceName);
+
+        yield* catalogs.emitOperationCatalog(
+          module,
+          `${prefix}OperationCatalog`,
+          Arr.flatMap(discovered, (catalog) => catalog.metadata),
+          { "x-aws-service": `${prefix}Service` },
         );
 
         const source: string = module.getFullText();

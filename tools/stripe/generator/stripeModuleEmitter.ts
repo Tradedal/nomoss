@@ -31,13 +31,13 @@ import type {
   OpenApiResourcePreparation,
   ResourceOutputCatalog,
 } from "../../codegen/resourceSchemas.js";
+import { literal, print } from "../../codegen/typeScriptNodes.js";
 import type { StripeOpenApiInvocation, StripeOpenApiSource } from "../model.js";
 import { StripeCatalogEmitter } from "./stripeCatalogEmitter.js";
 import { StripeClientEmitter } from "./stripeClientEmitter.js";
 import { StripeResourceBindingsEmitter } from "./stripeResourceBindingsEmitter.js";
 import { StripeResourceInputs } from "./stripeResourceInputs.js";
 import { StripeSchemaEmitter } from "./stripeSchemaEmitter.js";
-import { literal, print } from "./typeScriptNodes.js";
 
 /**
  * The StripeModuleEmitter service assigns each shared model to its manifest's

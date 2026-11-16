@@ -1,0 +1,19 @@
+{
+  "smithy": {
+    "specification": "refs/aws-api-models/models/sqs/service/2012-11-05/sqs-2012-11-05.json",
+    "revision": "1b9ff13fe6c28ea9774a527e53cda6a3b91369dc",
+    "sha256": "f34a7d2560fb9776206fb35958b8d0fc5f17d33f377bb7512d55a34a8c0c78f0",
+    "serviceId": "com.amazonaws.sqs#AmazonSQS"
+  },
+  "cloudFormation": {
+    "region": "us-east-1",
+    "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-sqs-queue.json",
+    "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+    "sha256": "2e484214f7c5fdc7f97ae2e5bce027293b2ea55776a3c133ee0326cbde8cedf6"
+  },
+  "relationships": {
+    "specification": "refs/aws-cdk-service-spec/sources/OobRelationships/relationships.json",
+    "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+    "sha256": "6c650d20b4487e56cd5e8423376d8af0cfa2ff42e1b9dcb02eb7f2edd9935c0e"
+  }
+}

@@ -14,8 +14,8 @@ import type {
   ResourceOutputCatalog,
 } from "../../codegen/resourceSchemas.js";
 import { jsonExpression } from "../../codegen/typeScriptJson.js";
+import { print } from "../../codegen/typeScriptNodes.js";
 import type { StripeOpenApiInvocation } from "../model.js";
-import { print } from "./typeScriptNodes.js";
 
 /**
  * The StripeCatalogEmitter service preserves discovered metadata independently

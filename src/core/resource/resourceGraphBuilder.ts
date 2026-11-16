@@ -63,8 +63,6 @@ export class ResourceGraphBuilder extends Context.Service<ResourceGraphBuilder>(
        * dependencies. Missing or incompatible source entities fail before the
        * graph changes, so a rejected declaration cannot leave a partial node.
        */
-      // CLEANUP_Q [resource-entities] Nomoss applies related resources in dependency order and
-      // rejects invalid relationships before changing infrastructure, including after a restart.
       const registerNode = Effect.fn("ResourceGraphBuilder.registerNode")(
         function* (
           node: ResourceNode,
@@ -220,8 +218,6 @@ export class ResourceGraphBuilder extends Context.Service<ResourceGraphBuilder>(
          * that other declarations can pass directly. Its resource type must
          * match the canonical declaration schema before registration succeeds.
          */
-        // CLEANUP_Q [resource-entities] Applications can use a declared resource directly when
-        // declaring another resource that depends on it, before either exists at the provider.
         const registerEntity = Effect.fn(
           "ResourceGraphBuilder.resource.registerEntity",
         )(function* <

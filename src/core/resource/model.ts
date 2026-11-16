@@ -90,8 +90,6 @@ export type ResourceReferenceRecord = typeof ResourceReferenceRecordSchema.Type;
  * without the source's properties. Scalar IDs and output references fail this
  * schema before graph registration.
  */
-// CLEANUP_Q [resource-entities] Applications can save and reopen a stack without losing
-// relationships between its resources, including resources managed by different providers.
 export const ResourceReferenceSchema = <Type extends ResourceType>(
   resourceType: Schema.Schema<Type>,
   mapping: ResourceRequestMapping,
@@ -821,8 +819,6 @@ export class ResourceModel extends Context.Service<ResourceModel>()(
        * Omitted output values describe a declaration that awaits provider execution;
        * supplied values must satisfy the registered output contract.
        */
-      // CLEANUP_Q [resource-entities] Applications can apply a declared stack and later resume
-      // managing the same related resources from saved state.
       const nodeFromResource = Effect.fn("ResourceModel.nodeFromResource")(
         function* <
           Props,

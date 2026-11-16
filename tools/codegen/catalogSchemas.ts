@@ -72,8 +72,10 @@ export const OpenApiObjectLocation = Schema.Struct({
 export type OpenApiObjectLocation = typeof OpenApiObjectLocation.Type;
 
 /**
- * Catalog consumers can inspect operation requirements and do not need to compile
- * payload schemas. Provider extensions retain their source-defined meaning.
+ * Catalog readers need the originating document's service configuration
+ * alongside each operation's requirements. Keeping their extension records
+ * distinct lets generated entries refer to shared configuration while
+ * retaining the data specific to an operation.
  */
 export const OperationMetadata = Schema.Struct({
   source: OperationSource,
@@ -99,7 +101,10 @@ export const OperationMetadata = Schema.Struct({
     OperationResponseStatus,
     Schema.Array(Schema.String),
   ),
-  providerMetadata: Schema.JsonObject,
+  providerMetadata: Schema.Struct({
+    document: Schema.JsonObject,
+    operation: Schema.JsonObject,
+  }),
 });
 
 export type OperationMetadata = typeof OperationMetadata.Type;
