@@ -1,6 +1,13 @@
 import { NodeServices } from "@effect/platform-node";
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Schema } from "effect";
+import {
+  Array as Arr,
+  Effect,
+  FileSystem,
+  Layer,
+  Schema,
+  String as Str,
+} from "effect";
 import { SecureRandom } from "effect/crypto";
 import { ChildProcess } from "effect/process";
 
@@ -18,10 +25,11 @@ import { stateSecretServiceIntegrationTestLayer } from "./support/stateSecretSer
 
 describe("StateSecretService", () => {
   it.effect(
-    "preserves AWS resource identity when secret persistence and restoration process a node without secret outputs",
+    "Saving and loading secrets leaves unrelated AWS resource identities unchanged",
     () =>
       Effect.gen(function* () {
         const secrets = yield* StateSecretService;
+
         const node = ResourceNodeSchema.make({
           key: { logicalId: "Queue" },
           schema: {
@@ -35,6 +43,7 @@ describe("StateSecretService", () => {
           outputs: {},
           cloudControlIdentifier: "managed-queue",
         });
+
         const state = ResourceStateSchema.make({
           _tag: "Created",
           node,
@@ -58,7 +67,7 @@ describe("StateSecretService", () => {
   );
 
   it.effect.skipIf(process.platform !== "darwin")(
-    "keeps a Stripe signing secret outside the state file and restores it for lifecycle processing",
+    "Stripe signing secrets survive reload without appearing in the state file",
     () =>
       Effect.gen(function* () {
         const stateStore = yield* ResourceStateStore;
@@ -69,6 +78,7 @@ describe("StateSecretService", () => {
 
         const stack = `state-secret-service-test-${testId}`;
         const key = `${stack}/BillingWebhookEndpoint/WebhookSigningSecret`;
+        const replacementKey = `${stack}/BillingWebhookEndpoint/instances/1/WebhookSigningSecret`;
         const stateFile = `./.nomoss/state/${stack}.json`;
         const signingSecret = `whsec_test_${testId}`;
 
@@ -103,6 +113,20 @@ describe("StateSecretService", () => {
           ).pipe(Effect.ignore),
         );
 
+        yield* Effect.acquireRelease(Effect.void, () =>
+          ChildProcess.make("security", [
+            "delete-generic-password",
+            "-a",
+            replacementKey,
+            "-s",
+            "com.nomoss.state",
+          ]).pipe(
+            Effect.scoped,
+            Effect.andThen((process) => process.exitCode),
+            Effect.ignore,
+          ),
+        );
+
         yield* stateStore.saveResources(stack, [webhook]);
 
         const persisted = yield* Schema.decodeEffect(
@@ -129,7 +153,7 @@ describe("StateSecretService", () => {
         });
 
         assert.strictEqual(
-          (yield* fs.readFileString(stateFile)).includes(signingSecret),
+          Str.includes(signingSecret)(yield* fs.readFileString(stateFile)),
           false,
         );
 
@@ -137,6 +161,32 @@ describe("StateSecretService", () => {
           WebhookEndpointId: "we_test",
           WebhookSigningSecret: signingSecret,
         });
+
+        const replacementSecret = `whsec_replacement_${testId}`;
+        const replacement = {
+          ...webhook,
+          generation: 1,
+          outputs: {
+            WebhookEndpointId: "we_replacement",
+            WebhookSigningSecret: replacementSecret,
+          },
+        };
+
+        yield* stateStore.markResourceApplied(stack, replacement, "Created");
+
+        const owned = stateStore.ownedResources(
+          yield* stateStore.loadResourceStates(stack),
+        );
+
+        assert.sameDeepMembers(
+          Arr.map(owned, (node) => node.outputs),
+          [webhook.outputs, replacement.outputs],
+        );
+
+        const file = yield* fs.readFileString(stateFile);
+
+        assert.strictEqual(Str.includes(signingSecret)(file), false);
+        assert.strictEqual(Str.includes(replacementSecret)(file), false);
       }).pipe(Effect.provide(stateSecretServiceIntegrationTestLayer)),
   );
 });

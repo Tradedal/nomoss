@@ -1,4 +1,5 @@
 import {
+  Array as Arr,
   Context,
   Effect,
   FileSystem,
@@ -14,12 +15,17 @@ import { ChildProcessSpawner } from "effect/process";
 import type { ResourceNode } from "../../src/core/resource/model.js";
 import { ResourceGraphBuilder } from "../../src/core/resource/resourceGraphBuilder.js";
 import {
+  ResourceStackDeclarationFailed,
   ResourceStackDefinition,
-  resourceStackDeclarationResult,
 } from "../../src/core/stack/resourceStackDefinition.js";
-import { resourceStackOperationsLayer } from "../../src/core/stack/resourceStackOperations.js";
+import {
+  type ResourceApplicationPreparation,
+  ResourceStackOperations,
+  resourceStackOperationsLayer,
+} from "../../src/core/stack/resourceStackOperations.js";
 import {
   QueuePropsSchema,
+  type QueueResource,
   QueueResourceSchema,
   registerQueue,
 } from "../../src/providers/aws/resources/generated/sqs/queue/index.js";
@@ -56,6 +62,12 @@ export const selectedQueue: ResourceNode = {
   outputs: {},
 };
 
+/**
+ * The NomossCliFixture service lets workflow tests change the desired queues
+ * between stack operations while keeping the same application graph. Selection
+ * changes affect future declarations; resources retained by an existing plan
+ * still belong to that plan.
+ */
 export class NomossCliFixture extends Context.Service<NomossCliFixture>()(
   "nomoss/tests/support/nomossCliFixture",
   {
@@ -65,11 +77,17 @@ export class NomossCliFixture extends Context.Service<NomossCliFixture>()(
         selectedQueue,
       ]);
 
+      /**
+       * The declareResources service method lets a test declaration register
+       * its selected queues through production validation and registration.
+       * The returned entities can supply applied URLs to the application's
+       * result function after successful stack execution.
+       */
       const declareResources = Effect.fn("NomossCliFixture.declareResources")(
         function* () {
           const resources = yield* Ref.get(desired);
 
-          yield* Effect.forEach(
+          const declared: ReadonlyArray<QueueResource> = yield* Effect.forEach(
             resources,
             (resource) =>
               Schema.decodeUnknownEffect(QueuePropsSchema)(resource.props).pipe(
@@ -78,12 +96,17 @@ export class NomossCliFixture extends Context.Service<NomossCliFixture>()(
                 ),
                 Effect.provideService(ResourceGraphBuilder, graph),
               ),
-            { discard: true },
           );
+          return declared;
         },
       );
 
       return {
+        /**
+         * The setDesiredResources service method lets tests choose the queues
+         * for the next declaration without changing an already prepared plan
+         * or its saved resources.
+         */
         setDesiredResources: (resources: ReadonlyArray<ResourceNode>) =>
           Ref.set(desired, resources),
         declareResources,
@@ -93,32 +116,51 @@ export class NomossCliFixture extends Context.Service<NomossCliFixture>()(
 ) {}
 
 /**
- * The CLI fixture supplies an application declaration with controlled AWS
- * responses and in-memory state. Commands exercise the shared stack graph
- * without reading or changing local application files.
+ * The nomossCliStackDefinition Effect supplies workflow tests with a stack
+ * declaration whose apply result contains the selected queues' URLs. Each
+ * preparation reads NomossCliFixture's current selection; a retained plan
+ * continues to compute URLs for its own declared queues.
  */
-const nomossCliDefinitionTestLayer = Layer.effect(
-  ResourceStackDefinition,
-  Effect.gen(function* () {
-    const fixture = yield* NomossCliFixture;
-    const stackName = "selected-stack";
-
-    return {
-      stackName,
-      description: "Selected CLI application",
-      program: fixture.declareResources().pipe(
-        Effect.exit,
-        Effect.flatMap((result) =>
-          resourceStackDeclarationResult(stackName, result),
-        ),
-      ),
-    };
-  }),
+export const nomossCliStackDefinition = Effect.gen(function* () {
+  const operations = yield* ResourceStackOperations;
+  yield* operations.beginDeclaration("selected-stack");
+  const fixture = yield* NomossCliFixture;
+  const queues = yield* fixture.declareResources();
+  const prepared: ResourceApplicationPreparation<{
+    readonly queueUrls: ReadonlyArray<string>;
+  }> = yield* operations.prepare("selected-stack", () => ({
+    queueUrls: Arr.map(queues, (queue) => queue.outputs.QueueUrl),
+  }));
+  return prepared;
+}).pipe(
+  Effect.scoped,
+  Effect.catchCause((cause) =>
+    Effect.fail(
+      new ResourceStackDeclarationFailed({
+        stackName: "selected-stack",
+        cause,
+      }),
+    ),
+  ),
 );
 
-export const nomossCliApplicationTestLayer = resourceStackOperationsLayer.pipe(
-  Layer.provideMerge(nomossCliDefinitionTestLayer),
+const nomossCliDefinitionTestLayer = Layer.effect(
+  ResourceStackDefinition,
+  nomossCliStackDefinition,
+);
+
+const nomossCliServicesTestLayer = resourceStackOperationsLayer.pipe(
   Layer.provideMerge(Layer.effect(NomossCliFixture, NomossCliFixture.make)),
   Layer.provideMerge(awsCloudControlStackTestLayer),
   Layer.provideMerge(nomossCliPlatformTestLayer),
+);
+
+/**
+ * The nomossCliApplicationTestLayer Layer supplies CLI commands with a prepared
+ * declaration and the services that execute it. Its controlled transport and
+ * in-memory persistence let tests observe provider requests and saved resources
+ * without accessing local application files or launching child processes.
+ */
+export const nomossCliApplicationTestLayer = nomossCliDefinitionTestLayer.pipe(
+  Layer.provideMerge(nomossCliServicesTestLayer),
 );

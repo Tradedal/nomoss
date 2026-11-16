@@ -1,0 +1,3053 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`provider metadata generation > The AWS operation catalog matches its Smithy service definitions 1`] = `
+[
+  {
+    "method": "POST",
+    "operationId": "CancelResourceRequest",
+    "parameters": [
+      {
+        "location": "header",
+        "name": "X-Amz-Target",
+        "required": true,
+      },
+    ],
+    "path": "/",
+    "providerMetadata": {
+      "document": {
+        "x-aws-service": {
+          "endpointRules": {
+            "parameters": {
+              "Endpoint": {
+                "builtIn": "SDK::Endpoint",
+                "documentation": "Override the endpoint used to send this request",
+                "required": false,
+                "type": "string",
+              },
+              "Region": {
+                "builtIn": "AWS::Region",
+                "documentation": "The AWS region used to dispatch the request.",
+                "required": false,
+                "type": "string",
+              },
+              "UseDualStack": {
+                "builtIn": "AWS::UseDualStack",
+                "default": false,
+                "documentation": "When true, use the dual-stack endpoint. If the configured endpoint does not support dual-stack, dispatching the request MAY return an error.",
+                "required": true,
+                "type": "boolean",
+              },
+              "UseFIPS": {
+                "builtIn": "AWS::UseFIPS",
+                "default": false,
+                "documentation": "When true, send this request to the FIPS-compliant regional endpoint. If the configured endpoint does not have a FIPS compliant endpoint, dispatching the request will return an error.",
+                "required": true,
+                "type": "boolean",
+              },
+            },
+            "rules": [
+              {
+                "conditions": [
+                  {
+                    "argv": [
+                      {
+                        "ref": "Endpoint",
+                      },
+                    ],
+                    "fn": "isSet",
+                  },
+                ],
+                "rules": [
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "UseFIPS",
+                          },
+                          true,
+                        ],
+                        "fn": "booleanEquals",
+                      },
+                    ],
+                    "error": "Invalid Configuration: FIPS and custom endpoint are not supported",
+                    "type": "error",
+                  },
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "UseDualStack",
+                          },
+                          true,
+                        ],
+                        "fn": "booleanEquals",
+                      },
+                    ],
+                    "error": "Invalid Configuration: Dualstack and custom endpoint are not supported",
+                    "type": "error",
+                  },
+                  {
+                    "conditions": [],
+                    "endpoint": {
+                      "headers": {},
+                      "properties": {},
+                      "url": {
+                        "ref": "Endpoint",
+                      },
+                    },
+                    "type": "endpoint",
+                  },
+                ],
+                "type": "tree",
+              },
+              {
+                "conditions": [
+                  {
+                    "argv": [
+                      {
+                        "ref": "Region",
+                      },
+                    ],
+                    "fn": "isSet",
+                  },
+                ],
+                "rules": [
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "Region",
+                          },
+                        ],
+                        "assign": "PartitionResult",
+                        "fn": "aws.partition",
+                      },
+                    ],
+                    "rules": [
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseFIPS",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseDualStack",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsFIPS",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsDualStack",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi-fips.{Region}.{PartitionResult#dualStackDnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "FIPS and DualStack are enabled, but this partition does not support one or both",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseFIPS",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsFIPS",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                  true,
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi-fips.{Region}.{PartitionResult#dnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "FIPS is enabled but this partition does not support FIPS",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseDualStack",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsDualStack",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi.{Region}.{PartitionResult#dualStackDnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "DualStack is enabled but this partition does not support DualStack",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [],
+                        "endpoint": {
+                          "headers": {},
+                          "properties": {},
+                          "url": "https://cloudcontrolapi.{Region}.{PartitionResult#dnsSuffix}",
+                        },
+                        "type": "endpoint",
+                      },
+                    ],
+                    "type": "tree",
+                  },
+                ],
+                "type": "tree",
+              },
+              {
+                "conditions": [],
+                "error": "Invalid Configuration: Missing Region",
+                "type": "error",
+              },
+            ],
+            "version": "1.0",
+          },
+          "protocol": "awsJson1_0",
+          "service": "com.amazonaws.cloudcontrol#CloudApiService",
+          "signingName": "cloudcontrolapi",
+          "version": "2021-09-30",
+        },
+      },
+      "operation": {
+        "x-aws-idempotency-tokens": [],
+        "x-aws-pagination": {},
+        "x-aws-waiters": {},
+      },
+    },
+    "requestBody": {
+      "mediaTypes": [
+        "application/x-amz-json-1.0",
+      ],
+      "required": true,
+    },
+    "responses": {
+      "200": [
+        "application/x-amz-json-1.0",
+      ],
+      "404": [
+        "application/x-amz-json-1.0",
+      ],
+      "500": [
+        "application/x-amz-json-1.0",
+      ],
+    },
+    "servers": [],
+    "source": {
+      "format": "Smithy",
+      "name": "CancelResourceRequest.json",
+      "provider": "AWS",
+      "service": "com.amazonaws.cloudcontrol#CloudApiService",
+    },
+    "version": "2021-09-30",
+  },
+  {
+    "method": "POST",
+    "operationId": "CreateResource",
+    "parameters": [
+      {
+        "location": "header",
+        "name": "X-Amz-Target",
+        "required": true,
+      },
+    ],
+    "path": "/",
+    "providerMetadata": {
+      "document": {
+        "x-aws-service": {
+          "endpointRules": {
+            "parameters": {
+              "Endpoint": {
+                "builtIn": "SDK::Endpoint",
+                "documentation": "Override the endpoint used to send this request",
+                "required": false,
+                "type": "string",
+              },
+              "Region": {
+                "builtIn": "AWS::Region",
+                "documentation": "The AWS region used to dispatch the request.",
+                "required": false,
+                "type": "string",
+              },
+              "UseDualStack": {
+                "builtIn": "AWS::UseDualStack",
+                "default": false,
+                "documentation": "When true, use the dual-stack endpoint. If the configured endpoint does not support dual-stack, dispatching the request MAY return an error.",
+                "required": true,
+                "type": "boolean",
+              },
+              "UseFIPS": {
+                "builtIn": "AWS::UseFIPS",
+                "default": false,
+                "documentation": "When true, send this request to the FIPS-compliant regional endpoint. If the configured endpoint does not have a FIPS compliant endpoint, dispatching the request will return an error.",
+                "required": true,
+                "type": "boolean",
+              },
+            },
+            "rules": [
+              {
+                "conditions": [
+                  {
+                    "argv": [
+                      {
+                        "ref": "Endpoint",
+                      },
+                    ],
+                    "fn": "isSet",
+                  },
+                ],
+                "rules": [
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "UseFIPS",
+                          },
+                          true,
+                        ],
+                        "fn": "booleanEquals",
+                      },
+                    ],
+                    "error": "Invalid Configuration: FIPS and custom endpoint are not supported",
+                    "type": "error",
+                  },
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "UseDualStack",
+                          },
+                          true,
+                        ],
+                        "fn": "booleanEquals",
+                      },
+                    ],
+                    "error": "Invalid Configuration: Dualstack and custom endpoint are not supported",
+                    "type": "error",
+                  },
+                  {
+                    "conditions": [],
+                    "endpoint": {
+                      "headers": {},
+                      "properties": {},
+                      "url": {
+                        "ref": "Endpoint",
+                      },
+                    },
+                    "type": "endpoint",
+                  },
+                ],
+                "type": "tree",
+              },
+              {
+                "conditions": [
+                  {
+                    "argv": [
+                      {
+                        "ref": "Region",
+                      },
+                    ],
+                    "fn": "isSet",
+                  },
+                ],
+                "rules": [
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "Region",
+                          },
+                        ],
+                        "assign": "PartitionResult",
+                        "fn": "aws.partition",
+                      },
+                    ],
+                    "rules": [
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseFIPS",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseDualStack",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsFIPS",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsDualStack",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi-fips.{Region}.{PartitionResult#dualStackDnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "FIPS and DualStack are enabled, but this partition does not support one or both",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseFIPS",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsFIPS",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                  true,
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi-fips.{Region}.{PartitionResult#dnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "FIPS is enabled but this partition does not support FIPS",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseDualStack",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsDualStack",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi.{Region}.{PartitionResult#dualStackDnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "DualStack is enabled but this partition does not support DualStack",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [],
+                        "endpoint": {
+                          "headers": {},
+                          "properties": {},
+                          "url": "https://cloudcontrolapi.{Region}.{PartitionResult#dnsSuffix}",
+                        },
+                        "type": "endpoint",
+                      },
+                    ],
+                    "type": "tree",
+                  },
+                ],
+                "type": "tree",
+              },
+              {
+                "conditions": [],
+                "error": "Invalid Configuration: Missing Region",
+                "type": "error",
+              },
+            ],
+            "version": "1.0",
+          },
+          "protocol": "awsJson1_0",
+          "service": "com.amazonaws.cloudcontrol#CloudApiService",
+          "signingName": "cloudcontrolapi",
+          "version": "2021-09-30",
+        },
+      },
+      "operation": {
+        "x-aws-idempotency-tokens": [
+          "ClientToken",
+        ],
+        "x-aws-pagination": {},
+        "x-aws-waiters": {},
+      },
+    },
+    "requestBody": {
+      "mediaTypes": [
+        "application/x-amz-json-1.0",
+      ],
+      "required": true,
+    },
+    "responses": {
+      "200": [
+        "application/x-amz-json-1.0",
+      ],
+      "400": [
+        "application/x-amz-json-1.0",
+      ],
+      "401": [
+        "application/x-amz-json-1.0",
+      ],
+      "404": [
+        "application/x-amz-json-1.0",
+      ],
+      "405": [
+        "application/x-amz-json-1.0",
+      ],
+      "409": [
+        "application/x-amz-json-1.0",
+      ],
+      "429": [
+        "application/x-amz-json-1.0",
+      ],
+      "502": [
+        "application/x-amz-json-1.0",
+      ],
+    },
+    "servers": [],
+    "source": {
+      "format": "Smithy",
+      "name": "CreateResource.json",
+      "provider": "AWS",
+      "service": "com.amazonaws.cloudcontrol#CloudApiService",
+    },
+    "version": "2021-09-30",
+  },
+  {
+    "method": "POST",
+    "operationId": "DeleteResource",
+    "parameters": [
+      {
+        "location": "header",
+        "name": "X-Amz-Target",
+        "required": true,
+      },
+    ],
+    "path": "/",
+    "providerMetadata": {
+      "document": {
+        "x-aws-service": {
+          "endpointRules": {
+            "parameters": {
+              "Endpoint": {
+                "builtIn": "SDK::Endpoint",
+                "documentation": "Override the endpoint used to send this request",
+                "required": false,
+                "type": "string",
+              },
+              "Region": {
+                "builtIn": "AWS::Region",
+                "documentation": "The AWS region used to dispatch the request.",
+                "required": false,
+                "type": "string",
+              },
+              "UseDualStack": {
+                "builtIn": "AWS::UseDualStack",
+                "default": false,
+                "documentation": "When true, use the dual-stack endpoint. If the configured endpoint does not support dual-stack, dispatching the request MAY return an error.",
+                "required": true,
+                "type": "boolean",
+              },
+              "UseFIPS": {
+                "builtIn": "AWS::UseFIPS",
+                "default": false,
+                "documentation": "When true, send this request to the FIPS-compliant regional endpoint. If the configured endpoint does not have a FIPS compliant endpoint, dispatching the request will return an error.",
+                "required": true,
+                "type": "boolean",
+              },
+            },
+            "rules": [
+              {
+                "conditions": [
+                  {
+                    "argv": [
+                      {
+                        "ref": "Endpoint",
+                      },
+                    ],
+                    "fn": "isSet",
+                  },
+                ],
+                "rules": [
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "UseFIPS",
+                          },
+                          true,
+                        ],
+                        "fn": "booleanEquals",
+                      },
+                    ],
+                    "error": "Invalid Configuration: FIPS and custom endpoint are not supported",
+                    "type": "error",
+                  },
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "UseDualStack",
+                          },
+                          true,
+                        ],
+                        "fn": "booleanEquals",
+                      },
+                    ],
+                    "error": "Invalid Configuration: Dualstack and custom endpoint are not supported",
+                    "type": "error",
+                  },
+                  {
+                    "conditions": [],
+                    "endpoint": {
+                      "headers": {},
+                      "properties": {},
+                      "url": {
+                        "ref": "Endpoint",
+                      },
+                    },
+                    "type": "endpoint",
+                  },
+                ],
+                "type": "tree",
+              },
+              {
+                "conditions": [
+                  {
+                    "argv": [
+                      {
+                        "ref": "Region",
+                      },
+                    ],
+                    "fn": "isSet",
+                  },
+                ],
+                "rules": [
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "Region",
+                          },
+                        ],
+                        "assign": "PartitionResult",
+                        "fn": "aws.partition",
+                      },
+                    ],
+                    "rules": [
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseFIPS",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseDualStack",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsFIPS",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsDualStack",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi-fips.{Region}.{PartitionResult#dualStackDnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "FIPS and DualStack are enabled, but this partition does not support one or both",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseFIPS",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsFIPS",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                  true,
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi-fips.{Region}.{PartitionResult#dnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "FIPS is enabled but this partition does not support FIPS",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseDualStack",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsDualStack",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi.{Region}.{PartitionResult#dualStackDnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "DualStack is enabled but this partition does not support DualStack",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [],
+                        "endpoint": {
+                          "headers": {},
+                          "properties": {},
+                          "url": "https://cloudcontrolapi.{Region}.{PartitionResult#dnsSuffix}",
+                        },
+                        "type": "endpoint",
+                      },
+                    ],
+                    "type": "tree",
+                  },
+                ],
+                "type": "tree",
+              },
+              {
+                "conditions": [],
+                "error": "Invalid Configuration: Missing Region",
+                "type": "error",
+              },
+            ],
+            "version": "1.0",
+          },
+          "protocol": "awsJson1_0",
+          "service": "com.amazonaws.cloudcontrol#CloudApiService",
+          "signingName": "cloudcontrolapi",
+          "version": "2021-09-30",
+        },
+      },
+      "operation": {
+        "x-aws-idempotency-tokens": [
+          "ClientToken",
+        ],
+        "x-aws-pagination": {},
+        "x-aws-waiters": {},
+      },
+    },
+    "requestBody": {
+      "mediaTypes": [
+        "application/x-amz-json-1.0",
+      ],
+      "required": true,
+    },
+    "responses": {
+      "200": [
+        "application/x-amz-json-1.0",
+      ],
+      "400": [
+        "application/x-amz-json-1.0",
+      ],
+      "401": [
+        "application/x-amz-json-1.0",
+      ],
+      "404": [
+        "application/x-amz-json-1.0",
+      ],
+      "405": [
+        "application/x-amz-json-1.0",
+      ],
+      "409": [
+        "application/x-amz-json-1.0",
+      ],
+      "429": [
+        "application/x-amz-json-1.0",
+      ],
+      "502": [
+        "application/x-amz-json-1.0",
+      ],
+    },
+    "servers": [],
+    "source": {
+      "format": "Smithy",
+      "name": "DeleteResource.json",
+      "provider": "AWS",
+      "service": "com.amazonaws.cloudcontrol#CloudApiService",
+    },
+    "version": "2021-09-30",
+  },
+  {
+    "method": "POST",
+    "operationId": "GetResource",
+    "parameters": [
+      {
+        "location": "header",
+        "name": "X-Amz-Target",
+        "required": true,
+      },
+    ],
+    "path": "/",
+    "providerMetadata": {
+      "document": {
+        "x-aws-service": {
+          "endpointRules": {
+            "parameters": {
+              "Endpoint": {
+                "builtIn": "SDK::Endpoint",
+                "documentation": "Override the endpoint used to send this request",
+                "required": false,
+                "type": "string",
+              },
+              "Region": {
+                "builtIn": "AWS::Region",
+                "documentation": "The AWS region used to dispatch the request.",
+                "required": false,
+                "type": "string",
+              },
+              "UseDualStack": {
+                "builtIn": "AWS::UseDualStack",
+                "default": false,
+                "documentation": "When true, use the dual-stack endpoint. If the configured endpoint does not support dual-stack, dispatching the request MAY return an error.",
+                "required": true,
+                "type": "boolean",
+              },
+              "UseFIPS": {
+                "builtIn": "AWS::UseFIPS",
+                "default": false,
+                "documentation": "When true, send this request to the FIPS-compliant regional endpoint. If the configured endpoint does not have a FIPS compliant endpoint, dispatching the request will return an error.",
+                "required": true,
+                "type": "boolean",
+              },
+            },
+            "rules": [
+              {
+                "conditions": [
+                  {
+                    "argv": [
+                      {
+                        "ref": "Endpoint",
+                      },
+                    ],
+                    "fn": "isSet",
+                  },
+                ],
+                "rules": [
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "UseFIPS",
+                          },
+                          true,
+                        ],
+                        "fn": "booleanEquals",
+                      },
+                    ],
+                    "error": "Invalid Configuration: FIPS and custom endpoint are not supported",
+                    "type": "error",
+                  },
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "UseDualStack",
+                          },
+                          true,
+                        ],
+                        "fn": "booleanEquals",
+                      },
+                    ],
+                    "error": "Invalid Configuration: Dualstack and custom endpoint are not supported",
+                    "type": "error",
+                  },
+                  {
+                    "conditions": [],
+                    "endpoint": {
+                      "headers": {},
+                      "properties": {},
+                      "url": {
+                        "ref": "Endpoint",
+                      },
+                    },
+                    "type": "endpoint",
+                  },
+                ],
+                "type": "tree",
+              },
+              {
+                "conditions": [
+                  {
+                    "argv": [
+                      {
+                        "ref": "Region",
+                      },
+                    ],
+                    "fn": "isSet",
+                  },
+                ],
+                "rules": [
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "Region",
+                          },
+                        ],
+                        "assign": "PartitionResult",
+                        "fn": "aws.partition",
+                      },
+                    ],
+                    "rules": [
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseFIPS",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseDualStack",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsFIPS",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsDualStack",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi-fips.{Region}.{PartitionResult#dualStackDnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "FIPS and DualStack are enabled, but this partition does not support one or both",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseFIPS",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsFIPS",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                  true,
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi-fips.{Region}.{PartitionResult#dnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "FIPS is enabled but this partition does not support FIPS",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseDualStack",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsDualStack",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi.{Region}.{PartitionResult#dualStackDnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "DualStack is enabled but this partition does not support DualStack",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [],
+                        "endpoint": {
+                          "headers": {},
+                          "properties": {},
+                          "url": "https://cloudcontrolapi.{Region}.{PartitionResult#dnsSuffix}",
+                        },
+                        "type": "endpoint",
+                      },
+                    ],
+                    "type": "tree",
+                  },
+                ],
+                "type": "tree",
+              },
+              {
+                "conditions": [],
+                "error": "Invalid Configuration: Missing Region",
+                "type": "error",
+              },
+            ],
+            "version": "1.0",
+          },
+          "protocol": "awsJson1_0",
+          "service": "com.amazonaws.cloudcontrol#CloudApiService",
+          "signingName": "cloudcontrolapi",
+          "version": "2021-09-30",
+        },
+      },
+      "operation": {
+        "x-aws-idempotency-tokens": [],
+        "x-aws-pagination": {},
+        "x-aws-waiters": {},
+      },
+    },
+    "requestBody": {
+      "mediaTypes": [
+        "application/x-amz-json-1.0",
+      ],
+      "required": true,
+    },
+    "responses": {
+      "200": [
+        "application/x-amz-json-1.0",
+      ],
+      "400": [
+        "application/x-amz-json-1.0",
+      ],
+      "401": [
+        "application/x-amz-json-1.0",
+      ],
+      "404": [
+        "application/x-amz-json-1.0",
+      ],
+      "405": [
+        "application/x-amz-json-1.0",
+      ],
+      "409": [
+        "application/x-amz-json-1.0",
+      ],
+      "429": [
+        "application/x-amz-json-1.0",
+      ],
+      "502": [
+        "application/x-amz-json-1.0",
+      ],
+    },
+    "servers": [],
+    "source": {
+      "format": "Smithy",
+      "name": "GetResource.json",
+      "provider": "AWS",
+      "service": "com.amazonaws.cloudcontrol#CloudApiService",
+    },
+    "version": "2021-09-30",
+  },
+  {
+    "method": "POST",
+    "operationId": "GetResourceRequestStatus",
+    "parameters": [
+      {
+        "location": "header",
+        "name": "X-Amz-Target",
+        "required": true,
+      },
+    ],
+    "path": "/",
+    "providerMetadata": {
+      "document": {
+        "x-aws-service": {
+          "endpointRules": {
+            "parameters": {
+              "Endpoint": {
+                "builtIn": "SDK::Endpoint",
+                "documentation": "Override the endpoint used to send this request",
+                "required": false,
+                "type": "string",
+              },
+              "Region": {
+                "builtIn": "AWS::Region",
+                "documentation": "The AWS region used to dispatch the request.",
+                "required": false,
+                "type": "string",
+              },
+              "UseDualStack": {
+                "builtIn": "AWS::UseDualStack",
+                "default": false,
+                "documentation": "When true, use the dual-stack endpoint. If the configured endpoint does not support dual-stack, dispatching the request MAY return an error.",
+                "required": true,
+                "type": "boolean",
+              },
+              "UseFIPS": {
+                "builtIn": "AWS::UseFIPS",
+                "default": false,
+                "documentation": "When true, send this request to the FIPS-compliant regional endpoint. If the configured endpoint does not have a FIPS compliant endpoint, dispatching the request will return an error.",
+                "required": true,
+                "type": "boolean",
+              },
+            },
+            "rules": [
+              {
+                "conditions": [
+                  {
+                    "argv": [
+                      {
+                        "ref": "Endpoint",
+                      },
+                    ],
+                    "fn": "isSet",
+                  },
+                ],
+                "rules": [
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "UseFIPS",
+                          },
+                          true,
+                        ],
+                        "fn": "booleanEquals",
+                      },
+                    ],
+                    "error": "Invalid Configuration: FIPS and custom endpoint are not supported",
+                    "type": "error",
+                  },
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "UseDualStack",
+                          },
+                          true,
+                        ],
+                        "fn": "booleanEquals",
+                      },
+                    ],
+                    "error": "Invalid Configuration: Dualstack and custom endpoint are not supported",
+                    "type": "error",
+                  },
+                  {
+                    "conditions": [],
+                    "endpoint": {
+                      "headers": {},
+                      "properties": {},
+                      "url": {
+                        "ref": "Endpoint",
+                      },
+                    },
+                    "type": "endpoint",
+                  },
+                ],
+                "type": "tree",
+              },
+              {
+                "conditions": [
+                  {
+                    "argv": [
+                      {
+                        "ref": "Region",
+                      },
+                    ],
+                    "fn": "isSet",
+                  },
+                ],
+                "rules": [
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "Region",
+                          },
+                        ],
+                        "assign": "PartitionResult",
+                        "fn": "aws.partition",
+                      },
+                    ],
+                    "rules": [
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseFIPS",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseDualStack",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsFIPS",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsDualStack",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi-fips.{Region}.{PartitionResult#dualStackDnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "FIPS and DualStack are enabled, but this partition does not support one or both",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseFIPS",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsFIPS",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                  true,
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi-fips.{Region}.{PartitionResult#dnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "FIPS is enabled but this partition does not support FIPS",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseDualStack",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsDualStack",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi.{Region}.{PartitionResult#dualStackDnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "DualStack is enabled but this partition does not support DualStack",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [],
+                        "endpoint": {
+                          "headers": {},
+                          "properties": {},
+                          "url": "https://cloudcontrolapi.{Region}.{PartitionResult#dnsSuffix}",
+                        },
+                        "type": "endpoint",
+                      },
+                    ],
+                    "type": "tree",
+                  },
+                ],
+                "type": "tree",
+              },
+              {
+                "conditions": [],
+                "error": "Invalid Configuration: Missing Region",
+                "type": "error",
+              },
+            ],
+            "version": "1.0",
+          },
+          "protocol": "awsJson1_0",
+          "service": "com.amazonaws.cloudcontrol#CloudApiService",
+          "signingName": "cloudcontrolapi",
+          "version": "2021-09-30",
+        },
+      },
+      "operation": {
+        "x-aws-idempotency-tokens": [],
+        "x-aws-pagination": {},
+        "x-aws-waiters": {
+          "ResourceRequestSuccess": {
+            "acceptors": [
+              {
+                "matcher": {
+                  "output": {
+                    "comparator": "stringEquals",
+                    "expected": "SUCCESS",
+                    "path": "ProgressEvent.OperationStatus",
+                  },
+                },
+                "state": "success",
+              },
+              {
+                "matcher": {
+                  "output": {
+                    "comparator": "stringEquals",
+                    "expected": "FAILED",
+                    "path": "ProgressEvent.OperationStatus",
+                  },
+                },
+                "state": "failure",
+              },
+              {
+                "matcher": {
+                  "output": {
+                    "comparator": "stringEquals",
+                    "expected": "CANCEL_COMPLETE",
+                    "path": "ProgressEvent.OperationStatus",
+                  },
+                },
+                "state": "failure",
+              },
+            ],
+            "documentation": "Wait until resource operation request is successful",
+            "minDelay": 5,
+          },
+        },
+      },
+    },
+    "requestBody": {
+      "mediaTypes": [
+        "application/x-amz-json-1.0",
+      ],
+      "required": true,
+    },
+    "responses": {
+      "200": [
+        "application/x-amz-json-1.0",
+      ],
+      "404": [
+        "application/x-amz-json-1.0",
+      ],
+    },
+    "servers": [],
+    "source": {
+      "format": "Smithy",
+      "name": "GetResourceRequestStatus.json",
+      "provider": "AWS",
+      "service": "com.amazonaws.cloudcontrol#CloudApiService",
+    },
+    "version": "2021-09-30",
+  },
+  {
+    "method": "POST",
+    "operationId": "ListResourceRequests",
+    "parameters": [
+      {
+        "location": "header",
+        "name": "X-Amz-Target",
+        "required": true,
+      },
+    ],
+    "path": "/",
+    "providerMetadata": {
+      "document": {
+        "x-aws-service": {
+          "endpointRules": {
+            "parameters": {
+              "Endpoint": {
+                "builtIn": "SDK::Endpoint",
+                "documentation": "Override the endpoint used to send this request",
+                "required": false,
+                "type": "string",
+              },
+              "Region": {
+                "builtIn": "AWS::Region",
+                "documentation": "The AWS region used to dispatch the request.",
+                "required": false,
+                "type": "string",
+              },
+              "UseDualStack": {
+                "builtIn": "AWS::UseDualStack",
+                "default": false,
+                "documentation": "When true, use the dual-stack endpoint. If the configured endpoint does not support dual-stack, dispatching the request MAY return an error.",
+                "required": true,
+                "type": "boolean",
+              },
+              "UseFIPS": {
+                "builtIn": "AWS::UseFIPS",
+                "default": false,
+                "documentation": "When true, send this request to the FIPS-compliant regional endpoint. If the configured endpoint does not have a FIPS compliant endpoint, dispatching the request will return an error.",
+                "required": true,
+                "type": "boolean",
+              },
+            },
+            "rules": [
+              {
+                "conditions": [
+                  {
+                    "argv": [
+                      {
+                        "ref": "Endpoint",
+                      },
+                    ],
+                    "fn": "isSet",
+                  },
+                ],
+                "rules": [
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "UseFIPS",
+                          },
+                          true,
+                        ],
+                        "fn": "booleanEquals",
+                      },
+                    ],
+                    "error": "Invalid Configuration: FIPS and custom endpoint are not supported",
+                    "type": "error",
+                  },
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "UseDualStack",
+                          },
+                          true,
+                        ],
+                        "fn": "booleanEquals",
+                      },
+                    ],
+                    "error": "Invalid Configuration: Dualstack and custom endpoint are not supported",
+                    "type": "error",
+                  },
+                  {
+                    "conditions": [],
+                    "endpoint": {
+                      "headers": {},
+                      "properties": {},
+                      "url": {
+                        "ref": "Endpoint",
+                      },
+                    },
+                    "type": "endpoint",
+                  },
+                ],
+                "type": "tree",
+              },
+              {
+                "conditions": [
+                  {
+                    "argv": [
+                      {
+                        "ref": "Region",
+                      },
+                    ],
+                    "fn": "isSet",
+                  },
+                ],
+                "rules": [
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "Region",
+                          },
+                        ],
+                        "assign": "PartitionResult",
+                        "fn": "aws.partition",
+                      },
+                    ],
+                    "rules": [
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseFIPS",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseDualStack",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsFIPS",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsDualStack",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi-fips.{Region}.{PartitionResult#dualStackDnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "FIPS and DualStack are enabled, but this partition does not support one or both",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseFIPS",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsFIPS",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                  true,
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi-fips.{Region}.{PartitionResult#dnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "FIPS is enabled but this partition does not support FIPS",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseDualStack",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsDualStack",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi.{Region}.{PartitionResult#dualStackDnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "DualStack is enabled but this partition does not support DualStack",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [],
+                        "endpoint": {
+                          "headers": {},
+                          "properties": {},
+                          "url": "https://cloudcontrolapi.{Region}.{PartitionResult#dnsSuffix}",
+                        },
+                        "type": "endpoint",
+                      },
+                    ],
+                    "type": "tree",
+                  },
+                ],
+                "type": "tree",
+              },
+              {
+                "conditions": [],
+                "error": "Invalid Configuration: Missing Region",
+                "type": "error",
+              },
+            ],
+            "version": "1.0",
+          },
+          "protocol": "awsJson1_0",
+          "service": "com.amazonaws.cloudcontrol#CloudApiService",
+          "signingName": "cloudcontrolapi",
+          "version": "2021-09-30",
+        },
+      },
+      "operation": {
+        "x-aws-idempotency-tokens": [],
+        "x-aws-pagination": {
+          "inputToken": "NextToken",
+          "items": "ResourceRequestStatusSummaries",
+          "outputToken": "NextToken",
+          "pageSize": "MaxResults",
+        },
+        "x-aws-waiters": {},
+      },
+    },
+    "requestBody": {
+      "mediaTypes": [
+        "application/x-amz-json-1.0",
+      ],
+      "required": true,
+    },
+    "responses": {
+      "200": [
+        "application/x-amz-json-1.0",
+      ],
+    },
+    "servers": [],
+    "source": {
+      "format": "Smithy",
+      "name": "ListResourceRequests.json",
+      "provider": "AWS",
+      "service": "com.amazonaws.cloudcontrol#CloudApiService",
+    },
+    "version": "2021-09-30",
+  },
+  {
+    "method": "POST",
+    "operationId": "ListResources",
+    "parameters": [
+      {
+        "location": "header",
+        "name": "X-Amz-Target",
+        "required": true,
+      },
+    ],
+    "path": "/",
+    "providerMetadata": {
+      "document": {
+        "x-aws-service": {
+          "endpointRules": {
+            "parameters": {
+              "Endpoint": {
+                "builtIn": "SDK::Endpoint",
+                "documentation": "Override the endpoint used to send this request",
+                "required": false,
+                "type": "string",
+              },
+              "Region": {
+                "builtIn": "AWS::Region",
+                "documentation": "The AWS region used to dispatch the request.",
+                "required": false,
+                "type": "string",
+              },
+              "UseDualStack": {
+                "builtIn": "AWS::UseDualStack",
+                "default": false,
+                "documentation": "When true, use the dual-stack endpoint. If the configured endpoint does not support dual-stack, dispatching the request MAY return an error.",
+                "required": true,
+                "type": "boolean",
+              },
+              "UseFIPS": {
+                "builtIn": "AWS::UseFIPS",
+                "default": false,
+                "documentation": "When true, send this request to the FIPS-compliant regional endpoint. If the configured endpoint does not have a FIPS compliant endpoint, dispatching the request will return an error.",
+                "required": true,
+                "type": "boolean",
+              },
+            },
+            "rules": [
+              {
+                "conditions": [
+                  {
+                    "argv": [
+                      {
+                        "ref": "Endpoint",
+                      },
+                    ],
+                    "fn": "isSet",
+                  },
+                ],
+                "rules": [
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "UseFIPS",
+                          },
+                          true,
+                        ],
+                        "fn": "booleanEquals",
+                      },
+                    ],
+                    "error": "Invalid Configuration: FIPS and custom endpoint are not supported",
+                    "type": "error",
+                  },
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "UseDualStack",
+                          },
+                          true,
+                        ],
+                        "fn": "booleanEquals",
+                      },
+                    ],
+                    "error": "Invalid Configuration: Dualstack and custom endpoint are not supported",
+                    "type": "error",
+                  },
+                  {
+                    "conditions": [],
+                    "endpoint": {
+                      "headers": {},
+                      "properties": {},
+                      "url": {
+                        "ref": "Endpoint",
+                      },
+                    },
+                    "type": "endpoint",
+                  },
+                ],
+                "type": "tree",
+              },
+              {
+                "conditions": [
+                  {
+                    "argv": [
+                      {
+                        "ref": "Region",
+                      },
+                    ],
+                    "fn": "isSet",
+                  },
+                ],
+                "rules": [
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "Region",
+                          },
+                        ],
+                        "assign": "PartitionResult",
+                        "fn": "aws.partition",
+                      },
+                    ],
+                    "rules": [
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseFIPS",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseDualStack",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsFIPS",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsDualStack",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi-fips.{Region}.{PartitionResult#dualStackDnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "FIPS and DualStack are enabled, but this partition does not support one or both",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseFIPS",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsFIPS",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                  true,
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi-fips.{Region}.{PartitionResult#dnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "FIPS is enabled but this partition does not support FIPS",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseDualStack",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsDualStack",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi.{Region}.{PartitionResult#dualStackDnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "DualStack is enabled but this partition does not support DualStack",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [],
+                        "endpoint": {
+                          "headers": {},
+                          "properties": {},
+                          "url": "https://cloudcontrolapi.{Region}.{PartitionResult#dnsSuffix}",
+                        },
+                        "type": "endpoint",
+                      },
+                    ],
+                    "type": "tree",
+                  },
+                ],
+                "type": "tree",
+              },
+              {
+                "conditions": [],
+                "error": "Invalid Configuration: Missing Region",
+                "type": "error",
+              },
+            ],
+            "version": "1.0",
+          },
+          "protocol": "awsJson1_0",
+          "service": "com.amazonaws.cloudcontrol#CloudApiService",
+          "signingName": "cloudcontrolapi",
+          "version": "2021-09-30",
+        },
+      },
+      "operation": {
+        "x-aws-idempotency-tokens": [],
+        "x-aws-pagination": {
+          "inputToken": "NextToken",
+          "items": "ResourceDescriptions",
+          "outputToken": "NextToken",
+          "pageSize": "MaxResults",
+        },
+        "x-aws-waiters": {},
+      },
+    },
+    "requestBody": {
+      "mediaTypes": [
+        "application/x-amz-json-1.0",
+      ],
+      "required": true,
+    },
+    "responses": {
+      "200": [
+        "application/x-amz-json-1.0",
+      ],
+      "400": [
+        "application/x-amz-json-1.0",
+      ],
+      "401": [
+        "application/x-amz-json-1.0",
+      ],
+      "404": [
+        "application/x-amz-json-1.0",
+      ],
+      "405": [
+        "application/x-amz-json-1.0",
+      ],
+      "409": [
+        "application/x-amz-json-1.0",
+      ],
+      "429": [
+        "application/x-amz-json-1.0",
+      ],
+      "502": [
+        "application/x-amz-json-1.0",
+      ],
+    },
+    "servers": [],
+    "source": {
+      "format": "Smithy",
+      "name": "ListResources.json",
+      "provider": "AWS",
+      "service": "com.amazonaws.cloudcontrol#CloudApiService",
+    },
+    "version": "2021-09-30",
+  },
+  {
+    "method": "POST",
+    "operationId": "UpdateResource",
+    "parameters": [
+      {
+        "location": "header",
+        "name": "X-Amz-Target",
+        "required": true,
+      },
+    ],
+    "path": "/",
+    "providerMetadata": {
+      "document": {
+        "x-aws-service": {
+          "endpointRules": {
+            "parameters": {
+              "Endpoint": {
+                "builtIn": "SDK::Endpoint",
+                "documentation": "Override the endpoint used to send this request",
+                "required": false,
+                "type": "string",
+              },
+              "Region": {
+                "builtIn": "AWS::Region",
+                "documentation": "The AWS region used to dispatch the request.",
+                "required": false,
+                "type": "string",
+              },
+              "UseDualStack": {
+                "builtIn": "AWS::UseDualStack",
+                "default": false,
+                "documentation": "When true, use the dual-stack endpoint. If the configured endpoint does not support dual-stack, dispatching the request MAY return an error.",
+                "required": true,
+                "type": "boolean",
+              },
+              "UseFIPS": {
+                "builtIn": "AWS::UseFIPS",
+                "default": false,
+                "documentation": "When true, send this request to the FIPS-compliant regional endpoint. If the configured endpoint does not have a FIPS compliant endpoint, dispatching the request will return an error.",
+                "required": true,
+                "type": "boolean",
+              },
+            },
+            "rules": [
+              {
+                "conditions": [
+                  {
+                    "argv": [
+                      {
+                        "ref": "Endpoint",
+                      },
+                    ],
+                    "fn": "isSet",
+                  },
+                ],
+                "rules": [
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "UseFIPS",
+                          },
+                          true,
+                        ],
+                        "fn": "booleanEquals",
+                      },
+                    ],
+                    "error": "Invalid Configuration: FIPS and custom endpoint are not supported",
+                    "type": "error",
+                  },
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "UseDualStack",
+                          },
+                          true,
+                        ],
+                        "fn": "booleanEquals",
+                      },
+                    ],
+                    "error": "Invalid Configuration: Dualstack and custom endpoint are not supported",
+                    "type": "error",
+                  },
+                  {
+                    "conditions": [],
+                    "endpoint": {
+                      "headers": {},
+                      "properties": {},
+                      "url": {
+                        "ref": "Endpoint",
+                      },
+                    },
+                    "type": "endpoint",
+                  },
+                ],
+                "type": "tree",
+              },
+              {
+                "conditions": [
+                  {
+                    "argv": [
+                      {
+                        "ref": "Region",
+                      },
+                    ],
+                    "fn": "isSet",
+                  },
+                ],
+                "rules": [
+                  {
+                    "conditions": [
+                      {
+                        "argv": [
+                          {
+                            "ref": "Region",
+                          },
+                        ],
+                        "assign": "PartitionResult",
+                        "fn": "aws.partition",
+                      },
+                    ],
+                    "rules": [
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseFIPS",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseDualStack",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsFIPS",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsDualStack",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi-fips.{Region}.{PartitionResult#dualStackDnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "FIPS and DualStack are enabled, but this partition does not support one or both",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseFIPS",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsFIPS",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                  true,
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi-fips.{Region}.{PartitionResult#dnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "FIPS is enabled but this partition does not support FIPS",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [
+                          {
+                            "argv": [
+                              {
+                                "ref": "UseDualStack",
+                              },
+                              true,
+                            ],
+                            "fn": "booleanEquals",
+                          },
+                        ],
+                        "rules": [
+                          {
+                            "conditions": [
+                              {
+                                "argv": [
+                                  true,
+                                  {
+                                    "argv": [
+                                      {
+                                        "ref": "PartitionResult",
+                                      },
+                                      "supportsDualStack",
+                                    ],
+                                    "fn": "getAttr",
+                                  },
+                                ],
+                                "fn": "booleanEquals",
+                              },
+                            ],
+                            "rules": [
+                              {
+                                "conditions": [],
+                                "endpoint": {
+                                  "headers": {},
+                                  "properties": {},
+                                  "url": "https://cloudcontrolapi.{Region}.{PartitionResult#dualStackDnsSuffix}",
+                                },
+                                "type": "endpoint",
+                              },
+                            ],
+                            "type": "tree",
+                          },
+                          {
+                            "conditions": [],
+                            "error": "DualStack is enabled but this partition does not support DualStack",
+                            "type": "error",
+                          },
+                        ],
+                        "type": "tree",
+                      },
+                      {
+                        "conditions": [],
+                        "endpoint": {
+                          "headers": {},
+                          "properties": {},
+                          "url": "https://cloudcontrolapi.{Region}.{PartitionResult#dnsSuffix}",
+                        },
+                        "type": "endpoint",
+                      },
+                    ],
+                    "type": "tree",
+                  },
+                ],
+                "type": "tree",
+              },
+              {
+                "conditions": [],
+                "error": "Invalid Configuration: Missing Region",
+                "type": "error",
+              },
+            ],
+            "version": "1.0",
+          },
+          "protocol": "awsJson1_0",
+          "service": "com.amazonaws.cloudcontrol#CloudApiService",
+          "signingName": "cloudcontrolapi",
+          "version": "2021-09-30",
+        },
+      },
+      "operation": {
+        "x-aws-idempotency-tokens": [
+          "ClientToken",
+        ],
+        "x-aws-pagination": {},
+        "x-aws-waiters": {},
+      },
+    },
+    "requestBody": {
+      "mediaTypes": [
+        "application/x-amz-json-1.0",
+      ],
+      "required": true,
+    },
+    "responses": {
+      "200": [
+        "application/x-amz-json-1.0",
+      ],
+      "400": [
+        "application/x-amz-json-1.0",
+      ],
+      "401": [
+        "application/x-amz-json-1.0",
+      ],
+      "404": [
+        "application/x-amz-json-1.0",
+      ],
+      "405": [
+        "application/x-amz-json-1.0",
+      ],
+      "409": [
+        "application/x-amz-json-1.0",
+      ],
+      "429": [
+        "application/x-amz-json-1.0",
+      ],
+      "502": [
+        "application/x-amz-json-1.0",
+      ],
+    },
+    "servers": [],
+    "source": {
+      "format": "Smithy",
+      "name": "UpdateResource.json",
+      "provider": "AWS",
+      "service": "com.amazonaws.cloudcontrol#CloudApiService",
+    },
+    "version": "2021-09-30",
+  },
+]
+`;

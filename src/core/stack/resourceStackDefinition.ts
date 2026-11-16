@@ -1,55 +1,26 @@
-import { Context, Data, Effect, Exit } from "effect";
+import { type Cause, Context, Data } from "effect";
+import type { ResourceApplicationPreparation } from "./resourceStackOperations.js";
 
 /**
- * ResourceStackDefinitionMismatch identifies a requested stack name that does
- * not match the application's declaration, retaining both names for diagnosis.
- */
-export class ResourceStackDefinitionMismatch extends Data.TaggedError(
-  "ResourceStackDefinitionMismatch",
-)<{
-  readonly defined: string;
-  readonly requested: string;
-}> {}
-
-/**
- * ResourceStackDeclarationFailed preserves the application failure and stack
- * name when resource declaration cannot complete. Command diagnostics can
- * identify the stack even if registration failed before producing any nodes.
+ * ResourceStackDeclarationFailed errors occur before lifecycle execution. The
+ * cause preserves the original Effect failure so callers can diagnose
+ * application code separately from a provider operation.
  */
 export class ResourceStackDeclarationFailed extends Data.TaggedError(
   "ResourceStackDeclarationFailed",
 )<{
   readonly stackName: string;
-  readonly cause: unknown;
+  readonly cause: Cause.Cause<unknown>;
 }> {}
 
 /**
- * resourceStackDeclarationResult associates a failed declaration with its
- * stack name for command diagnostics. A successful declaration remains a
- * successful void result.
- */
-export const resourceStackDeclarationResult = Effect.fn(
-  "ResourceStackDefinition.declarationResult",
-)(function* (stackName: string, result: Exit.Exit<void, unknown>) {
-  return yield* Exit.match(result, {
-    onFailure: (cause) =>
-      Effect.fail(new ResourceStackDeclarationFailed({ stackName, cause })),
-    onSuccess: () => Effect.void,
-  });
-});
-
-type ResourceStackDefinitionService = {
-  readonly stackName: string;
-  readonly description: string;
-  readonly program: ReturnType<typeof resourceStackDeclarationResult>;
-};
-
-/**
- * ResourceStackDefinition identifies the application's stack and declaration
- * program for stack operations. Its name scopes saved resources across runs;
- * provider configuration belongs to the application's runtime Layers.
+ * The ResourceStackDefinition service supplies CLI commands with a prepared
+ * resource graph. Its output callback stays unevaluated until apply succeeds.
+ * The CLI treats application output data as opaque. Embedded callers retain
+ * the concrete output type of their declaration Effect. Supply this service
+ * and stack operations through the same application Layer graph.
  */
 export class ResourceStackDefinition extends Context.Service<
   ResourceStackDefinition,
-  ResourceStackDefinitionService
+  ResourceApplicationPreparation<unknown>
 >()("nomoss/core/stack/resourceStackDefinition") {}

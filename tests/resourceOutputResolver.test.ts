@@ -1,13 +1,19 @@
 import { assert, layer } from "@effect/vitest";
 import { Effect, Schema } from "effect";
+import { expectTypeOf } from "vitest";
 import {
   ResourceModel,
-  resourceOutputRef,
+  ResourceOutput,
+  ResourceOutputSchema,
 } from "../src/core/resource/model.js";
 import {
   ResourceOutputResolver,
   resourceOutputResolverLayer,
 } from "../src/core/resource/resourceOutputResolver.js";
+import {
+  KeyOutputsSchema,
+  KeyPropsSchema,
+} from "../src/providers/aws/resources/generated/kms/key/index.js";
 import {
   BucketOutputsSchema,
   BucketPropsSchema,
@@ -29,7 +35,7 @@ layer(resourceOutputResolverLayer, {
   buildPerTest: true,
 })("ResourceOutputResolver", (it) => {
   it.effect(
-    "puts the queue ARN in a bucket tag and keeps the bucket's identifier and outputs",
+    "A bucket tag receives its queue's ARN without losing the bucket's identity",
     () =>
       Effect.gen(function* () {
         const model = yield* ResourceModel;
@@ -88,23 +94,72 @@ layer(resourceOutputResolverLayer, {
       }),
   );
 
-  it.effect("reads the applied queue ARN as a string", () =>
+  it.effect("The applied queue ARN is available to dependent resources", () =>
     Effect.gen(function* () {
       const model = yield* ResourceModel;
       const resolver = yield* ResourceOutputResolver;
       const queue = yield* model.nodeFromResource(queueInput);
 
       const arn = yield* resolver.resolveOutput(
-        resourceOutputRef(queue.key, "Arn"),
+        new ResourceOutput(queue.key, "Arn", Schema.String),
         [queue],
-        Schema.String,
       );
 
+      expectTypeOf(arn).toEqualTypeOf<string>();
+      expectTypeOf<ResourceOutput<number>>().not.toExtend<
+        ResourceOutput<string>
+      >();
+      expectTypeOf<ResourceOutput<string>>().not.toHaveProperty("source");
+      expectTypeOf<ResourceOutput<string>>().not.toHaveProperty("property");
       assert.strictEqual(arn, queueInput.outputs.Arn);
     }),
   );
 
-  it.effect("fails if the source queue or its Arn output is missing", () =>
+  it.effect(
+    "Saved queue inputs restore their encryption-key output and resolve its applied value",
+    () =>
+      Effect.gen(function* () {
+        const model = yield* ResourceModel;
+        const resolver = yield* ResourceOutputResolver;
+        const keyArn = "arn:aws:kms:us-east-1:123456789012:key/encryption-key";
+        const key = yield* model.nodeFromResource({
+          key: { logicalId: "EncryptionKey" },
+          propsSchema: KeyPropsSchema,
+          outputsSchema: KeyOutputsSchema,
+          props: {},
+          outputs: { Arn: keyArn },
+        });
+        const declared = yield* model.nodeFromResource({
+          key: { logicalId: "EncryptedQueue" },
+          propsSchema: QueuePropsSchema,
+          outputsSchema: QueueOutputsSchema,
+          props: {
+            KmsMasterKeyId: new ResourceOutput(
+              key.key,
+              "Arn",
+              Schema.requiredKey(KeyOutputsSchema.fields.Arn),
+            ),
+          },
+        });
+        const restored = yield* model.decodeProps(declared, QueuePropsSchema);
+        const encryptionKey = yield* Schema.decodeUnknownEffect(
+          ResourceOutputSchema(Schema.String),
+        )(restored.KmsMasterKeyId);
+        const arn = yield* resolver.resolveOutput(encryptionKey, [key]);
+
+        expectTypeOf(arn).toEqualTypeOf<string>();
+        assert.strictEqual(arn, keyArn);
+        assert.deepStrictEqual(declared.props, {
+          KmsMasterKeyId: {
+            _tag: "ResourceOutputRef",
+            source: key.key,
+            property: "Arn",
+          },
+        });
+      }),
+  );
+
+  it.effect("A missing queue ARN prevents output resolution", () =>
     Effect.gen(function* () {
       const model = yield* ResourceModel;
       const resolver = yield* ResourceOutputResolver;
@@ -113,7 +168,7 @@ layer(resourceOutputResolverLayer, {
         outputs: {},
       });
 
-      const reference = resourceOutputRef(queue.key, "Arn");
+      const reference = new ResourceOutput(queue.key, "Arn", Schema.String);
 
       const missingSource = yield* resolver
         .resolveOutput(reference, [], Schema.String)
@@ -128,33 +183,31 @@ layer(resourceOutputResolverLayer, {
     }),
   );
 
-  it.effect(
-    "fails when the dependency points to a tag that is absent from the resource's props",
-    () =>
-      Effect.gen(function* () {
-        const model = yield* ResourceModel;
-        const resolver = yield* ResourceOutputResolver;
-        const queue = yield* model.nodeFromResource(queueInput);
+  it.effect("A reference to a missing bucket tag is rejected", () =>
+    Effect.gen(function* () {
+      const model = yield* ResourceModel;
+      const resolver = yield* ResourceOutputResolver;
+      const queue = yield* model.nodeFromResource(queueInput);
 
-        const failure = yield* resolver
-          .resolveNode(
-            queue,
-            [queue],
-            [
-              {
-                source: queue.key,
-                target: queue.key,
-                edge: {
-                  kind: "property",
-                  property: ["Tags", "0", "Value"],
-                  sourceProperty: "Arn",
-                },
+      const failure = yield* resolver
+        .resolveNode(
+          queue,
+          [queue],
+          [
+            {
+              source: queue.key,
+              target: queue.key,
+              edge: {
+                kind: "property",
+                property: ["Tags", "0", "Value"],
+                sourceProperty: "Arn",
               },
-            ],
-          )
-          .pipe(Effect.flip);
+            },
+          ],
+        )
+        .pipe(Effect.flip);
 
-        assert.strictEqual(failure._tag, "ResourceOutputPropertyPathInvalid");
-      }),
+      assert.strictEqual(failure._tag, "ResourceOutputPropertyPathInvalid");
+    }),
   );
 });

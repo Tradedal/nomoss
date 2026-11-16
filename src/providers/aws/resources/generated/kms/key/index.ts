@@ -1,0 +1,362 @@
+// Generated from the CloudFormation Registry resource schema. Do not edit.
+// biome-ignore-all lint/complexity/useRegexLiterals: Preserve Effect's generated regular expressions.
+import {
+  annotateResourceSchema,
+  ResourceGraphBuilder,
+  type ResourceInputJson,
+  ResourceInputJsonSchema,
+  type ResourceKey,
+  ResourceSchemaAnnotationSchema,
+} from "@nomoss/core";
+import { Effect, Schema } from "effect";
+import { ResourceOutputBinding } from "../../../../../../core/resource/resourceOutputBinding.js";
+
+interface Tag {
+  readonly Key: string;
+  readonly Value: string;
+}
+
+const Tag = Schema.Struct({
+  Key: Schema.String.annotate({
+    description:
+      "The key name of the tag. You can specify a value that's 1 to 128 Unicode characters in length and can't be prefixed with ``aws:``. digits, whitespace, ``_``, ``.``, ``:``, ``/``, ``=``, ``+``, ``@``, ``-``, and ``\"``.\n For more information, see [Tag](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-resource-tags.html).",
+  })
+    .check(
+      Schema.isMinLength(1).annotate({
+        expected: "a value with a length of at least 1",
+      }),
+    )
+    .check(
+      Schema.isMaxCodePoints(128).annotate({
+        expected: "a string with at most 128 code points",
+      }),
+    ),
+  Value: Schema.String.annotate({
+    description:
+      "The value for the tag. You can specify a value that's 1 to 256 characters in length. You can use any of the following characters: the set of Unicode letters, digits, whitespace, ``_``, ``.``, ``/``, ``=``, ``+``, and ``-``.\n For more information, see [Tag](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-resource-tags.html).",
+  })
+    .check(
+      Schema.isMinCodePoints(0).annotate({
+        expected: "a string with at least 0 code points",
+      }),
+    )
+    .check(
+      Schema.isMaxCodePoints(256).annotate({
+        expected: "a string with at most 256 code points",
+      }),
+    ),
+}).annotate({
+  description:
+    "A key-value pair. A tag consists of a tag key and a tag value. Tag keys and tag values are both required, but tag values can be empty (null) strings.\n  Do not include confidential or sensitive information in this field. This field may be displayed in plaintext in CloudTrail logs and other output.\n  For information about the rules that apply to tag keys and tag values, see [User-Defined Tag Restrictions](https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/allocation-tag-restrictions.html) in the *Billing and Cost Management User Guide*.",
+  identifier: "Tag",
+});
+
+export interface KeyProps {
+  readonly Description?: string;
+  readonly Enabled?: boolean;
+  readonly EnableKeyRotation?: boolean;
+  readonly KeyPolicy?:
+    | {
+        readonly [x: string]: ResourceInputJson;
+      }
+    | string;
+  readonly KeyUsage?:
+    | "ENCRYPT_DECRYPT"
+    | "SIGN_VERIFY"
+    | "GENERATE_VERIFY_MAC"
+    | "KEY_AGREEMENT";
+  readonly Origin?: "AWS_KMS" | "EXTERNAL";
+  readonly KeySpec?:
+    | "SYMMETRIC_DEFAULT"
+    | "RSA_2048"
+    | "RSA_3072"
+    | "RSA_4096"
+    | "ECC_NIST_P256"
+    | "ECC_NIST_P384"
+    | "ECC_NIST_P521"
+    | "ECC_SECG_P256K1"
+    | "HMAC_224"
+    | "HMAC_256"
+    | "HMAC_384"
+    | "HMAC_512"
+    | "SM2"
+    | "ML_DSA_44"
+    | "ML_DSA_65"
+    | "ML_DSA_87"
+    | "ECC_NIST_EDWARDS25519";
+  readonly MultiRegion?: boolean;
+  readonly PendingWindowInDays?: number;
+  readonly Tags?: ReadonlyArray<Tag>;
+  readonly BypassPolicyLockoutSafetyCheck?: boolean;
+  readonly RotationPeriodInDays?: number;
+}
+
+export const KeyResourceSchema = ResourceSchemaAnnotationSchema.make({
+  provider: "aws",
+  service: "kms",
+  resource: "key",
+  operation: "create",
+  stateSecretOutputKeys: [],
+  cloudControl: {
+    typeName: "AWS::KMS::Key",
+    primaryIdentifier: ["/properties/KeyId"],
+    readOnlyProperties: ["/properties/Arn", "/properties/KeyId"],
+    createOnlyProperties: [],
+    writeOnlyProperties: [
+      "/properties/PendingWindowInDays",
+      "/properties/BypassPolicyLockoutSafetyCheck",
+      "/properties/RotationPeriodInDays",
+    ],
+  },
+});
+export const KeyPropsSchema = annotateResourceSchema(
+  Schema.Struct({
+    Description: Schema.optionalKey(
+      Schema.String.annotate({
+        description:
+          "A description of the KMS key. Use a description that helps you to distinguish this KMS key from others in the account, such as its intended use.",
+      })
+        .check(
+          Schema.isMinCodePoints(0).annotate({
+            expected: "a string with at least 0 code points",
+          }),
+        )
+        .check(
+          Schema.isMaxCodePoints(8192).annotate({
+            expected: "a string with at most 8192 code points",
+          }),
+        ),
+    ),
+    Enabled: Schema.optionalKey(
+      Schema.Boolean.annotate({
+        description:
+          "Specifies whether the KMS key is enabled. Disabled KMS keys cannot be used in cryptographic operations.\n When ``Enabled`` is ``true``, the *key state* of the KMS key is ``Enabled``. When ``Enabled`` is ``false``, the key state of the KMS key is ``Disabled``. The default value is ``true``.\n The actual key state of the KMS key might be affected by actions taken outside of CloudFormation, such as running the [EnableKey](https://docs.aws.amazon.com/kms/latest/APIReference/API_EnableKey.html), [DisableKey](https://docs.aws.amazon.com/kms/latest/APIReference/API_DisableKey.html), or [ScheduleKeyDeletion](https://docs.aws.amazon.com/kms/latest/APIReference/API_ScheduleKeyDeletion.html) operations.\n For information about the key states of a KMS key, see [Key state: Effect on your KMS key](https://docs.aws.amazon.com/kms/latest/developerguide/key-state.html) in the *Developer Guide*.",
+      }),
+    ),
+    EnableKeyRotation: Schema.optionalKey(
+      Schema.Boolean.annotate({
+        description:
+          "Enables automatic rotation of the key material for the specified KMS key. By default, automatic key rotation is not enabled.\n KMS supports automatic rotation only for symmetric encryption KMS keys (``KeySpec`` = ``SYMMETRIC_DEFAULT``). For asymmetric KMS keys, HMAC KMS keys, and KMS keys with Origin ``EXTERNAL``, omit the ``EnableKeyRotation`` property or set it to ``false``.\n To enable automatic key rotation of the key material for a multi-Region KMS key, set ``EnableKeyRotation`` to ``true`` on the primary key (created by using ``AWS::KMS::Key``). KMS copies the rotation status to all replica keys. For details, see [Rotating multi-Region keys](https://docs.aws.amazon.com/kms/latest/developerguide/multi-region-keys-manage.html#multi-region-rotate) in the *Developer Guide*.\n When you enable automatic rotation, KMS automatically creates new key material for the KMS key one year after the enable date and every year thereafter. KMS retains all key material until you delete the KMS key. For detailed information about automatic key rotation, see [Rotating KMS keys](https://docs.aws.amazon.com/kms/latest/developerguide/rotate-keys.html) in the *Developer Guide*.",
+      }),
+    ),
+    KeyPolicy: Schema.optionalKey(
+      Schema.Union([
+        Schema.Record(
+          Schema.String,
+          ResourceInputJsonSchema.annotate({ expected: "JSON value" }),
+        ),
+        Schema.String,
+      ]).annotate({
+        description:
+          "The key policy to attach to the KMS key.\n If you provide a key policy, it must meet the following criteria:\n  +  The key policy must allow the caller to make a subsequent [PutKeyPolicy](https://docs.aws.amazon.com/kms/latest/APIReference/API_PutKeyPolicy.html) request on the KMS key. This reduces the risk that the KMS key becomes unmanageable. For more information, see [Default key policy](https://docs.aws.amazon.com/kms/latest/developerguide/key-policies.html#key-policy-default-allow-root-enable-iam) in the *Developer Guide*. (To omit this condition, set ``BypassPolicyLockoutSafetyCheck`` to true.)\n  +  Each statement in the key policy must contain one or more principals. The principals in the key policy must exist and be visible to KMS. When you create a new AWS principal (for example, an IAM user or role), you might need to enforce a delay before including the new principal in a key policy because the new principal might not be immediately visible to KMS. For more information, see [Changes that I make are not always immediately visible](https://docs.aws.amazon.com/IAM/latest/UserGuide/troubleshoot_general.html#troubleshoot_general_eventual-consistency) in the *User Guide*.\n  \n If you do not provide a key policy, KMS attaches a default key policy to the KMS key. For more information, see [Default key policy](https://docs.aws.amazon.com/kms/latest/developerguide/key-policies.html#key-policy-default) in the *Developer Guide*.\n A key policy document can include only the following characters:\n  +  Printable ASCII characters\n  +  Printable characters in the Basic Latin and Latin-1 Supplement character set\n  +  The tab (``\\u0009``), line feed (``\\u000A``), and carriage return (``\\u000D``) special characters\n  \n *Minimum*: ``1``\n *Maximum*: ``32768``",
+      }),
+    ),
+    KeyUsage: Schema.optionalKey(
+      Schema.Literals([
+        "ENCRYPT_DECRYPT",
+        "SIGN_VERIFY",
+        "GENERATE_VERIFY_MAC",
+        "KEY_AGREEMENT",
+      ]).annotate({
+        description:
+          "Determines the [cryptographic operations](https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html#cryptographic-operations) for which you can use the KMS key. The default value is ``ENCRYPT_DECRYPT``. This property is required for asymmetric KMS keys and HMAC KMS keys. You can't change the ``KeyUsage`` value after the KMS key is created.\n  If you change the value of the ``KeyUsage`` property on an existing KMS key, the update request fails, regardless of the value of the [UpdateReplacePolicy attribute](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-attribute-updatereplacepolicy.html). This prevents you from accidentally deleting a KMS key by changing an immutable property value.\n  Select only one valid value.\n  +  For symmetric encryption KMS keys, omit the parameter or specify ``ENCRYPT_DECRYPT``.\n  +  For HMAC KMS keys (symmetric), specify ``GENERATE_VERIFY_MAC``.\n  +  For asymmetric KMS keys with RSA key pairs, specify ``ENCRYPT_DECRYPT`` or ``SIGN_VERIFY``.\n  +  For asymmetric KMS keys with NIST-recommended elliptic curve key pairs, specify ``SIGN_VERIFY`` or ``KEY_AGREEMENT``.\n  +  For asymmetric KMS keys with ``ECC_SECG_P256K1`` key pairs, specify ``SIGN_VERIFY``.\n  +  For asymmetric KMS keys with ML-DSA key pairs, specify ``SIGN_VERIFY``.\n  +  For asymmetric KMS keys with SM2 key pairs (China Regions only), specify ``ENCRYPT_DECRYPT``, ``SIGN_VERIFY``, or ``KEY_AGREEMENT``.",
+      }),
+    ),
+    Origin: Schema.optionalKey(
+      Schema.Literals(["AWS_KMS", "EXTERNAL"]).annotate({
+        description:
+          "The source of the key material for the KMS key. You cannot change the origin after you create the KMS key. The default is ``AWS_KMS``, which means that KMS creates the key material.\n To [create a KMS key with no key material](https://docs.aws.amazon.com/kms/latest/developerguide/importing-keys-create-cmk.html) (for imported key material), set this value to ``EXTERNAL``. For more information about importing key material into KMS, see [Importing Key Material](https://docs.aws.amazon.com/kms/latest/developerguide/importing-keys.html) in the *Developer Guide*.\n You can ignore ``ENABLED`` when Origin is ``EXTERNAL``. When a KMS key with Origin ``EXTERNAL`` is created, the key state is ``PENDING_IMPORT`` and ``ENABLED`` is ``false``. After you import the key material, ``ENABLED`` updated to ``true``. The KMS key can then be used for Cryptographic Operations. \n   +  CFN doesn't support creating an ``Origin`` parameter of the ``AWS_CLOUDHSM`` or ``EXTERNAL_KEY_STORE`` values.\n  +  ``EXTERNAL`` is not supported for ML-DSA keys.",
+      }),
+    ),
+    KeySpec: Schema.optionalKey(
+      Schema.Literals([
+        "SYMMETRIC_DEFAULT",
+        "RSA_2048",
+        "RSA_3072",
+        "RSA_4096",
+        "ECC_NIST_P256",
+        "ECC_NIST_P384",
+        "ECC_NIST_P521",
+        "ECC_SECG_P256K1",
+        "HMAC_224",
+        "HMAC_256",
+        "HMAC_384",
+        "HMAC_512",
+        "SM2",
+        "ML_DSA_44",
+        "ML_DSA_65",
+        "ML_DSA_87",
+        "ECC_NIST_EDWARDS25519",
+      ]).annotate({
+        description:
+          "Specifies the type of KMS key to create. The default value, ``SYMMETRIC_DEFAULT``, creates a KMS key with a 256-bit symmetric key for encryption and decryption. In China Regions, ``SYMMETRIC_DEFAULT`` creates a 128-bit symmetric key that uses SM4 encryption. You can't change the ``KeySpec`` value after the KMS key is created. For help choosing a key spec for your KMS key, see [Choosing a KMS key type](https://docs.aws.amazon.com/kms/latest/developerguide/symm-asymm-choose.html) in the *Developer Guide*.\n The ``KeySpec`` property determines the type of key material in the KMS key and the algorithms that the KMS key supports. To further restrict the algorithms that can be used with the KMS key, use a condition key in its key policy or IAM policy. For more information, see [condition keys](https://docs.aws.amazon.com/kms/latest/developerguide/policy-conditions.html#conditions-kms) in the *Developer Guide*.\n  If you change the value of the ``KeySpec`` property on an existing KMS key, the update request fails, regardless of the value of the [UpdateReplacePolicy attribute](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-attribute-updatereplacepolicy.html). This prevents you from accidentally deleting a KMS key by changing an immutable property value.\n   [services that are integrated with](https://docs.aws.amazon.com/kms/features/#AWS_Service_Integration) use symmetric encryption KMS keys to protect your data. These services do not support encryption with asymmetric KMS keys. For help determining whether a KMS key is asymmetric, see [Identifying asymmetric KMS keys](https://docs.aws.amazon.com/kms/latest/developerguide/find-symm-asymm.html) in the *Developer Guide*.\n  KMS supports the following key specs for KMS keys:\n  +  Symmetric encryption key (default)\n  +  ``SYMMETRIC_DEFAULT`` (AES-256-GCM)\n  \n  +  HMAC keys (symmetric)\n  +   ``HMAC_224`` \n  +   ``HMAC_256`` \n  +   ``HMAC_384`` \n  +   ``HMAC_512`` \n  \n  +  Asymmetric RSA key pairs (encryption and decryption *or* signing and verification)\n  +   ``RSA_2048`` \n  +   ``RSA_3072`` \n  +   ``RSA_4096`` \n  \n  +  Asymmetric NIST-recommended elliptic curve key pairs (signing and verification *or* deriving shared secrets)\n  +  ``ECC_NIST_P256`` (secp256r1)\n  +  ``ECC_NIST_P384`` (secp384r1)\n  +  ``ECC_NIST_P521`` (secp521r1)\n  +  ``ECC_NIST_EDWARDS25519`` (ed25519) - signing and verification only\n  +  *Note:* For ECC_NIST_EDWARDS25519 KMS keys, the ED25519_SHA_512 signing algorithm requires [MessageType:RAW](https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html#KMS-Sign-request-MessageType), while ED25519_PH_SHA_512 requires [MessageType:DIGEST](https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html#KMS-Sign-request-MessageType). These message types cannot be used interchangeably.\n  \n  \n  +  Other asymmetric elliptic curve key pairs (signing and verification)\n  +  ``ECC_SECG_P256K1`` (secp256k1), commonly used for cryptocurrencies.\n  \n  +  Asymmetric ML-DSA key pairs (signing and verification)\n  +   ``ML_DSA_44`` \n  +   ``ML_DSA_65`` \n  +   ``ML_DSA_87`` \n  \n  +  SM2 key pairs (encryption and decryption *or* signing and verification *or* deriving shared secrets)\n  +  ``SM2`` (China Regions only)",
+      }),
+    ),
+    MultiRegion: Schema.optionalKey(
+      Schema.Boolean.annotate({
+        description:
+          "Creates a multi-Region primary key that you can replicate in other AWS-Regions. You can't change the ``MultiRegion`` value after the KMS key is created.\n For a list of AWS-Regions in which multi-Region keys are supported, see [Multi-Region keys in](https://docs.aws.amazon.com/kms/latest/developerguide/multi-region-keys-overview.html) in the **.\n  If you change the value of the ``MultiRegion`` property on an existing KMS key, the update request fails, regardless of the value of the [UpdateReplacePolicy attribute](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-attribute-updatereplacepolicy.html). This prevents you from accidentally deleting a KMS key by changing an immutable property value.\n  For a multi-Region key, set to this property to ``true``. For a single-Region key, omit this property or set it to ``false``. The default value is ``false``.\n *Multi-Region keys* are an KMS feature that lets you create multiple interoperable KMS keys in different AWS-Regions. Because these KMS keys have the same key ID, key material, and other metadata, you can use them to encrypt data in one AWS-Region and decrypt it in a different AWS-Region without making a cross-Region call or exposing the plaintext data. For more information, see [Multi-Region keys](https://docs.aws.amazon.com/kms/latest/developerguide/multi-region-keys-overview.html) in the *Developer Guide*.\n You can create a symmetric encryption, HMAC, or asymmetric multi-Region KMS key, and you can create a multi-Region key with imported key material. However, you cannot create a multi-Region key in a custom key store.\n To create a replica of this primary key in a different AWS-Region , create an [AWS::KMS::ReplicaKey](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-kms-replicakey.html) resource in a CloudFormation stack in the replica Region. Specify the key ARN of this primary key.",
+      }),
+    ),
+    PendingWindowInDays: Schema.optionalKey(
+      Schema.Number.annotate({
+        description:
+          "Specifies the number of days in the waiting period before KMS deletes a KMS key that has been removed from a CloudFormation stack. Enter a value between 7 and 30 days. The default value is 30 days.\n When you remove a KMS key from a CloudFormation stack, KMS schedules the KMS key for deletion and starts the mandatory waiting period. The ``PendingWindowInDays`` property determines the length of waiting period. During the waiting period, the key state of KMS key is ``Pending Deletion`` or ``Pending Replica Deletion``, which prevents the KMS key from being used in cryptographic operations. When the waiting period expires, KMS permanently deletes the KMS key.\n KMS will not delete a [multi-Region primary key](https://docs.aws.amazon.com/kms/latest/developerguide/multi-region-keys-overview.html) that has replica keys. If you remove a multi-Region primary key from a CloudFormation stack, its key state changes to ``PendingReplicaDeletion`` so it cannot be replicated or used in cryptographic operations. This state can persist indefinitely. When the last of its replica keys is deleted, the key state of the primary key changes to ``PendingDeletion`` and the waiting period specified by ``PendingWindowInDays`` begins. When this waiting period expires, KMS deletes the primary key. For details, see [Deleting multi-Region keys](https://docs.aws.amazon.com/kms/latest/developerguide/multi-region-keys-delete.html) in the *Developer Guide*.\n You cannot use a CloudFormation template to cancel deletion of the KMS key after you remove it from the stack, regardless of the waiting period. If you specify a KMS key in your template, even one with the same name, CloudFormation creates a new KMS key. To cancel deletion of a KMS key, use the KMS console or the [CancelKeyDeletion](https://docs.aws.amazon.com/kms/latest/APIReference/API_CancelKeyDeletion.html) operation.\n For information about the ``Pending Deletion`` and ``Pending Replica Deletion`` key states, see [Key state: Effect on your KMS key](https://docs.aws.amazon.com/kms/latest/developerguide/key-state.html) in the *Developer Guide*. For more information about deleting KMS keys, see the [ScheduleKeyDeletion](https://docs.aws.amazon.com/kms/latest/APIReference/API_ScheduleKeyDeletion.html) operation in the *API Reference* and [Deleting KMS keys](https://docs.aws.amazon.com/kms/latest/developerguide/deleting-keys.html) in the *Developer Guide*.",
+      })
+        .check(Schema.isInt().annotate({ expected: "an integer" }))
+        .check(
+          Schema.isGreaterThanOrEqualTo(7).annotate({
+            expected: "a value greater than or equal to 7",
+          }),
+        )
+        .check(
+          Schema.isLessThanOrEqualTo(30).annotate({
+            expected: "a value less than or equal to 30",
+          }),
+        ),
+    ),
+    Tags: Schema.optionalKey(
+      Schema.Array(Tag)
+        .annotate({
+          description:
+            "Assigns one or more tags to the replica key.\n  Tagging or untagging a KMS key can allow or deny permission to the KMS key. For details, see [ABAC for](https://docs.aws.amazon.com/kms/latest/developerguide/abac.html) in the *Developer Guide*.\n  For information about tags in KMS, see [Tagging keys](https://docs.aws.amazon.com/kms/latest/developerguide/tagging-keys.html) in the *Developer Guide*. For information about tags in CloudFormation, see [Tag](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-resource-tags.html).",
+        })
+        .check(
+          Schema.isUnique().annotate({
+            expected: "an array with unique items",
+          }),
+        ),
+    ),
+    BypassPolicyLockoutSafetyCheck: Schema.optionalKey(
+      Schema.Boolean.annotate({
+        description:
+          'Skips ("bypasses") the key policy lockout safety check. The default value is false.\n  Setting this value to true increases the risk that the KMS key becomes unmanageable. Do not set this value to true indiscriminately.\n For more information, see [Default key policy](https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-default.html#prevent-unmanageable-key) in the *Developer Guide*.\n  Use this parameter only when you intend to prevent the principal that is making the request from making a subsequent [PutKeyPolicy](https://docs.aws.amazon.com/kms/latest/APIReference/API_PutKeyPolicy.html) request on the KMS key.',
+      }),
+    ),
+    RotationPeriodInDays: Schema.optionalKey(
+      Schema.Number.annotate({
+        description:
+          "Specifies a custom period of time between each rotation date. If no value is specified, the default value is 365 days.\n The rotation period defines the number of days after you enable automatic key rotation that KMS will rotate your key material, and the number of days between each automatic rotation thereafter.\n You can use the [kms:RotationPeriodInDays](https://docs.aws.amazon.com/kms/latest/developerguide/conditions-kms.html#conditions-kms-rotation-period-in-days) condition key to further constrain the values that principals can specify in the ``RotationPeriodInDays`` parameter.\n For more information about rotating KMS keys and automatic rotation, see [Rotating keys](https://docs.aws.amazon.com/kms/latest/developerguide/rotate-keys.html) in the *Developer Guide*.",
+      })
+        .check(Schema.isInt().annotate({ expected: "an integer" }))
+        .check(
+          Schema.isGreaterThanOrEqualTo(90).annotate({
+            expected: "a value greater than or equal to 90",
+          }),
+        )
+        .check(
+          Schema.isLessThanOrEqualTo(2560).annotate({
+            expected: "a value less than or equal to 2560",
+          }),
+        ),
+    ),
+  }),
+  KeyResourceSchema,
+);
+
+export interface KeyOutputs {
+  readonly Arn?: string;
+  readonly KeyId?: string;
+}
+
+export const KeyOutputsSchema = Schema.Struct({
+  Arn: Schema.optionalKey(Schema.String.annotate({ description: "" })),
+  KeyId: Schema.optionalKey(Schema.String.annotate({ description: "" })),
+});
+
+export interface KeyResource {
+  readonly key: ResourceKey;
+  readonly props: KeyProps;
+  readonly outputs: {
+    readonly [Key in keyof KeyOutputs]-?: Required<KeyOutputs>[Key];
+  };
+}
+
+export const registerKey = Effect.fn("Key.register")(function* (input: {
+  readonly key: ResourceKey;
+  readonly props: KeyProps;
+}) {
+  const graph = yield* ResourceGraphBuilder;
+  const graphResource = yield* graph.resource(input.key);
+
+  const resourceProps: KeyProps = yield* Schema.decodeEffect(KeyPropsSchema)(
+    input.props,
+  );
+
+  const resourceOutputs: KeyOutputs = yield* Schema.decodeEffect(
+    KeyOutputsSchema,
+  )({});
+
+  yield* graphResource.register({
+    propsSchema: KeyPropsSchema,
+    outputsSchema: KeyOutputsSchema,
+    props: resourceProps,
+    outputs: resourceOutputs,
+  });
+
+  const resource: KeyResource = {
+    key: input.key,
+    props: resourceProps,
+    outputs: {
+      get Arn(): Required<KeyOutputs>["Arn"] {
+        const value: Required<KeyOutputs>["Arn"] = ResourceOutputBinding.value(
+          graphResource.outputs,
+          input.key,
+          "Arn",
+          Schema.requiredKey(KeyOutputsSchema.fields.Arn),
+        );
+        return value;
+      },
+      get KeyId(): Required<KeyOutputs>["KeyId"] {
+        const value: Required<KeyOutputs>["KeyId"] =
+          ResourceOutputBinding.value(
+            graphResource.outputs,
+            input.key,
+            "KeyId",
+            Schema.requiredKey(KeyOutputsSchema.fields.KeyId),
+          );
+        return value;
+      },
+    },
+  };
+
+  return resource;
+});
+export const KeyOutputCatalog = [
+  {
+    source: {
+      provider: "AWS",
+      service: "CloudFormation",
+      name: "aws-kms-key.json",
+      format: "CloudFormation",
+    },
+    typeName: "AWS::KMS::Key",
+    primaryIdentifier: ["/properties/KeyId"],
+    createOnlyProperties: [],
+    writeOnlyProperties: [
+      "/properties/PendingWindowInDays",
+      "/properties/BypassPolicyLockoutSafetyCheck",
+      "/properties/RotationPeriodInDays",
+    ],
+    outputs: {
+      Arn: {
+        schema: {
+          type: "string",
+          description: "",
+        },
+        schemaPath: "/properties/Arn",
+        valuePath: "/Arn",
+        required: false,
+      },
+      KeyId: {
+        schema: {
+          type: "string",
+          description: "",
+        },
+        schemaPath: "/properties/KeyId",
+        valuePath: "/KeyId",
+        required: false,
+      },
+    },
+  },
+];

@@ -3,17 +3,26 @@ import {
   Context,
   DateTime,
   Effect,
+  Equal,
   Graph,
+  HashMap,
   Layer,
   Match,
   Option,
+  Order,
+  Predicate,
+  Record,
+  Ref,
   Semaphore,
 } from "effect";
 import { KeyValueStore } from "effect/persistence";
-import type {
-  DependencyEdge,
-  PlanAction,
-  ResourceNode,
+import {
+  type DependencyEdge,
+  type ResourceKey,
+  type ResourceNode,
+  type ResourceOperation,
+  resourceGeneration,
+  resourceInstanceKey,
 } from "../resource/model.js";
 import type { ResourceCommandFailure } from "../resource/resourceCommandPolicy.js";
 import {
@@ -28,10 +37,11 @@ import {
 import { StateSecretService } from "./stateSecretService.js";
 
 /**
- * ResourceStateStore preserves completed resources and unfinished operations
- * in schema-validated KeyValueStore records. Planning and recovery read the
- * same saved phases. Secret handling follows the configured secret service,
- * which can keep references in storage and restore values for provider use.
+ * The ResourceStateStore service requires secret handling and schema-validated
+ * storage to succeed before its working records become available to output
+ * access. Saved progress belongs to individual provider generations, while
+ * application values remain attached to the last applied instance until its
+ * successor is committed.
  */
 export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
   "nomoss/core/state/stateStore/ResourceStateStore",
@@ -40,6 +50,9 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
       const keyValueStore = yield* KeyValueStore.KeyValueStore;
       const stateSecrets = yield* StateSecretService;
       const changes = yield* Semaphore.make(1);
+      const working = yield* Ref.make(
+        HashMap.empty<string, ReadonlyArray<ResourceState>>(),
+      );
 
       const storage = KeyValueStore.toSchemaStore(
         keyValueStore,
@@ -47,10 +60,67 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
       );
 
       /**
-       * loadResourceStates returns the stack's saved lifecycle records with
-       * secret values restored.
-       * An unsaved stack returns an empty collection, allowing its first plan
-       * to treat resources as not yet managed.
+       * The resourcesFromStates helper keeps application outputs on the oldest
+       * recorded instance until the operation commits. A completed removal can
+       * still supply the last applied outputs while its successor is pending.
+       * Resources with only completed removals are omitted from the result.
+       */
+      const resourcesFromStates = (states: ReadonlyArray<ResourceState>) =>
+        Arr.flatMap(
+          Record.values(
+            Arr.groupBy(states, (state) => state.node.key.logicalId),
+          ),
+          (instances) =>
+            Arr.match(
+              Arr.filter(instances, (state) => state._tag !== "Deleted"),
+              {
+                onEmpty: () => [],
+                onNonEmpty: () => {
+                  const first = Arr.sort(
+                    instances,
+                    Order.mapInput(Order.Number, (state: ResourceState) =>
+                      resourceGeneration(state.node),
+                    ),
+                  )[0];
+
+                  return Match.value(first).pipe(
+                    Match.tag(
+                      "Created",
+                      "Updated",
+                      "Deleting",
+                      "Deleted",
+                      ({ node }) => [node],
+                    ),
+                    Match.tag("Updating", ({ previous }) => [previous]),
+                    Match.orElse(() => []),
+                  );
+                },
+              },
+            ),
+        );
+
+      /**
+       * The ownedResources service method supplies removal targets for every
+       * provider instance still owned, including the previous instance of an
+       * unfinished update. Creating and Deleted records are excluded because
+       * they represent creation intent and completed removal.
+       */
+      const ownedResources = (
+        states: ReadonlyArray<ResourceState>,
+      ): ReadonlyArray<ResourceNode> =>
+        Arr.flatMap(states, (state) =>
+          Match.value(state).pipe(
+            Match.tag("Created", "Updated", "Deleting", ({ node }) => [node]),
+            Match.tag("Updating", ({ previous }) => [previous]),
+            Match.tag("Creating", "Deleted", () => []),
+            Match.exhaustive,
+          ),
+        );
+
+      /**
+       * The loadResourceStates service method restores secret values in the
+       * stack's saved lifecycle records. An unsaved stack returns an empty
+       * collection, so its first plan treats resources as not yet managed.
        */
       const loadResourceStates = Effect.fn(
         "ResourceStateStore.loadResourceStates",
@@ -65,29 +135,41 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
         const restored: ReadonlyArray<ResourceState> =
           yield* stateSecrets.restoreStateSecrets(states);
 
+        yield* Ref.update(working, HashMap.set(stack, restored));
+
         return restored;
       });
 
       /**
-       * loadSnapshot returns lifecycle records and last-applied values from
-       * the same state read. An unfinished update contributes its previous node
-       * so the desired update is not mistaken for an already applied value.
+       * The currentResource service method uses records restored by a lifecycle
+       * load or successful state write, so application output access performs
+       * no storage or provider work. Pending updates and composed operations
+       * retain the last applied value until their successor is committed.
+       */
+      const currentResource = (stack: string, key: ResourceKey) => {
+        const states = Option.getOrElse(
+          HashMap.get(Ref.getUnsafe(working), stack),
+          () => [],
+        );
+        const resource: Option.Option<ResourceNode> = Arr.findFirst(
+          resourcesFromStates(states),
+          (node) => node.key.logicalId === key.logicalId,
+        );
+        return resource;
+      };
+
+      /**
+       * The loadSnapshot service method gives plan validation the complete
+       * retry records and the applied values from the same state read. An
+       * unfinished operation contributes its last applied instance so the
+       * requested configuration remains eligible for execution.
        */
       const loadSnapshot = Effect.fn("ResourceStateStore.loadSnapshot")(
         function* (stack: string) {
           const states = yield* loadResourceStates(stack);
 
-          const resources: ReadonlyArray<ResourceNode> = Arr.flatMap(
-            states,
-            (state) =>
-              Match.value(state).pipe(
-                Match.tag("Created", ({ node }) => [node]),
-                Match.tag("Updating", ({ previous }) => [previous]),
-                Match.tag("Updated", ({ node }) => [node]),
-                Match.tag("Deleting", ({ node }) => [node]),
-                Match.orElse(() => []),
-              ),
-          );
+          const resources: ReadonlyArray<ResourceNode> =
+            resourcesFromStates(states);
 
           const snapshot: ResourceStateSnapshot = { states, resources };
 
@@ -96,9 +178,10 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
       );
 
       /**
-       * loadResources returns last-applied nodes from a consistent state read.
-       * Unfinished updates expose their previous nodes, while pending creations
-       * do not become applied resources merely because their phase was saved.
+       * The loadResources service method gives request resolution the last
+       * applied instances, including their restored protected outputs. Pending
+       * creation intent becomes available only after creation has completed
+       * and any preceding instance has been released by the composed operation.
        */
       const loadResources = Effect.fn("ResourceStateStore.loadResources")(
         function* (stack: string) {
@@ -111,9 +194,9 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
       );
 
       /**
-       * saveResourceStates replaces the stack's complete lifecycle record set.
-       * Secret handling must succeed before the schema-encoded write, keeping
-       * an unpreserved secret from being committed to the new state document.
+       * The saveResourceStates service method replaces the stack's complete
+       * lifecycle record set only after secret storage succeeds. A failure to
+       * preserve a secret prevents the schema-encoded state write.
        */
       const saveResourceStates = Effect.fn(
         "ResourceStateStore.saveResourceStates",
@@ -130,13 +213,15 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
         };
 
         yield* storage.set(`${stack}.json`, state);
+        yield* Ref.update(working, HashMap.set(stack, resources));
       });
 
       /**
-       * saveResources replaces saved resources with the final collection from
-       * reconciliation or a completed workflow. Updated records retain their
-       * status; other nodes become Created records with a completion time. A shared
-       * permit protects the read and replacement from concurrent lost updates.
+       * The saveResources service method requires the final owned collection
+       * from a completed stack operation. Omitted nodes release their saved
+       * records, so callers must retain every instance still needed for recovery.
+       * Existing Updated statuses remain intact. The shared write permit
+       * protects the complete state replacement from concurrent lost updates.
        */
       const saveResources = Effect.fn("ResourceStateStore.saveResources")(
         function* (stack: string, resources: ReadonlyArray<ResourceNode>) {
@@ -181,13 +266,14 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
       );
 
       /**
-       * markResourceStarted saves the intended phase before a provider call
-       * can begin remote work. The saved phase remains available after failure;
-       * an update retains the last applied node for comparison during a later run.
+       * The markResourceStarted service method requires the action's node to
+       * identify the intended provider generation. Other generations remain
+       * recorded so an interrupted composition retains every owned object and
+       * the last applied value needed for recovery.
        */
       const markResourceStarted = Effect.fn(
         "ResourceStateStore.markResourceStarted",
-      )(function* (stack: string, action: PlanAction) {
+      )(function* (stack: string, action: ResourceOperation) {
         const states = yield* loadResourceStates(stack);
 
         const startedAt = yield* DateTime.now.pipe(
@@ -216,7 +302,8 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
           Arr.filter(
             states,
             (state) =>
-              state.node.key.logicalId !== resourceState.node.key.logicalId,
+              resourceInstanceKey(state.node) !==
+              resourceInstanceKey(resourceState.node),
           ),
           resourceState,
         );
@@ -225,16 +312,17 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
       }, changes.withPermits(1));
 
       /**
-       * markResourceApplied saves a completed creation or update with its
-       * provider result and completion time. Only this resource's record is
-       * replaced, preserving progress recorded for other actions in the stack.
+       * The markResourceApplied service method requires a validated node and
+       * its completed operation status. Its saved result belongs to that node's
+       * generation, leaving progress for other instances available to retries.
+       * Deleted results remain until the containing operation commits.
        */
       const markResourceApplied = Effect.fn(
         "ResourceStateStore.markResourceApplied",
       )(function* (
         stack: string,
         node: ResourceNode,
-        stateTag: "Created" | "Updated",
+        stateTag: "Created" | "Updated" | "Deleted",
       ) {
         const states = yield* loadResourceStates(stack);
 
@@ -251,7 +339,8 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
         const resourceStates: ReadonlyArray<ResourceState> = Arr.append(
           Arr.filter(
             states,
-            (state) => state.node.key.logicalId !== node.key.logicalId,
+            (state) =>
+              resourceInstanceKey(state.node) !== resourceInstanceKey(node),
           ),
           resourceState,
         );
@@ -260,8 +349,10 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
       }, changes.withPermits(1));
 
       /**
-       * deleteResourceState removes a resource's saved record after successful
-       * rollback. Other records remain available for recovery.
+       * The deleteResourceState service method requires provider removal to
+       * have succeeded before rollback releases the saved instance. Its exact
+       * generation identifies the record to release, preserving other instances
+       * that the stack still owns.
        */
       const deleteResourceState = Effect.fn(
         "ResourceStateStore.deleteResourceState",
@@ -270,16 +361,45 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
 
         const resources: ReadonlyArray<ResourceState> = Arr.filter(
           states,
-          (state) => state.node.key.logicalId !== node.key.logicalId,
+          (state) =>
+            resourceInstanceKey(state.node) !== resourceInstanceKey(node),
         );
 
         yield* saveResourceStates(stack, resources);
       }, changes.withPermits(1));
 
       /**
-       * markResourceFailure saves the reported failure and its time against the
-       * resource's active operation. Completed or unrelated records are
-       * preserved, and an absent active record is not manufactured here.
+       * The completeResourceActions service method requires every operation for
+       * the logical resource to have succeeded. It releases saved removal
+       * results so application output access advances to the remaining applied
+       * instance.
+       */
+      const completeResourceActions = Effect.fn(
+        "ResourceStateStore.completeResourceActions",
+      )(function* (stack: string, key: ResourceKey) {
+        const states = yield* loadResourceStates(stack);
+        const retained = Arr.filter(
+          states,
+          Predicate.not(
+            Predicate.Struct({
+              _tag: Equal.equals("Deleted"),
+              node: Predicate.Struct({
+                key: Predicate.Struct({
+                  logicalId: Equal.equals(key.logicalId),
+                }),
+              }),
+            }),
+          ),
+        );
+
+        yield* saveResourceStates(stack, retained);
+      }, changes.withPermits(1));
+
+      /**
+       * The markResourceFailure service method records a failure only against
+       * an active operation for the supplied instance. Completed records and
+       * other generations keep their existing results, allowing retries to
+       * identify the unfinished work.
        */
       const markResourceFailure = Effect.fn(
         "ResourceStateStore.markResourceFailure",
@@ -304,6 +424,11 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
           states,
           (state) =>
             Match.value(state).pipe(
+              Match.when(
+                () =>
+                  resourceInstanceKey(state.node) !== resourceInstanceKey(node),
+                () => state,
+              ),
               Match.when(
                 {
                   _tag: "Creating",
@@ -345,9 +470,9 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
       }, changes.withPermits(1));
 
       /**
-       * resourcesFromGraph returns nodes in dependency order from the supplied
-       * graph snapshot. The collection retains the snapshot's node values for
-       * planning and final saved-state selection.
+       * The resourcesFromGraph service method preserves the supplied graph
+       * snapshot's node values and dependency order. Planning and final state
+       * publication can therefore use values from the same captured declaration.
        */
       const resourcesFromGraph = (
         graph: Graph.DirectedGraph<ResourceNode, DependencyEdge>,
@@ -360,6 +485,8 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
       };
 
       return {
+        currentResource,
+        ownedResources,
         loadResourceStates,
         loadSnapshot,
         loadResources,
@@ -368,6 +495,7 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
         markResourceStarted,
         markResourceApplied,
         deleteResourceState,
+        completeResourceActions,
         markResourceFailure,
         resourcesFromGraph,
       };
@@ -376,8 +504,9 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
 ) {}
 
 /**
- * Applications supply storage and secret handling to this Layer. Tests use the
- * same state operations with memory storage and controlled external services.
+ * The resourceStateStoreBaseLayer Layer requires the application's storage and
+ * secret services so lifecycle mutations and output access share the configured
+ * persistence.
  */
 export const resourceStateStoreBaseLayer = Layer.effect(
   ResourceStateStore,

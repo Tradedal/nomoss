@@ -6,34 +6,48 @@
     "url": "https://github.com/Tradedal/nomoss.git"
   },
   "scripts": {
-    "check": "yarn lint && yarn typecheck:tsgo && vitest run --pool forks --passWithNoTests --exclude 'tests/**/*.integration.test.ts'",
+    "check": "yarn format && yarn lint && yarn typecheck:tsgo && vitest run --pool forks --passWithNoTests --exclude 'tests/**/*.integration.test.ts'",
+    "format": "biome check --write",
+    "format:staged": "biome check --write --staged --no-errors-on-unmatched",
     "generate:aws-resource-definition": "tsx tools/compileAwsResourceDefinition.ts",
     "generate:aws-resources": "tsx tools/compileAwsCloudControlClient.ts",
+    "generate:stripe-client": "tsx tools/compileStripeClient.ts",
     "lint": "biome lint --reporter=summary",
     "lint:fix": "biome check --write",
-    "tsgo:patch": "effect-tsgo patch",
-    "typecheck:tsgo": "tsc -b .",
-    "projen": "tsx .projenrc.ts"
+    "nomoss": "tsx examples/queue/cli.ts",
+    "tsgo:patch": "effect-tsgo patch --typescript",
+    "typecheck:tsgo": "yarn format:staged && effect-tsgo tsc --build .",
+    "test:integration": "vitest run --config vitest.integration.config.ts --pool forks",
+    "test:integration:aws": "vitest run --config vitest.integration.config.ts tests/awsUploadEvents.integration.test.ts --pool forks",
+    "test:integration:stripe": "vitest run --config vitest.integration.config.ts tests/stripe --pool forks",
+    "projen": "tsx .projenrc.ts",
+    "postinstall": "yarn tsgo:patch"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.12",
-    "@catenarycloud/linteffect": "0.0.7-dev.2",
-    "@effect/tsgo": "0.23.0",
-    "@effect/vitest": "4.0.0-beta.93",
+    "@biomejs/biome": "2.6.3",
+    "@catenarycloud/linteffect": "0.1.0",
+    "@effect/tsgo": "0.63.0",
+    "@effect/vitest": "4.1.1",
     "@types/node": "^24.0.0",
     "commit-and-tag-version": "^12",
     "constructs": "^10.0.0",
     "projen": "^0.98.34",
+    "ts-morph": "27.0.2",
     "typescript": "7.0.2",
     "typescript-ast": "npm:typescript@6.0.2",
     "vite": "^8.0.7",
-    "vitest": "^4.1.4"
+    "vitest": "^5.0.5"
   },
   "dependencies": {
-    "@distilled.cloud/aws": "^0.27.0",
-    "@distilled.cloud/stripe": "^0.27.0",
-    "@effect/platform-node": "4.0.0-beta.93",
-    "effect": "4.0.0-beta.93",
+    "@aws-crypto/sha256-js": "^5.2.0",
+    "@aws-sdk/core": "^3.979.1",
+    "@aws-sdk/credential-provider-node": "^3.972.92",
+    "@effect/platform-node": "4.1.1",
+    "@smithy/core": "^3.38.1",
+    "@smithy/signature-v4": "^5.7.5",
+    "@smithy/types": "^4.19.0",
+    "effect": "4.1.1",
+    "redis": "^6.3.1",
     "tsx": "^4.20.6"
   },
   "engines": {
@@ -49,7 +63,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./core": "./src/core/index.ts",
+    "./cli": "./src/cli.ts",
     "./providers": "./src/providers/index.ts",
+    "./providers/commands": "./src/providers/resourceCommandPolicyLayer.ts",
     "./providers/aws": "./src/providers/aws/index.ts",
     "./providers/stripe": "./src/providers/stripe/index.ts"
   },

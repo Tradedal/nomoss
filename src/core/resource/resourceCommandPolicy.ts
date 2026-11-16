@@ -1,8 +1,14 @@
-import { type Cause, Context, Data, type Effect } from "effect";
+import { Context, Data, type Effect } from "effect";
 import type { ResourceCommand, ResourceCommandResult } from "./lifecycle.js";
 
-export type ResourceCommandFailure = Cause.YieldableError & {
+/**
+ * The ResourceCommandFailure type allows Effect's native configuration failures
+ * to pass through unchanged. Lifecycle records need their tag and message,
+ * and ResourceCommandExecutionFailed retains the original cause.
+ */
+export type ResourceCommandFailure = {
   readonly _tag: string;
+  readonly message: string;
 };
 
 /**

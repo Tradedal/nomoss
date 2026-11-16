@@ -1,3 +1,4 @@
+export * from "./aws/awsCloudControlResourceCommandPolicyLayer.js";
 export * as AwsProvider from "./aws/index.js";
 export * from "./provider.js";
 export * from "./providerRuntimeLayer.js";

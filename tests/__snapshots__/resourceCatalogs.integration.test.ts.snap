@@ -1,0 +1,41 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Resource output catalogs > The queue output catalog preserves Registry identity and source fields 1`] = `
+{
+  "createOnlyProperties": [
+    "/properties/FifoQueue",
+    "/properties/QueueName",
+  ],
+  "outputs": {
+    "Arn": {
+      "required": false,
+      "schema": {
+        "description": "",
+        "type": "string",
+      },
+      "schemaPath": "/properties/Arn",
+      "valuePath": "/Arn",
+    },
+    "QueueUrl": {
+      "required": false,
+      "schema": {
+        "description": "",
+        "type": "string",
+      },
+      "schemaPath": "/properties/QueueUrl",
+      "valuePath": "/QueueUrl",
+    },
+  },
+  "primaryIdentifier": [
+    "/properties/QueueUrl",
+  ],
+  "source": {
+    "format": "CloudFormation",
+    "name": "aws-sqs-queue.json",
+    "provider": "AWS",
+    "service": "CloudFormation",
+  },
+  "typeName": "AWS::SQS::Queue",
+  "writeOnlyProperties": [],
+}
+`;

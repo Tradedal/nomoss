@@ -1,21 +1,30 @@
-import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
-import * as NodeServices from "@effect/platform-node/NodeServices";
+import { NodeCrypto, NodeRuntime, NodeServices } from "@effect/platform-node";
 import { Effect, Layer } from "effect";
-import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import { FetchHttpClient } from "effect/http";
 import { AwsCloudControlClientGenerator } from "./awsCloudControl/AwsCloudControlClientGenerator.js";
+import { AwsOpenApi } from "./awsCloudControl/openApi.js";
+import { AwsOpenApiTypeScript } from "./awsCloudControl/typeScript.js";
+import { operationCatalogsLayer } from "./codegen/operationCatalogs.js";
+import { schemaCompilationLayer } from "./codegen/schemaCompilation.js";
+import { TypeScriptModulePublisher } from "./typeScriptModulePublisher.js";
 
 Effect.gen(function* () {
   const generator = yield* AwsCloudControlClientGenerator;
-  const classpath = yield* generator.prepareConverter("tools/awsCloudControl");
-  const model = yield* generator.readModel({
+  const classpath = yield* generator.prepareSmithyConverter(
+    "tools/awsCloudControl",
+  );
+  const documents = yield* generator.convertSmithyModel({
     modelPath:
       process.argv[2] ??
       "refs/aws-api-models/models/cloudcontrol/service/2021-09-30/cloudcontrol-2021-09-30.json",
-    converterDirectory: "tools/awsCloudControl",
+    serviceId: "com.amazonaws.cloudcontrol#CloudApiService",
+    documentsDirectory: "src/providers/aws/client/openapi/cloudControl",
     classpath,
   });
-  const source = yield* generator.renderClient(model);
-  yield* generator.publishClient({
+
+  const source = yield* generator.emitClientModule(documents, "CloudControl");
+
+  yield* generator.publishClientModule({
     outputPath:
       process.argv[3] ?? "src/providers/aws/client/generated/cloudControl.ts",
     source,
@@ -26,7 +35,26 @@ Effect.gen(function* () {
       AwsCloudControlClientGenerator,
       AwsCloudControlClientGenerator.make,
     ).pipe(
-      Layer.provide(Layer.merge(NodeServices.layer, FetchHttpClient.layer)),
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.effect(AwsOpenApi, AwsOpenApi.make),
+          Layer.effect(AwsOpenApiTypeScript, AwsOpenApiTypeScript.make).pipe(
+            Layer.provide(schemaCompilationLayer),
+          ),
+          Layer.effect(
+            TypeScriptModulePublisher,
+            TypeScriptModulePublisher.make,
+          ),
+          operationCatalogsLayer,
+        ),
+      ),
+      Layer.provide(
+        Layer.mergeAll(
+          NodeServices.layer,
+          FetchHttpClient.layer,
+          NodeCrypto.layerDigest,
+        ),
+      ),
     ),
   ),
   NodeRuntime.runMain,

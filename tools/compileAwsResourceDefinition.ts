@@ -1,49 +1,39 @@
-/**
- * This command is the local entrypoint for one checked-in CloudFormation Registry
- * resource and the shared CDK relationship source. It provides the filesystem,
- * path, and child-process services required to replace and format that resource's
- * generated Nomoss module.
- */
+import { NodeRuntime, NodeServices } from "@effect/platform-node";
 import { Effect, Layer } from "effect";
-import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner";
-import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
-import * as NodePath from "@effect/platform-node/NodePath";
+import { AwsResourceDefinitionCompiler } from "./awsResources/awsResourceDefinitionCompiler.js";
+import { AwsResourceTypeScript } from "./awsResources/awsResourceTypeScript.js";
+import { resourceCatalogServicesLayer } from "./codegen/resourceCatalogLayers.js";
+import { TypeScriptModulePublisher } from "./typeScriptModulePublisher.js";
 
-import { AwsResourceDefinitionCompiler } from "../src/providers/aws/awsResourceDefinitionCompiler.js";
+Effect.gen(function* () {
+  const compiler = yield* AwsResourceDefinitionCompiler;
+  const [, , registrySchemaPath, relationshipsPath, outputPath] = process.argv;
+  const definition = yield* compiler.loadResourceDefinition({
+    registrySchemaPath,
+    relationshipsPath,
+  });
 
-void Effect.runPromise(
-  Effect.gen(function* () {
-    const compiler = yield* AwsResourceDefinitionCompiler;
-    const [registrySchemaPath, relationshipsPath, outputPath] =
-      process.argv.slice(2);
+  const source = yield* compiler.emitResourceModule(definition);
 
-    const resourceDefinition = yield* compiler.readCloudFormationResourceDefinition({
-      registrySchemaPath,
-      relationshipsPath,
-    });
-    const renderedModule = yield* compiler.renderNomossResourceModule(
-      resourceDefinition,
-    );
-
-    return yield* compiler.publishNomossResourceModule({
-      outputPath,
-      renderedModule,
-    });
-  }).pipe(
-    Effect.provide(
-      Layer.effect(
-        AwsResourceDefinitionCompiler,
-        AwsResourceDefinitionCompiler.make,
-      ).pipe(
-        Layer.provide(
-          Layer.merge(
-            Layer.merge(NodeFileSystem.layer, NodePath.layer),
-            NodeChildProcessSpawner.layer.pipe(
-              Layer.provide(Layer.merge(NodeFileSystem.layer, NodePath.layer)),
-            ),
+  yield* compiler.publishResourceModule({ outputPath, source });
+}).pipe(
+  Effect.provide(
+    Layer.effect(
+      AwsResourceDefinitionCompiler,
+      AwsResourceDefinitionCompiler.make,
+    ).pipe(
+      Layer.provide(
+        Layer.merge(
+          Layer.effect(AwsResourceTypeScript, AwsResourceTypeScript.make),
+          Layer.effect(
+            TypeScriptModulePublisher,
+            TypeScriptModulePublisher.make,
           ),
         ),
       ),
+      Layer.provide(resourceCatalogServicesLayer),
+      Layer.provide(NodeServices.layer),
     ),
   ),
+  NodeRuntime.runMain,
 );

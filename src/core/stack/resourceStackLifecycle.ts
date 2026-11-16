@@ -3,25 +3,32 @@ import {
   Context,
   Data,
   Effect,
+  Equal,
   Exit,
   Graph,
   Layer,
   Match,
   Option,
+  Predicate,
   Schema,
+  Struct,
 } from "effect";
 
 import {
   PlanDecision,
   ResourceCommand,
   type ResourceCommandResult,
+  type ResourceObservation,
 } from "../resource/lifecycle.js";
 import {
-  keyString,
   PlanAction,
   type PlanAction as PlanActionValue,
+  ResourceModel,
   type ResourceNode,
+  type ResourceOperation,
   type ResourcePlan,
+  resourceGeneration,
+  resourceInstanceKey,
 } from "../resource/model.js";
 import { ResourceCommandPolicy } from "../resource/resourceCommandPolicy.js";
 import {
@@ -33,6 +40,7 @@ import {
   resourceOutputResolverLayer,
 } from "../resource/resourceOutputResolver.js";
 import {
+  type ResourceState,
   ResourceStateSchema,
   type ResourceStateSnapshot,
 } from "../state/resourceState.js";
@@ -106,6 +114,21 @@ export class ResourceCurrentNodeMissing extends Data.TaggedError(
   readonly action: PlanActionValue;
 }> {}
 
+/**
+ * The ResourceOperationInProgress error requires the caller to complete or
+ * remove saved instances before changing their requested configuration or
+ * reconciling them as a single applied resource.
+ */
+export class ResourceOperationInProgress extends Data.TaggedError(
+  "ResourceOperationInProgress",
+)<{
+  readonly logicalId: string;
+}> {
+  override get message() {
+    return `Resource ${this.logicalId} has unfinished operations; complete or remove its saved instances before changing or reconciling it`;
+  }
+}
+
 export class ResourceObservationExpected extends Data.TaggedError(
   "ResourceObservationExpected",
 )<{
@@ -114,10 +137,26 @@ export class ResourceObservationExpected extends Data.TaggedError(
 }> {}
 
 /**
- * ResourceStackLifecycle exposes planning, reconciliation, apply, and teardown
- * for a prepared stack. A plan retains the graph and saved state that selected
- * its actions, allowing callers to review it before execution. Recorded action
- * outcomes explain completed work and failures to later runs.
+ * A mapped resource read requires identity established by saved provider state.
+ * Reconciliation reports this failure before a declaration's placeholder could
+ * reach the provider. Recovery without saved identity needs a discovery policy.
+ */
+export class ResourceReadIdentityMissing extends Data.TaggedError(
+  "ResourceReadIdentityMissing",
+)<{
+  readonly logicalId: string;
+}> {
+  override get message() {
+    return `Resource ${this.logicalId} has no saved provider identity for reconciliation`;
+  }
+}
+
+/**
+ * The ResourceStackLifecycle service retains the prepared graph and saved state
+ * that select each plan's actions so callers can review the plan before
+ * execution. Planning, reconciliation, apply, and teardown use the prepared
+ * stack. Recorded action outcomes explain completed work and failures to later
+ * runs.
  */
 export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecycle>()(
   "nomoss/core/stack/resourceStackLifecycle",
@@ -128,21 +167,65 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
       const planner = yield* ResourcePlanner;
       const policy = yield* ResourceCommandPolicy;
       const outputResolver = yield* ResourceOutputResolver;
+      const model = yield* ResourceModel;
 
       const equivalentStates = Schema.toEquivalence(
         Schema.Array(ResourceStateSchema),
       );
 
       /**
-       * applyAction executes a planned action with a saved phase covering input
-       * resolution and provider execution. Failures remain available for later
-       * diagnosis. Success returns the provider node used by subsequent actions.
+       * The resolveAction service method requires applied source values for
+       * deferred creation and update inputs. Missing or invalid values stop
+       * the mutation, while removal actions retain their saved provider identities.
+       */
+      const resolveAction = Effect.fn("ResourceStackLifecycle.resolveAction")(
+        function* (
+          graph: ResourceDependencyGraph,
+          resources: ReadonlyArray<ResourceNode>,
+          action: ResourceOperation,
+        ) {
+          const node = yield* Match.value(action).pipe(
+            Match.tag("Create", "Update", (pending) =>
+              graphStore
+                .dependencyEdgesOf(graph, pending.node.key)
+                .pipe(
+                  Effect.flatMap((dependencies) =>
+                    outputResolver.resolveNode(
+                      pending.node,
+                      resources,
+                      dependencies,
+                    ),
+                  ),
+                ),
+            ),
+            Match.orElse(() => Effect.succeed(action.node)),
+          );
+          const resolved: ResourceOperation = Match.value(action).pipe(
+            Match.tag("Create", () => PlanAction.Create({ node })),
+            Match.tag("Update", ({ current }) =>
+              PlanAction.Update({ node, current }),
+            ),
+            Match.tag("Delete", "Destroy", () => action),
+            Match.exhaustive,
+          );
+
+          return resolved;
+        },
+      );
+
+      /**
+       * The applyAction service method returns after the provider result has
+       * been saved for later actions and retries. Provider execution remains
+       * interruptible, and result persistence finishes before interruption can
+       * be observed. An update with unchanged resolved inputs keeps the current
+       * provider node. Input-resolution and provider failures retain their tags
+       * in the saved operation record.
        */
       const applyAction = Effect.fn("ResourceStackLifecycle.applyAction")(
         function* (
           graph: ResourceDependencyGraph,
           stackName: string,
-          action: PlanActionValue,
+          action: ResourceOperation,
         ) {
           yield* Effect.spanAnnotations.pipe(
             Effect.flatMap(Effect.annotateCurrentSpan),
@@ -152,37 +235,19 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
 
           const resources = yield* stateStore.loadResources(stackName);
 
-          const resolvedAction: PlanAction = yield* Match.value(action).pipe(
-            Match.tag("Create", "Update", (pending) =>
-              Effect.gen(function* () {
-                const dependencies = yield* graphStore.dependencyEdgesOf(
-                  graph,
-                  pending.node.key,
-                );
-
-                const node = yield* outputResolver.resolveNode(
-                  pending.node,
-                  resources,
-                  dependencies,
-                );
-
-                const resolved: PlanAction = Match.value(pending).pipe(
-                  Match.tag("Create", () => PlanAction.Create({ node })),
-                  Match.tag("Update", ({ current }) =>
-                    PlanAction.Update({ node, current }),
-                  ),
-                  Match.exhaustive,
-                );
-
-                return resolved;
-              }),
-            ),
-            Match.orElse(() => Effect.succeed(action)),
+          const resolvedAction: ResourceOperation = yield* resolveAction(
+            graph,
+            resources,
+            action,
+          ).pipe(
             Effect.tapErrorTag(
               [
                 "ResourceOutputResolutionMissing",
                 "ResourceOutputPropertyPathInvalid",
                 "ResourceOutputSchemaMissing",
+                "ResourceEntityTypeMismatch",
+                "ResourceReferenceSourceMismatch",
+                "ResourceRequestSchemaMissing",
                 "SchemaError",
               ],
               (failure) =>
@@ -190,6 +255,17 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
             ),
           );
 
+          const unchanged = Match.value(resolvedAction).pipe(
+            Match.tag("Update", ({ node, current }) =>
+              Option.some(current).pipe(
+                Option.filter(() => model.propsEqual(node, current)),
+              ),
+            ),
+            Match.orElse(() => Option.none<ResourceNode>()),
+          );
+          yield* Effect.annotateCurrentSpan({
+            "nomoss.resource.inputs_unchanged": Option.isSome(unchanged),
+          });
           const decision: PlanDecision = Match.value(resolvedAction).pipe(
             Match.tag("Create", ({ node }) => PlanDecision.Create({ node })),
             Match.tag("Update", ({ node, current }) =>
@@ -203,49 +279,79 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
           const result = yield* policy
             .execute(ResourceCommand.Apply({ decision }))
             .pipe(
+              Effect.interruptible,
               Effect.tapErrorTag(
                 "ResourceCommandExecutionFailed",
                 ({ cause }) =>
                   stateStore.markResourceFailure(stackName, action.node, cause),
               ),
+              Effect.when(Effect.succeed(Option.isNone(unchanged))),
             );
 
-          const appliedNode: ResourceNode = yield* Match.value(result).pipe(
-            Match.tag(
-              "Created",
-              "Updated",
-              "Deleted",
-              "Destroyed",
-              ({ node }) => Effect.succeed(node),
-            ),
-            Match.orElse(() =>
-              Effect.fail(
-                new ResourceActionResultExpected({
-                  action: resolvedAction,
-                  result,
-                }),
+          const providerNode = yield* result.pipe(
+            Option.map((result) =>
+              Match.value(result).pipe(
+                Match.tag(
+                  "Created",
+                  "Updated",
+                  "Deleted",
+                  "Destroyed",
+                  ({ node }) => Effect.succeed(node),
+                ),
+                Match.orElse(() =>
+                  Effect.fail(
+                    new ResourceActionResultExpected({
+                      action: resolvedAction,
+                      result,
+                    }),
+                  ),
+                ),
               ),
             ),
+            Effect.transposeOption,
             Effect.tapErrorTag("ResourceActionResultExpected", (failure) =>
               stateStore.markResourceFailure(stackName, action.node, failure),
             ),
           );
-
-          const stateTag: "Created" | "Updated" = Match.value(result).pipe(
-            Match.tag("Updated", (): "Updated" => "Updated"),
-            Match.orElse((): "Created" => "Created"),
+          const providerResource = yield* providerNode.pipe(
+            Option.orElse(() => unchanged),
+            Effect.fromOption,
+          );
+          const appliedNode: ResourceNode = Option.match(
+            Option.fromUndefinedOr(action.node.relationships),
+            {
+              onNone: () => Struct.omit(providerResource, ["relationships"]),
+              onSome: (relationships) => ({
+                ...providerResource,
+                relationships,
+              }),
+            },
+          );
+          const stateTag: "Created" | "Updated" = result.pipe(
+            Option.map((result) =>
+              Match.value(result).pipe(
+                Match.tag("Updated", (): "Updated" => "Updated"),
+                Match.orElse((): "Created" => "Created"),
+              ),
+            ),
+            Option.getOrElse((): "Updated" => "Updated"),
           );
 
-          yield* stateStore.markResourceApplied(
-            stackName,
-            appliedNode,
-            stateTag,
+          yield* Match.value(action).pipe(
+            Match.tag("Delete", "Destroy", () =>
+              stateStore.markResourceApplied(stackName, appliedNode, "Deleted"),
+            ),
+            Match.tag("Create", "Update", () =>
+              stateStore.markResourceApplied(stackName, appliedNode, stateTag),
+            ),
+            Match.exhaustive,
           );
 
           return appliedNode;
         },
         (effect, _graph, stackName, action) =>
           effect.pipe(
+            Effect.uninterruptible,
             Effect.annotateSpans({
               "nomoss.stack.name": stackName,
               "nomoss.resource.logical_id": action.node.key.logicalId,
@@ -260,9 +366,213 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
       );
 
       /**
-       * rollbackCreatedResource destroys a resource created by an apply scope
-       * that later failed. Its saved record is removed only after provider
-       * destruction succeeds, preserving recovery information on failure.
+       * The applyActions service method returns a provider node for each
+       * supplied operation in the supplied order. Distinct provider instances
+       * sharing a logical resource ID must have distinct generations. A saved
+       * creation is reusable only when its resolved properties match the saved
+       * request. A failure after removal retains both the intended creation and
+       * the completed removal for retry. Success commits completed removals so
+       * application outputs can advance to the remaining applied instance.
+       */
+      const applyActions = Effect.fn("ResourceStackLifecycle.applyActions")(
+        function* (
+          graph: ResourceDependencyGraph,
+          stackName: string,
+          operations: ReadonlyArray<ResourceOperation>,
+        ) {
+          const saved = yield* stateStore.loadResourceStates(stackName);
+
+          const creations = Arr.filter(
+            operations,
+            Predicate.and(
+              Predicate.Struct({ _tag: Equal.equals("Create") }),
+              Predicate.not((operation: ResourceOperation) =>
+                Arr.some(
+                  saved,
+                  (state) =>
+                    resourceInstanceKey(state.node) ===
+                    resourceInstanceKey(operation.node),
+                ),
+              ),
+            ),
+          );
+
+          yield* Effect.forEach(creations, (create) =>
+            stateStore.markResourceStarted(stackName, create),
+          );
+
+          const results: ReadonlyArray<ResourceNode> = yield* Effect.forEach(
+            operations,
+            Effect.fnUntraced(function* (operation) {
+              const states = yield* stateStore.loadResourceStates(stackName);
+              const completed = Arr.findFirst(
+                states,
+                Predicate.and(
+                  (state: ResourceState) =>
+                    resourceInstanceKey(state.node) ===
+                    resourceInstanceKey(operation.node),
+                  (state) =>
+                    Match.value(operation).pipe(
+                      Match.tag("Create", () =>
+                        Predicate.Struct({
+                          _tag: Predicate.or(
+                            Equal.equals("Created"),
+                            Equal.equals("Updated"),
+                          ),
+                        })(state),
+                      ),
+                      Match.tag(
+                        "Delete",
+                        "Destroy",
+                        () => state._tag === "Deleted",
+                      ),
+                      Match.tag("Update", () => false),
+                      Match.exhaustive,
+                    ),
+                ),
+              );
+
+              return yield* Option.match(completed, {
+                onNone: () => applyAction(graph, stackName, operation),
+                onSome: (state) =>
+                  stateStore.loadResources(stackName).pipe(
+                    Effect.flatMap((resources) =>
+                      resolveAction(graph, resources, operation),
+                    ),
+                    Effect.filterOrFail(
+                      Predicate.or(
+                        Predicate.not(
+                          Predicate.Struct({ _tag: Equal.equals("Create") }),
+                        ),
+                        (requested: ResourceOperation) =>
+                          model.propsEqual(requested.node, state.node),
+                      ),
+                      () =>
+                        new ResourceOperationInProgress({
+                          logicalId: operation.node.key.logicalId,
+                        }),
+                    ),
+                    Effect.map(() => state.node),
+                  ),
+              });
+            }),
+          );
+
+          yield* Effect.forEach(
+            Arr.dedupe(
+              Arr.map(operations, (operation) => operation.node.key.logicalId),
+            ),
+            (logicalId) =>
+              stateStore.completeResourceActions(stackName, { logicalId }),
+          );
+
+          return results;
+        },
+      );
+
+      /**
+       * The executePlannedAction service method retains the current instance
+       * when refreshed dependency values leave its request unchanged. Once a
+       * successor has saved progress, execution completes the reviewed remaining
+       * operations and returns that applied instance.
+       */
+      const executePlannedAction = Effect.fn(
+        "ResourceStackLifecycle.executePlannedAction",
+      )(function* (
+        graph: ResourceDependencyGraph,
+        stackName: string,
+        action: PlanActionValue,
+      ) {
+        return yield* Match.value(action).pipe(
+          Match.tag("Replace", (replacement) =>
+            Effect.gen(function* () {
+              const before = yield* stateStore.loadSnapshot(stackName);
+              const requested = yield* resolveAction(
+                graph,
+                before.resources,
+                PlanAction.Create({ node: replacement.node }),
+              );
+              const started = Arr.some(
+                before.states,
+                (state) =>
+                  resourceInstanceKey(state.node) ===
+                  resourceInstanceKey(replacement.node),
+              );
+              const needsExecution = Predicate.or(
+                () => started,
+                Predicate.not((node: ResourceNode) =>
+                  model.propsEqual(node, replacement.current),
+                ),
+              )(requested.node);
+              const operations = Arr.map(replacement.operations, (operation) =>
+                Match.value(operation).pipe(
+                  Match.tag("Create", () =>
+                    PlanAction.Create({ node: requested.node }),
+                  ),
+                  Match.orElse(() => operation),
+                ),
+              );
+
+              yield* applyActions(graph, stackName, operations).pipe(
+                Effect.when(Effect.succeed(needsExecution)),
+              );
+              yield* stateStore.completeResourceActions(
+                stackName,
+                replacement.node.key,
+              );
+
+              const expected = Match.value(needsExecution).pipe(
+                Match.when(false, () => replacement.current),
+                Match.orElse(() => replacement.node),
+              );
+              const resources = yield* stateStore.loadResources(stackName);
+              const applied = yield* Arr.findFirst(
+                resources,
+                (node) =>
+                  resourceInstanceKey(node) === resourceInstanceKey(expected),
+              ).pipe(Effect.fromOption);
+
+              return applied;
+            }),
+          ),
+          Match.orElse((operation) =>
+            applyActions(graph, stackName, [operation]).pipe(
+              Effect.flatMap((nodes) =>
+                Arr.head(nodes).pipe(Effect.fromOption),
+              ),
+            ),
+          ),
+        );
+      });
+
+      /**
+       * The removalActions helper uses the captured state snapshot to address
+       * every instance still owned by a logical resource. This includes both
+       * objects from an unfinished replacement. Only instances with a saved
+       * applied identity contribute a removal action.
+       */
+      const removalActions = (
+        node: ResourceNode,
+        state: ResourceStateSnapshot,
+        command: "Delete" | "Destroy",
+      ) =>
+        Arr.map(
+          Arr.filter(
+            stateStore.ownedResources(state.states),
+            (owned) => owned.key.logicalId === node.key.logicalId,
+          ),
+          (owned) =>
+            Match.value(command).pipe(
+              Match.when("Delete", () => PlanAction.Delete({ node: owned })),
+              Match.orElse(() => PlanAction.Destroy({ node: owned })),
+            ),
+        );
+
+      /**
+       * The rollbackCreatedResource service method destroys a resource created
+       * by an apply scope that later failed. It removes the saved record only
+       * after provider destruction succeeds, so recovery information remains
+       * available if destruction fails.
        */
       const rollbackCreatedResource = Effect.fn(
         "ResourceStackLifecycle.rollbackCreatedResource",
@@ -281,33 +591,44 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
       });
 
       /**
-       * planDestroy selects saved resources still declared by the prepared
-       * stack for teardown.
-       * The result retains the saved provider identities and state used to
-       * select removal actions in reverse dependency order.
+       * The planDestroy service method retains saved provider identities for
+       * each owned instance, including unfinished replacements. Its reverse
+       * dependency order removes consumers before their sources. A retry plans
+       * only instances whose removal has yet to succeed.
        */
       const planDestroy = Effect.fn("ResourceStackLifecycle.planDestroy")(
         function* (prepared: ResourcePreparedStack) {
           const state = yield* stateStore.loadSnapshot(prepared.stackName);
 
           const currentResources = new Map(
-            Arr.map(state.resources, (node) => [keyString(node.key), node]),
+            Arr.map(state.resources, (node) => [node.key.logicalId, node]),
           );
           const desiredResources = stateStore.resourcesFromGraph(
             prepared.desired,
           );
 
           const savedDesiredResources = Arr.filter(desiredResources, (node) =>
-            currentResources.has(keyString(node.key)),
+            currentResources.has(node.key.logicalId),
+          );
+
+          const destroy: ResourcePlan["destroy"] = Arr.filter(
+            Arr.map(
+              planner.destroyBatches(
+                prepared.desired,
+                Arr.map(savedDesiredResources, (node) => node.key),
+              ),
+              (batch) =>
+                Arr.flatMap(batch, (action) =>
+                  removalActions(action.node, state, "Destroy"),
+                ),
+            ),
+            Arr.isArrayNonEmpty,
           );
 
           const plan: ResourcePlan = {
             createOrUpdate: [],
             delete: [],
-            destroy: planner.destroyBatches(
-              prepared.desired,
-              Arr.map(savedDesiredResources, (node) => node.key),
-            ),
+            destroy,
           };
 
           const result: ResourceDestroyPlan = {
@@ -345,14 +666,16 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
       );
 
       /**
-       * prepare captures the currently declared graph under the supplied stack
-       * name. The snapshot remains usable after subsequent declarations and
-       * contains no provider observations or executed mutations.
+       * The prepare service method retains the declared graph and associates
+       * resource outputs with this stack's restored working state. Subsequent graph resets
+       * preserve that ownership. Reusing the same graph for another stack fails
+       * before it can redirect existing outputs. Preparation makes no provider
+       * observations or mutations.
        */
       const prepare = Effect.fn("ResourceStackLifecycle.prepare")(function* (
         stackName: string,
       ) {
-        const desired = yield* graphStore.snapshot;
+        const desired = yield* graphStore.bindStack(stackName, stateStore);
 
         const prepared: ResourcePreparedStack = {
           stackName,
@@ -410,7 +733,57 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
           },
         );
 
-        const actions = planner.planFromGraph(desired, state.resources);
+        const declared = stateStore.resourcesFromGraph(desired);
+
+        yield* Effect.forEach(
+          Arr.filter(state.states, (instance) =>
+            Option.exists(
+              Arr.findFirst(
+                state.resources,
+                (node) => node.key.logicalId === instance.node.key.logicalId,
+              ),
+              (node) =>
+                resourceGeneration(instance.node) > resourceGeneration(node),
+            ),
+          ),
+          (instance) =>
+            Effect.succeed(
+              Arr.findFirst(
+                declared,
+                (node) => node.key.logicalId === instance.node.key.logicalId,
+              ),
+            ).pipe(
+              Effect.filterOrFail(
+                Option.match({
+                  onNone: () => true,
+                  onSome: (node: ResourceNode) =>
+                    model.propsEqual(instance.node, node),
+                }),
+                () =>
+                  new ResourceOperationInProgress({
+                    logicalId: instance.node.key.logicalId,
+                  }),
+              ),
+            ),
+        );
+
+        const selected = planner.planFromGraph(
+          desired,
+          state.resources,
+          [],
+          state.states,
+        );
+        const actions: ResourcePlan = {
+          ...selected,
+          delete: Arr.filter(
+            Arr.map(selected.delete, (batch) =>
+              Arr.flatMap(batch, (action) =>
+                removalActions(action.node, state, "Delete"),
+              ),
+            ),
+            Arr.isArrayNonEmpty,
+          ),
+        };
 
         yield* Effect.annotateCurrentSpan({
           "nomoss.stack.name": prepared.stackName,
@@ -430,7 +803,7 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
       });
 
       /**
-       * reconcile refreshes declared resources using saved provider identities
+       * The reconcile service method refreshes declared resources through saved provider identities
        * when available. The result separates present and missing resources;
        * present results replace the saved collection. Reconciliation does not
        * execute repairs.
@@ -439,27 +812,76 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
         function* (prepared: ResourcePreparedStack) {
           const state = yield* stateStore.loadSnapshot(prepared.stackName);
 
+          yield* Effect.forEach(
+            Arr.filter(state.states, (instance) =>
+              Arr.some(
+                state.states,
+                Predicate.and(
+                  (other: ResourceState) =>
+                    instance.node.key.logicalId === other.node.key.logicalId,
+                  (other) =>
+                    resourceInstanceKey(instance.node) !==
+                    resourceInstanceKey(other.node),
+                ),
+              ),
+            ),
+            (instance) =>
+              Effect.fail(
+                new ResourceOperationInProgress({
+                  logicalId: instance.node.key.logicalId,
+                }),
+              ),
+          );
+
           const saved = new Map(
-            Arr.map(state.resources, (node) => [keyString(node.key), node]),
+            Arr.map(state.resources, (node) => [node.key.logicalId, node]),
           );
           const desired = Arr.map(
             Arr.fromIterable(Graph.nodes(prepared.desired)),
             ([, node]) => node,
           );
 
-          const observations = yield* Effect.forEach(desired, (declared) => {
-            const node: ResourceNode = Option.fromUndefinedOr(
-              saved.get(keyString(declared.key)),
-            ).pipe(Option.getOrElse(() => declared));
+          const observations = yield* Effect.forEach(desired, (declared) =>
+            Effect.gen(function* () {
+              const persisted = Option.fromUndefinedOr(
+                saved.get(declared.key.logicalId),
+              );
 
-            return policy.execute(ResourceCommand.Read({ node })).pipe(
-              Effect.filterOrFail(
-                (result) => result._tag === "Observed",
-                (result) => new ResourceObservationExpected({ node, result }),
-              ),
-              Effect.map(({ observation }) => observation),
-            );
-          });
+              yield* Effect.fail(
+                new ResourceReadIdentityMissing({
+                  logicalId: declared.key.logicalId,
+                }),
+              ).pipe(
+                Effect.when(
+                  Effect.succeed(
+                    Predicate.and(Option.isNone, () =>
+                      Predicate.isNotUndefined(
+                        declared.schema.primaryIdentifier,
+                      ),
+                    )(persisted),
+                  ),
+                ),
+              );
+
+              const node: ResourceNode = Option.getOrElse(
+                persisted,
+                () => declared,
+              );
+
+              const observation: ResourceObservation = yield* policy
+                .execute(ResourceCommand.Read({ node }))
+                .pipe(
+                  Effect.filterOrFail(
+                    (result) => result._tag === "Observed",
+                    (result) =>
+                      new ResourceObservationExpected({ node, result }),
+                  ),
+                  Effect.map(({ observation }) => observation),
+                );
+
+              return observation;
+            }),
+          );
 
           const resources = Arr.flatMap(
             observations,
@@ -514,7 +936,7 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
             (batch) =>
               Effect.forEach(
                 batch,
-                (action) => applyAction(desired, stackName, action),
+                (action) => executePlannedAction(desired, stackName, action),
                 { discard: true },
               ),
             { discard: true },
@@ -527,7 +949,7 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
                 Match.value(action).pipe(
                   Match.tag("Create", () =>
                     Effect.acquireRelease(
-                      applyAction(desired, stackName, action),
+                      executePlannedAction(desired, stackName, action),
                       (node, exit) =>
                         Exit.match(exit, {
                           onFailure: () =>
@@ -538,27 +960,29 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
                         }),
                     ),
                   ),
-                  Match.orElse(() => applyAction(desired, stackName, action)),
+                  Match.orElse(() =>
+                    executePlannedAction(desired, stackName, action),
+                  ),
                 ),
               ),
           ).pipe(Effect.scoped);
 
           const appliedNodes = Arr.flatten(appliedNodeBatches);
           const currentResources = new Map(
-            Arr.map(state.resources, (node) => [keyString(node.key), node]),
+            Arr.map(state.resources, (node) => [node.key.logicalId, node]),
           );
           const appliedResources = new Map(
-            Arr.map(appliedNodes, (node) => [keyString(node.key), node]),
+            Arr.map(appliedNodes, (node) => [node.key.logicalId, node]),
           );
           const desiredResources = stateStore.resourcesFromGraph(desired);
 
           const resources = Arr.map(desiredResources, (node) =>
             Option.fromUndefinedOr(
-              appliedResources.get(keyString(node.key)),
+              appliedResources.get(node.key.logicalId),
             ).pipe(
               Option.orElse(() =>
                 Option.fromUndefinedOr(
-                  currentResources.get(keyString(node.key)),
+                  currentResources.get(node.key.logicalId),
                 ),
               ),
               Option.getOrElse(() => node),
@@ -582,7 +1006,7 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
       );
 
       /**
-       * destroyPlan executes reviewed teardown using saved provider identities.
+       * The destroyPlan service method executes reviewed teardown with saved provider identities.
        * After state validation, actions run in the plan's removal order and
        * success clears the stack's saved resources. The result retains the
        * former resources so callers can identify what was removed.
@@ -592,10 +1016,6 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
           yield* validatePlan(planned);
 
           const { stackName, desired, plan, state } = planned;
-          const currentResources = new Map(
-            Arr.map(state.resources, (node) => [keyString(node.key), node]),
-          );
-
           yield* Effect.annotateCurrentSpan({
             "nomoss.stack.name": stackName,
             "nomoss.plan.destroy_count": Arr.flatten(plan.destroy).length,
@@ -607,24 +1027,7 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
               Effect.forEach(
                 batch,
                 Effect.fnUntraced(function* (action) {
-                  const currentAction: PlanAction = yield* Match.value(
-                    action,
-                  ).pipe(
-                    Match.tag("Destroy", () =>
-                      Option.fromUndefinedOr(
-                        currentResources.get(keyString(action.node.key)),
-                      ).pipe(
-                        Effect.fromOption,
-                        Effect.mapError(
-                          () => new ResourceCurrentNodeMissing({ action }),
-                        ),
-                        Effect.map((node) => PlanAction.Destroy({ node })),
-                      ),
-                    ),
-                    Match.orElse(() => Effect.succeed(action)),
-                  );
-
-                  yield* applyAction(desired, stackName, currentAction);
+                  yield* executePlannedAction(desired, stackName, action);
                 }),
                 { discard: true },
               ),
@@ -646,7 +1049,7 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
 
       /**
        * apply plans and executes a prepared stack in one operation. Applications
-       * requiring a separate review step can retain the plan and use applyPlan
+       * that require a separate review step can retain the plan and use applyPlan
        * to execute that exact set of changes later.
        */
       const apply = Effect.fn("ResourceStackLifecycle.apply")(function* (
@@ -675,6 +1078,7 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
       });
 
       return {
+        applyActions,
         applyAction,
         rollbackCreatedResource,
         prepare,

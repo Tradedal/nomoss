@@ -1,0 +1,259 @@
+{
+  "repository": "https://github.com/stripe/openapi.git",
+  "revision": "51610f5f061c9723730582a7638b8cc0e646640d",
+  "sha256": "27e7f9681bfe4423708023338fd14096600581718fc2e15efd0d946d6a522c25",
+  "specification": "latest/openapi.spec3.json",
+  "resourceNamespace": "Billing",
+  "resourceHints": {
+    "customer": {
+      "deletedResponseMeansMissing": true
+    },
+    "price": {
+      "replacement": { "order": "destroyBeforeCreate" },
+      "removeOperation": "PostPricesPrice",
+      "removeValues": { "active": false, "lookup_key": "" }
+    },
+    "product": {
+      "removeOperation": "PostProductsId",
+      "removeValues": { "active": false }
+    },
+    "billing_portal.configuration": {
+      "removeOperation": "PostBillingPortalConfigurationsConfiguration",
+      "removeValues": { "active": false }
+    },
+    "account": { "name": "V1Account" },
+    "bank_account": {
+      "responseSchema": "#/components/schemas/bank_account",
+      "createOperation": "PostAccountsAccountExternalAccounts",
+      "readOperation": "GetAccountsAccountExternalAccountsId",
+      "relationships": { "/account": ["#/components/schemas/account"] }
+    },
+    "card": {
+      "responseSchema": "#/components/schemas/card",
+      "createOperation": "PostAccountsAccountExternalAccounts",
+      "readOperation": "GetAccountsAccountExternalAccountsId",
+      "relationships": { "/account": ["#/components/schemas/account"] }
+    },
+    "test_helpers.test_clock": {
+      "updateOperation": "PostTestHelpersTestClocksTestClockAdvance"
+    },
+    "financial_connections.session": {
+      "createOperation": "PostFinancialConnectionsSessions",
+      "readOperation": "GetFinancialConnectionsSessionsSession"
+    },
+    "webhook_endpoint": {
+      "declaration": {
+        "property": "endpoint",
+        "properties": { "rotationKey": { "type": "string" } }
+      },
+      "request": {
+        "urlCredentials": [{
+          "propertyPath": ["url"],
+          "usernameConfig": "NOMOSS_STRIPE_WEBHOOK_BASIC_AUTH_USERNAME",
+          "passwordConfig": "NOMOSS_STRIPE_WEBHOOK_BASIC_AUTH_PASSWORD"
+        }]
+      },
+      "replacement": {
+        "order": "createBeforeDestroy",
+        "properties": [["rotationKey"]]
+      },
+      "propsSchema": "StripeWebhookEndpointRequestPropsSchema",
+      "retainOnRead": ["secret"],
+      "secretOutputs": ["secret"],
+      "outputAliases": { "secret": "WebhookSigningSecret" }
+    }
+  },
+  "corrections": {
+    "latest/openapi.spec3.json": [
+      {
+        "id": "portal-subscription-update-product-relationship",
+        "reason": "Portal subscription updates select a declared product by its provider identity.",
+        "op": "replace",
+        "path": ["components", "schemas", "portal_subscription_update_product", "properties", "product"],
+        "expected": { "maxLength": 5000, "type": "string", "description": "The product ID." },
+        "value": { "maxLength": 5000, "type": "string", "description": "The product ID.", "x-expansionResources": { "oneOf": [{ "$ref": "#/components/schemas/product" }] } }
+      },
+      {
+        "id": "portal-subscription-update-price-relationships",
+        "reason": "Portal subscription updates select declared prices by their provider identities.",
+        "op": "replace",
+        "path": ["components", "schemas", "portal_subscription_update_product", "properties", "prices", "items"],
+        "expected": { "maxLength": 5000, "type": "string" },
+        "value": { "maxLength": 5000, "type": "string", "x-expansionResources": { "oneOf": [{ "$ref": "#/components/schemas/price" }] } }
+      },
+      {
+        "id": "customer-tax-exempt-null",
+        "reason": "The declared nullable customer tax status needs null in its enum as well as its type.",
+        "op": "replace",
+        "path": ["components", "schemas", "customer", "properties", "tax_exempt", "enum"],
+        "expected": ["exempt", "none", "reverse"],
+        "value": ["exempt", "none", "reverse", null]
+      },
+      {
+        "id": "price-tax-behavior-null",
+        "reason": "The declared nullable price tax behavior needs null in its enum as well as its type.",
+        "op": "replace",
+        "path": ["components", "schemas", "price", "properties", "tax_behavior", "enum"],
+        "expected": ["exclusive", "inclusive", "unspecified"],
+        "value": ["exclusive", "inclusive", "unspecified", null]
+      },
+      {
+        "id": "price-tiers-mode-null",
+        "reason": "Stripe returns null for untiered prices; its nullable tiers mode needs null in the enum as well as its type.",
+        "op": "replace",
+        "path": ["components", "schemas", "price", "properties", "tiers_mode", "enum"],
+        "expected": ["graduated", "volume"],
+        "value": ["graduated", "volume", null]
+      },
+      {
+        "id": "customer-address-null",
+        "reason": "Stripe returns null for an unset address; make the nullable union explicit for OpenAPI compilation.",
+        "op": "replace",
+        "path": ["components", "schemas", "customer", "properties", "address", "anyOf"],
+        "expected": [{ "$ref": "#/components/schemas/address" }],
+        "value": [{ "$ref": "#/components/schemas/address" }, { "enum": [null] }]
+      },
+      {
+        "id": "customer-cash-balance-null",
+        "reason": "Preserve the provider's declared nullable cash balance in compiled customer responses.",
+        "op": "replace",
+        "path": ["components", "schemas", "customer", "properties", "cash_balance", "anyOf"],
+        "expected": [{ "$ref": "#/components/schemas/cash_balance" }],
+        "value": [{ "$ref": "#/components/schemas/cash_balance" }, { "enum": [null] }]
+      },
+      {
+        "id": "customer-default-source-null",
+        "reason": "Preserve the provider's declared nullable payment source in compiled customer responses.",
+        "op": "replace",
+        "path": ["components", "schemas", "customer", "properties", "default_source", "anyOf"],
+        "expected": [{ "maxLength": 5000, "type": "string" }, { "$ref": "#/components/schemas/bank_account" }, { "$ref": "#/components/schemas/card" }, { "$ref": "#/components/schemas/source" }],
+        "value": [{ "maxLength": 5000, "type": "string" }, { "$ref": "#/components/schemas/bank_account" }, { "$ref": "#/components/schemas/card" }, { "$ref": "#/components/schemas/source" }, { "enum": [null] }]
+      },
+      {
+        "id": "customer-discount-null",
+        "reason": "Preserve the provider's declared nullable discount in compiled customer responses.",
+        "op": "replace",
+        "path": ["components", "schemas", "customer", "properties", "discount", "anyOf"],
+        "expected": [{ "$ref": "#/components/schemas/discount" }],
+        "value": [{ "$ref": "#/components/schemas/discount" }, { "enum": [null] }]
+      },
+      {
+        "id": "customer-shipping-null",
+        "reason": "Preserve the provider's declared nullable shipping details in compiled customer responses.",
+        "op": "replace",
+        "path": ["components", "schemas", "customer", "properties", "shipping", "anyOf"],
+        "expected": [{ "$ref": "#/components/schemas/shipping" }],
+        "value": [{ "$ref": "#/components/schemas/shipping" }, { "enum": [null] }]
+      },
+      {
+        "id": "customer-test-clock-null",
+        "reason": "Preserve the provider's declared nullable test clock in compiled customer responses.",
+        "op": "replace",
+        "path": ["components", "schemas", "customer", "properties", "test_clock", "anyOf"],
+        "expected": [{ "maxLength": 5000, "type": "string" }, { "$ref": "#/components/schemas/test_helpers.test_clock" }],
+        "value": [{ "maxLength": 5000, "type": "string" }, { "$ref": "#/components/schemas/test_helpers.test_clock" }, { "enum": [null] }]
+      },
+      {
+        "id": "customer-invoice-payment-method-null",
+        "reason": "Preserve the provider's declared nullable default payment method in compiled invoice settings.",
+        "op": "replace",
+        "path": ["components", "schemas", "invoice_setting_customer_setting", "properties", "default_payment_method", "anyOf"],
+        "expected": [{ "maxLength": 5000, "type": "string" }, { "$ref": "#/components/schemas/payment_method" }],
+        "value": [{ "maxLength": 5000, "type": "string" }, { "$ref": "#/components/schemas/payment_method" }, { "enum": [null] }]
+      },
+      {
+        "id": "customer-invoice-rendering-options-null",
+        "reason": "Preserve the provider's declared nullable rendering options in compiled invoice settings.",
+        "op": "replace",
+        "path": ["components", "schemas", "invoice_setting_customer_setting", "properties", "rendering_options", "anyOf"],
+        "expected": [{ "$ref": "#/components/schemas/invoice_setting_customer_rendering_options" }],
+        "value": [{ "$ref": "#/components/schemas/invoice_setting_customer_rendering_options" }, { "enum": [null] }]
+      },
+      {
+        "id": "product-default-price-null",
+        "reason": "Preserve the provider's declared nullable default price in compiled product responses.",
+        "op": "replace",
+        "path": ["components", "schemas", "product", "properties", "default_price", "anyOf"],
+        "expected": [{ "maxLength": 5000, "type": "string" }, { "$ref": "#/components/schemas/price" }],
+        "value": [{ "maxLength": 5000, "type": "string" }, { "$ref": "#/components/schemas/price" }, { "enum": [null] }]
+      },
+      {
+        "id": "product-package-dimensions-null",
+        "reason": "Preserve the provider's declared nullable package dimensions in compiled product responses.",
+        "op": "replace",
+        "path": ["components", "schemas", "product", "properties", "package_dimensions", "anyOf"],
+        "expected": [{ "$ref": "#/components/schemas/package_dimensions" }],
+        "value": [{ "$ref": "#/components/schemas/package_dimensions" }, { "enum": [null] }]
+      },
+      {
+        "id": "product-tax-code-null",
+        "reason": "Preserve the provider's declared nullable tax code in compiled product responses.",
+        "op": "replace",
+        "path": ["components", "schemas", "product", "properties", "tax_code", "anyOf"],
+        "expected": [{ "maxLength": 5000, "type": "string" }, { "$ref": "#/components/schemas/tax_code" }],
+        "value": [{ "maxLength": 5000, "type": "string" }, { "$ref": "#/components/schemas/tax_code" }, { "enum": [null] }]
+      },
+      {
+        "id": "product-tax-details-null",
+        "reason": "Preserve the provider's declared nullable tax details in compiled product responses.",
+        "op": "replace",
+        "path": ["components", "schemas", "product", "properties", "tax_details", "anyOf"],
+        "expected": [{ "$ref": "#/components/schemas/tax_product_tax_details_resource_tax_details" }],
+        "value": [{ "$ref": "#/components/schemas/tax_product_tax_details_resource_tax_details" }, { "enum": [null] }]
+      },
+      {
+        "id": "price-custom-unit-amount-null",
+        "reason": "Preserve the provider's declared nullable custom amount in compiled price responses.",
+        "op": "replace",
+        "path": ["components", "schemas", "price", "properties", "custom_unit_amount", "anyOf"],
+        "expected": [{ "$ref": "#/components/schemas/custom_unit_amount" }],
+        "value": [{ "$ref": "#/components/schemas/custom_unit_amount" }, { "enum": [null] }]
+      },
+      {
+        "id": "price-recurring-null",
+        "reason": "Preserve the provider's declared nullable recurring terms in compiled price responses.",
+        "op": "replace",
+        "path": ["components", "schemas", "price", "properties", "recurring", "anyOf"],
+        "expected": [{ "$ref": "#/components/schemas/recurring" }],
+        "value": [{ "$ref": "#/components/schemas/recurring" }, { "enum": [null] }]
+      },
+      {
+        "id": "price-transform-quantity-null",
+        "reason": "Preserve the provider's declared nullable quantity transformation in compiled price responses.",
+        "op": "replace",
+        "path": ["components", "schemas", "price", "properties", "transform_quantity", "anyOf"],
+        "expected": [{ "$ref": "#/components/schemas/transform_quantity" }],
+        "value": [{ "$ref": "#/components/schemas/transform_quantity" }, { "enum": [null] }]
+      }
+    ]
+  },
+  "clientNames": {
+    "/v1/accounts/{account}/external_accounts": "v1Accounts",
+    "/v2/core/accounts": "accounts",
+    "/v1/accounts": "v1Accounts"
+  },
+  "modelModules": {
+    "v2Accounts": ["v2_core"],
+    "v2Errors": ["v2_error"],
+    "paymentMethodDetails": ["payment_method_details"],
+    "paymentMethodOptions": ["payment_method_options"],
+    "paymentMethods": ["payment_method"],
+    "paymentIntents": ["payment_intent"],
+    "payments": ["payment"],
+    "setupIntents": ["setup"],
+    "accounts": ["account"],
+    "invoices": ["invoice"],
+    "subscriptions": ["subscription"],
+    "issuingCardholders": ["issuing_cardholder"],
+    "issuing": ["issuing"],
+    "treasury": ["treasury"],
+    "sources": ["source"],
+    "paymentSources": ["card", "bank", "token"],
+    "customers": ["customer", "deleted_customer"],
+    "catalog": ["product", "price", "plan", "tax"],
+    "billing": ["portal", "billing"],
+    "charges": ["charge", "refund", "dispute"],
+    "transfers": ["transfer", "payout", "balance"]
+  },
+  "defaultModelModule": "common"
+}

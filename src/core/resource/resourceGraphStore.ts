@@ -10,17 +10,19 @@ import {
   Schema,
   Semaphore,
 } from "effect";
+import type { ResourceStateStore } from "../state/stateStore.js";
 import {
   type DependencyEdge,
   DependencyEdgeSchema,
-  keyString,
   type ResourceKey,
   ResourceModel,
   type ResourceNode,
   resourceModelLayer,
 } from "./model.js";
+import { ResourceOutputBinding } from "./resourceOutputBinding.js";
 
 type ResourceGraphState = {
+  readonly outputs: ResourceOutputBinding;
   readonly graph: Graph.DirectedGraph<ResourceNode, DependencyEdge>;
   readonly indexByKey: ReadonlyMap<string, Graph.NodeIndex>;
 };
@@ -56,6 +58,7 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
       const model = yield* ResourceModel;
 
       const initialState: ResourceGraphState = {
+        outputs: yield* ResourceOutputBinding.make,
         graph: Graph.directed<ResourceNode, DependencyEdge>(),
         indexByKey: new Map(),
       };
@@ -63,30 +66,111 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
       const state = yield* Ref.make<ResourceGraphState>(initialState);
       const mutation = yield* Semaphore.make(1);
       const dependencyEdgesEqual = Schema.toEquivalence(DependencyEdgeSchema);
+      const isRelationship = (edge: DependencyEdge) =>
+        edge.kind === "relationship";
       /**
-       * reset starts an empty declaration graph without modifying snapshots
-       * already retained by prepared stacks. Its mutation permit serializes
+       * The reset service method starts an empty declaration graph and preserves
+       * snapshots already retained by prepared stacks. Its mutation permit serializes
        * reset with registration and dependency changes.
        */
-      const reset = Ref.set(state, initialState).pipe(mutation.withPermits(1));
+      const reset = ResourceOutputBinding.make.pipe(
+        Effect.map((outputs) => {
+          const next: ResourceGraphState = { ...initialState, outputs };
+          return next;
+        }),
+        Effect.flatMap((next) => Ref.set(state, next)),
+        mutation.withPermits(1),
+      );
 
       /**
-       * addResource registers one stable resource key in the active graph.
-       * Duplicate keys fail without changing the graph, and the node and its
-       * lookup index are published together under the mutation permit.
+       * The outputBinding Effect supplies the active declaration's ownership
+       * link. Reset creates a new link while prepared declarations retain theirs.
+       */
+      const outputBinding = Ref.get(state).pipe(
+        Effect.map((state) => state.outputs),
+      );
+
+      /**
+       * The bindStack service method captures the graph and connects its
+       * outputs to the same state service used for execution. The mutation
+       * permit prevents a concurrent reset from changing that association.
+       */
+      const bindStack = Effect.fn("ResourceGraphStore.bindStack")(function* (
+        stackName: string,
+        store: (typeof ResourceStateStore)["Service"],
+      ) {
+        const current = yield* Ref.get(state);
+        yield* current.outputs.bind(stackName, store, model);
+        const desired: Graph.DirectedGraph<ResourceNode, DependencyEdge> =
+          current.graph;
+        return desired;
+      }, mutation.withPermits(1));
+
+      /**
+       * The addResource service method publishes a node and its dependencies
+       * together. Missing sources and incompatible entity types leave the
+       * graph unchanged, as do duplicate keys or mismatched target keys.
        */
       const addResource = Effect.fn("ResourceGraphStore.addResource")(
-        function* (node: ResourceNode) {
+        function* (
+          node: ResourceNode,
+          dependencies: ReadonlyArray<ResourceDependency> = [],
+        ) {
           const current = yield* Ref.get(state);
-          const stableKey = keyString(node.key);
+          const stableKey = node.key.logicalId;
 
           yield* Effect.fail(new DuplicateResource({ key: node.key })).pipe(
             Effect.when(Effect.succeed(current.indexByKey.has(stableKey))),
           );
 
+          const sources = yield* Effect.forEach(dependencies, (dependency) =>
+            Effect.gen(function* () {
+              yield* Effect.fail(
+                new ResourceNotFound({ key: dependency.target }),
+              ).pipe(
+                Effect.when(
+                  Effect.succeed(
+                    dependency.target.logicalId !== node.key.logicalId,
+                  ),
+                ),
+              );
+
+              const index = yield* Option.fromUndefinedOr(
+                current.indexByKey.get(dependency.source.logicalId),
+              ).pipe(
+                Effect.fromOption,
+                Effect.mapError(
+                  () => new ResourceNotFound({ key: dependency.source }),
+                ),
+              );
+              const source = yield* Graph.getNode(current.graph, index).pipe(
+                Effect.fromOption,
+                Effect.mapError(
+                  () => new ResourceNotFound({ key: dependency.source }),
+                ),
+              );
+
+              yield* Option.match(
+                Option.liftPredicate(dependency.edge, isRelationship),
+                {
+                  onNone: () => Effect.succeed(source),
+                  onSome: (edge) =>
+                    model.validateResourceReference(edge.reference, source),
+                },
+              );
+
+              return index;
+            }),
+          );
+
           const mutable = Graph.beginMutation(current.graph);
           const index = Graph.addNode(mutable, node);
+
+          Arr.forEach(dependencies, (dependency, position) =>
+            Graph.addEdge(mutable, sources[position], index, dependency.edge),
+          );
           const next: ResourceGraphState = {
+            outputs: current.outputs,
             graph: Graph.endMutation(mutable),
             indexByKey: new Map(current.indexByKey).set(stableKey, index),
           };
@@ -111,12 +195,26 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
           const current = yield* Ref.get(state);
 
           const sourceIndex = yield* Effect.fromOption(
-            Option.fromUndefinedOr(current.indexByKey.get(keyString(source))),
+            Option.fromUndefinedOr(current.indexByKey.get(source.logicalId)),
           ).pipe(Effect.mapError(() => new ResourceNotFound({ key: source })));
 
           const targetIndex = yield* Effect.fromOption(
-            Option.fromUndefinedOr(current.indexByKey.get(keyString(target))),
+            Option.fromUndefinedOr(current.indexByKey.get(target.logicalId)),
           ).pipe(Effect.mapError(() => new ResourceNotFound({ key: target })));
+
+          const sourceNode = yield* Graph.getNode(
+            current.graph,
+            sourceIndex,
+          ).pipe(
+            Effect.fromOption,
+            Effect.mapError(() => new ResourceNotFound({ key: source })),
+          );
+
+          yield* Option.match(Option.liftPredicate(edge, isRelationship), {
+            onNone: () => Effect.succeed(sourceNode),
+            onSome: (edge) =>
+              model.validateResourceReference(edge.reference, sourceNode),
+          });
 
           const duplicate = Graph.findEdge(
             current.graph,
@@ -136,6 +234,7 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
             });
 
             const updated: ResourceGraphState = {
+              outputs: latest.outputs,
               graph,
               indexByKey: latest.indexByKey,
             };
@@ -147,7 +246,7 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
       );
 
       /**
-       * dependencyEdgesOf returns dependencies targeting a resource in the
+       * The dependencyEdgesOf service method returns dependencies that target a resource in the
        * supplied snapshot. Output resolution can therefore follow a prepared
        * stack's graph after another declaration changes the active graph.
        * A target absent from the supplied snapshot produces ResourceNotFound.
@@ -160,7 +259,7 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
       ) {
         const targetIndex = yield* Graph.findNode(
           graph,
-          (node) => keyString(node.key) === keyString(key),
+          (node) => node.key.logicalId === key.logicalId,
         ).pipe(
           Effect.fromOption,
           Effect.mapError(() => new ResourceNotFound({ key })),
@@ -184,7 +283,7 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
       /**
        * snapshot returns the immutable graph currently registered for planning.
        * Subsequent mutations publish another graph and leave this value usable
-       * by plans or embedded callers retaining it.
+       * by plans or embedded callers that retain it.
        */
       const snapshot = Ref.get(state).pipe(
         Effect.map((current) => {
@@ -197,7 +296,7 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
 
       /**
        * topologicalLogicalIds returns declaration identities in dependency
-       * order for graph inspection, with sources preceding their dependents.
+       * order for graph inspection. Sources precede their dependents.
        */
       const topologicalLogicalIds = snapshot.pipe(
         Effect.map((graph) => {
@@ -224,7 +323,7 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
           const current = yield* Ref.get(state);
 
           const index = yield* Effect.fromOption(
-            Option.fromUndefinedOr(current.indexByKey.get(keyString(key))),
+            Option.fromUndefinedOr(current.indexByKey.get(key.logicalId)),
           ).pipe(Effect.mapError(() => new ResourceNotFound({ key })));
 
           const node = yield* Graph.getNode(current.graph, index).pipe(
@@ -244,6 +343,8 @@ export class ResourceGraphStore extends Context.Service<ResourceGraphStore>()(
 
       return {
         reset,
+        outputBinding,
+        bindStack,
         addResource,
         addDependency,
         dependencyEdgesOf,

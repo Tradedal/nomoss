@@ -1,176 +1,228 @@
-import { assert, describe, it } from "@effect/vitest";
-import { Array as Arr, Effect, Graph, Layer, Option, Schema } from "effect";
-
+import { assert, layer } from "@effect/vitest";
+import { Array as Arr, Effect, Graph, Option, Schema } from "effect";
 import {
-  annotateResourceSchema,
   CloudFormationPropertyReferencesAnnotationId,
-  resourceOutputRef,
+  ResourceModel,
+  ResourceOutput,
 } from "../src/core/resource/model.js";
 import { ResourceGraphBuilder } from "../src/core/resource/resourceGraphBuilder.js";
 import { ResourceGraphStore } from "../src/core/resource/resourceGraphStore.js";
 import { ResourceOutputResolver } from "../src/core/resource/resourceOutputResolver.js";
-import { resourceGraphStoreLayer } from "../src/core/runtime/runtimeLayer.js";
 import {
-  QueueLifecycleService,
+  KeyOutputsSchema,
+  KeyPropsSchema,
+  registerKey,
+} from "../src/providers/aws/resources/generated/kms/key/index.js";
+import {
+  QueueOutputsSchema,
   QueuePropsSchema,
+  QueueResourceSchema,
   registerQueue,
 } from "../src/providers/aws/resources/generated/sqs/queue/index.js";
+import { awsResourceDeclarationTestLayer } from "./support/awsResourceDefinitionFixture.js";
 
-describe("AWS resource definition compiler", () => {
-  it.effect("registers the generated Queue resource in the graph", () =>
-    Effect.gen(function* () {
-      yield* registerQueue({
-        key: { logicalId: "GeneratedQueue" },
-        props: { QueueName: "generated-queue" },
-      });
-      const graphStore = yield* ResourceGraphStore;
-      const graph = yield* graphStore.snapshot;
-      const resources = Arr.fromIterable(Graph.values(Graph.topo(graph)));
+layer(awsResourceDeclarationTestLayer, { buildPerTest: true })(
+  "Generated AWS resource declarations",
+  (it) => {
+    it.effect(
+      "A declared queue keeps its configured properties and AWS resource type",
+      () =>
+        Effect.gen(function* () {
+          const graph = yield* ResourceGraphStore;
+          const declaration = yield* registerQueue({
+            key: { logicalId: "GeneratedQueue" },
+            props: { QueueName: "generated-queue" },
+          });
 
-      assert.deepStrictEqual(resources, [
-        {
-          key: { logicalId: "GeneratedQueue" },
-          schema: {
-            provider: "aws",
-            service: "sqs",
-            resource: "queue",
-            operation: "create",
-            stateSecretOutputKeys: [],
-          },
-          props: { QueueName: "generated-queue" },
-          outputs: {
-            QueueUrl: "nomoss:pending:sqs:GeneratedQueue",
-            Arn: "nomoss:pending:sqs-arn:GeneratedQueue",
-          },
-        },
-      ]);
-    }).pipe(
-      Effect.provide(
-        Layer.provideMerge(
-          Layer.provideMerge(
-            Layer.effect(ResourceGraphBuilder, ResourceGraphBuilder.make),
-            resourceGraphStoreLayer,
-          ),
-          Layer.succeed(QueueLifecycleService, {
-            resolvePendingOutputs: () =>
-              Effect.succeed({
-                QueueUrl: "nomoss:pending:sqs:GeneratedQueue",
-                Arn: "nomoss:pending:sqs-arn:GeneratedQueue",
-              }),
-            execute: () =>
-              Effect.die(
-                "Queue lifecycle execution is not part of graph registration",
-              ),
-          }),
-        ),
-      ),
-    ),
-  );
+          const snapshot = yield* graph.snapshot;
 
-  it("places KMS targets on the KmsMasterKeyId property schema", () => {
-    const property = Option.getOrThrow(
-      Arr.findFirst(
-        QueuePropsSchema.ast.propertySignatures,
-        (signature) => signature.name === "KmsMasterKeyId",
-      ),
-    );
-    const references = Option.getOrThrow(
-      Option.fromUndefinedOr(
-        property.type.annotations[CloudFormationPropertyReferencesAnnotationId],
-      ),
+          const resources = Arr.fromIterable(
+            Graph.values(Graph.topo(snapshot)),
+          );
+
+          assert.strictEqual(resources.length, 1);
+          assert.deepStrictEqual(resources[0].key, declaration.key);
+          assert.deepStrictEqual(resources[0].schema, QueueResourceSchema);
+          assert.deepStrictEqual(resources[0].props, {
+            QueueName: "generated-queue",
+          });
+        }),
     );
 
-    assert.deepStrictEqual(references, [
-      {
-        targetCloudFormationType: "AWS::KMS::Key",
-        targetPropertyPath: "/properties/Arn",
-      },
-      {
-        targetCloudFormationType: "AWS::KMS::Key",
-        targetPropertyPath: "/properties/KeyId",
-      },
-      {
-        targetCloudFormationType: "AWS::KMS::Alias",
-        targetPropertyPath: "/properties/AliasName",
-      },
-    ]);
-  });
-
-  it.effect(
-    "registers an edge when KmsMasterKeyId receives a resource output reference",
-    () =>
+    it.effect("Concurrent declarations keep all 128 queues", () =>
       Effect.gen(function* () {
-        const graph = yield* ResourceGraphBuilder;
+        const graph = yield* ResourceGraphStore;
+
+        yield* Effect.forEach(
+          Arr.range(1, 128),
+          (index) =>
+            registerQueue({
+              key: { logicalId: `Queue${index}` },
+              props: { QueueName: `queue-${index}` },
+            }),
+          { concurrency: 16, discard: true },
+        );
+
+        const logicalIds = yield* graph.topologicalLogicalIds;
+
+        assert.strictEqual(logicalIds.length, 128);
+        assert.strictEqual(new Set(logicalIds).size, 128);
+      }),
+    );
+
+    it.effect("A queue can use its encryption key's applied ARN", () =>
+      Effect.gen(function* () {
+        const builder = yield* ResourceGraphBuilder;
+        const graph = yield* ResourceGraphStore;
+        const resolver = yield* ResourceOutputResolver;
         const key = { logicalId: "EncryptionKey" };
-        const keyResource = yield* graph.resource(key);
-        const keyPropsSchema = annotateResourceSchema(Schema.Struct({}), {
-          provider: "aws",
-          service: "kms",
-          resource: "key",
-          operation: "create",
-          stateSecretOutputKeys: [],
+        const declaration = yield* builder.resource(key);
+
+        yield* declaration.register({
+          propsSchema: KeyPropsSchema,
+          outputsSchema: KeyOutputsSchema,
+          props: {},
+          outputs: {
+            Arn: "arn:aws:kms:us-east-1:123456789012:key/generated",
+          },
         });
 
-        yield* keyResource.register({
-          propsSchema: keyPropsSchema,
-          outputsSchema: Schema.Struct({ Arn: Schema.String }),
-          props: {},
-          outputs: { Arn: "arn:aws:kms:us-east-1:123456789012:key/generated" },
-        });
         yield* registerQueue({
           key: { logicalId: "GeneratedQueue" },
           props: {
             QueueName: "generated-queue",
-            KmsMasterKeyId: resourceOutputRef(key, "Arn"),
+            KmsMasterKeyId: new ResourceOutput(
+              key,
+              "Arn",
+              Schema.requiredKey(KeyOutputsSchema.fields.Arn),
+            ),
           },
         });
-        const graphStore = yield* ResourceGraphStore;
-        const graphSnapshot = yield* graphStore.snapshot;
-        const resources = Arr.fromIterable(
-          Graph.values(Graph.topo(graphSnapshot)),
-        );
-        const resolver = yield* ResourceOutputResolver;
-        const dependencies = yield* graphStore.dependencyEdgesOf({
+
+        const snapshot = yield* graph.snapshot;
+        const resources = Arr.fromIterable(Graph.values(Graph.topo(snapshot)));
+
+        const dependencies = yield* graph.dependencyEdgesOf(snapshot, {
           logicalId: "GeneratedQueue",
         });
-        const resolvedQueue = yield* resolver.resolveNode(
+
+        const resolved = yield* resolver.resolveNode(
           resources[1],
           resources,
           dependencies,
         );
 
+        const props = yield* Schema.decodeUnknownEffect(
+          Schema.toType(QueuePropsSchema),
+        )(resolved.props);
+
         assert.deepStrictEqual(
-          Arr.map(resources, (resource) => resource.key.logicalId),
+          Arr.map(resources, (node) => node.key.logicalId),
           ["EncryptionKey", "GeneratedQueue"],
         );
         assert.strictEqual(
-          (resolvedQueue.props as { readonly KmsMasterKeyId: string })
-            .KmsMasterKeyId,
+          props.KmsMasterKeyId,
           "arn:aws:kms:us-east-1:123456789012:key/generated",
         );
-      }).pipe(
-        Effect.provide(
-          Layer.provideMerge(
-            Layer.provideMerge(
-              Layer.effect(ResourceGraphBuilder, ResourceGraphBuilder.make),
-              resourceGraphStoreLayer,
+      }),
+    );
+
+    it.effect(
+      "KMS policies can reference a queue ARN inside nested conditions",
+      () =>
+        Effect.gen(function* () {
+          const model = yield* ResourceModel;
+          const graph = yield* ResourceGraphStore;
+          const resolver = yield* ResourceOutputResolver;
+          const source = yield* registerQueue({
+            key: { logicalId: "SourceQueue" },
+            props: { QueueName: "source" },
+          });
+
+          const policy = <Arn extends string | ResourceOutput<string>>(
+            arn: Arn,
+          ) => ({
+            Version: "2012-10-17",
+            Statement: [
+              {
+                Effect: "Allow",
+                Principal: { Service: "sqs.amazonaws.com" },
+                Action: ["kms:Decrypt", "kms:GenerateDataKey"],
+                Resource: "*",
+                Condition: {
+                  StringEquals: { "kms:EncryptionContext:queue.arn": [arn] },
+                },
+              },
+            ],
+          });
+
+          yield* registerKey({
+            key: { logicalId: "EncryptionKey" },
+            props: {
+              KeyPolicy: policy(
+                new ResourceOutput(
+                  source.key,
+                  "Arn",
+                  Schema.requiredKey(QueueOutputsSchema.fields.Arn),
+                ),
+              ),
+            },
+          });
+
+          const snapshot = yield* graph.snapshot;
+          const [queue, key] = Arr.fromIterable(
+            Graph.values(Graph.topo(snapshot)),
+          );
+
+          const appliedQueue = yield* model.withOutputs(queue, {
+            Arn: "arn:aws:sqs:us-east-1:123456789012:source",
+          });
+
+          const dependencies = yield* graph.dependencyEdgesOf(
+            snapshot,
+            key.key,
+          );
+
+          const resolved = yield* resolver.resolveNode(
+            key,
+            [appliedQueue],
+            dependencies,
+          );
+
+          assert.strictEqual(dependencies.length, 1);
+          assert.deepStrictEqual(resolved.props, {
+            KeyPolicy: policy("arn:aws:sqs:us-east-1:123456789012:source"),
+          });
+        }),
+    );
+
+    it.effect(
+      "The queue encryption setting identifies the KMS resources it can reference",
+      () =>
+        Effect.sync(() => {
+          const references = Option.getOrThrow(
+            Option.fromUndefinedOr(
+              Schema.resolveAnnotations(
+                QueuePropsSchema.fields.KmsMasterKeyId,
+              )?.[CloudFormationPropertyReferencesAnnotationId],
             ),
-            Layer.provideMerge(
-              Layer.effect(ResourceOutputResolver, ResourceOutputResolver.make),
-              Layer.succeed(QueueLifecycleService, {
-                resolvePendingOutputs: () =>
-                  Effect.succeed({
-                    QueueUrl: "nomoss:pending:sqs:GeneratedQueue",
-                    Arn: "nomoss:pending:sqs-arn:GeneratedQueue",
-                  }),
-                execute: () =>
-                  Effect.die(
-                    "Queue lifecycle execution is not part of graph registration",
-                  ),
-              }),
-            ),
-          ),
-        ),
-      ),
-  );
-});
+          );
+
+          assert.deepStrictEqual(references, [
+            {
+              targetCloudFormationType: "AWS::KMS::Key",
+              targetPropertyPath: "/properties/Arn",
+            },
+            {
+              targetCloudFormationType: "AWS::KMS::Key",
+              targetPropertyPath: "/properties/KeyId",
+            },
+            {
+              targetCloudFormationType: "AWS::KMS::Alias",
+              targetPropertyPath: "/properties/AliasName",
+            },
+          ]);
+        }),
+    );
+  },
+);

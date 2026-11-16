@@ -5,10 +5,8 @@
 
 ### Highlights
 
-* Initial public Nomoss package release, with the `nomoss` executable and
-  GitHub Actions trusted npm publishing.
-* Effect-native planning, AWS resource reconciliation, and Stripe resource
-  declarations use explicit provider operations and immutable collections.
+* Initial public Nomoss package release, with the `nomoss` executable and GitHub Actions trusted npm publishing.
+* Effect-native planning, AWS resource reconciliation, and Stripe resource declarations use explicit provider operations and immutable collections.
 
 ### Compatibility
 

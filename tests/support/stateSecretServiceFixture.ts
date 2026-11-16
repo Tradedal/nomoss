@@ -10,7 +10,7 @@ import {
 /**
  * stateSecretServiceIntegrationTestLayer runs production state persistence
  * with the macOS login Keychain and local files. Scoped tests remain
- * responsible for removing their own credential and state document.
+ * responsible for cleanup of their own credential and state document.
  */
 export const stateSecretServiceIntegrationTestLayer =
   resourceStateStoreBaseLayer.pipe(

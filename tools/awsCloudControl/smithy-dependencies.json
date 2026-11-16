@@ -2,6 +2,30 @@
   "version": "1.74.1",
   "artifacts": [
     {
+      "name": "smithy-openapi",
+      "sha256": "5b12efc06cd60178981bb1445196c3d60158464cfac4255c5dfffa78812afe08"
+    },
+    {
+      "name": "smithy-build",
+      "sha256": "1c74e9f6c0e0b79a1d5c169351775f266a43bea9698bd70906feff8080070d52"
+    },
+    {
+      "name": "smithy-aws-traits",
+      "sha256": "87b6fb35dbc988b4db42184a84460932cd775d0fa3c94e2b53ddad3cee157ea9"
+    },
+    {
+      "name": "smithy-diff",
+      "sha256": "bd36834e6e44c43c6ae06f25f952b92c5d3dc606a7b447d2614c893e5b33d1b6"
+    },
+    {
+      "name": "smithy-openapi-traits",
+      "sha256": "b57072edfdb0f9b02baf7a97145fb9353cc9de309d7535169a8a9621841d0951"
+    },
+    {
+      "name": "smithy-protocol-traits",
+      "sha256": "bdc10a1eb56eaa6704994211b78778a9a8566d5b540a2c83d5d8d13292639c7f"
+    },
+    {
       "name": "smithy-utils",
       "sha256": "40854236654b9122bb99079c3f4be8af009dedb20f5e11ea14a19deb1de62a52"
     },

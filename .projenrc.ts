@@ -1,42 +1,44 @@
-import fs from "node:fs";
+import { NodeFileSystem, NodeRuntime } from "@effect/platform-node";
+import { Array as Arr, Effect, FileSystem, Option } from "effect";
 import {
-  javascript,
   JsonFile,
   JsonPatch,
+  javascript,
   ReleasableCommits,
-  TextFile,
+  release,
 } from "projen";
-import { JobStep } from "projen/lib/github/workflows-model";
-import { YarnNodeLinker } from "projen/lib/javascript";
-import { ReleaseTrigger } from "projen/lib/release";
+import packageManifest from "./package.json" with { type: "json" };
 
-const packageManifestPath = "package.json";
-const currentPackageVersion = fs.existsSync(packageManifestPath)
-  ? JSON.parse(fs.readFileSync(packageManifestPath, "utf8")).version ?? "0.0.0"
-  : "0.0.0";
+const currentPackageVersion: string = packageManifest.version;
 
 const project = new javascript.NodeProject({
   defaultReleaseBranch: "main",
   description: "Effect-native infrastructure automation for TypeScript.",
   deps: [
-    "@distilled.cloud/aws@^0.27.0",
-    "@distilled.cloud/stripe@^0.27.0",
-    "@effect/platform-node@4.0.0-beta.93",
-    "effect@4.0.0-beta.93",
+    "@aws-crypto/sha256-js@^5.2.0",
+    "@aws-sdk/core@^3.979.1",
+    "@aws-sdk/credential-provider-node@^3.972.92",
+    "@smithy/core@^3.38.1",
+    "@smithy/signature-v4@^5.7.5",
+    "@smithy/types@^4.19.0",
+    "@effect/platform-node@4.1.1",
+    "effect@4.1.1",
+    "redis@^6.3.1",
     "tsx@^4.20.6",
   ],
   copyrightOwner: "Roman Naumenko",
   devDeps: [
-    "@biomejs/biome@2.4.12",
-    "@catenarycloud/linteffect@0.0.7-dev.2",
-    "@effect/tsgo@0.23.0",
-    "@effect/vitest@4.0.0-beta.93",
+    "@biomejs/biome@2.6.3",
+    "@catenarycloud/linteffect@0.1.0",
+    "@effect/tsgo@0.63.0",
+    "@effect/vitest@4.1.1",
     "@types/node@^24.0.0",
     "projen@^0.98.34",
+    "ts-morph@27.0.2",
     "typescript@7.0.2",
     "typescript-ast@npm:typescript@6.0.2",
     "vite@^8.0.7",
-    "vitest@^4.1.4",
+    "vitest@^5.0.5",
   ],
   entrypoint: "",
   github: true,
@@ -49,17 +51,22 @@ const project = new javascript.NodeProject({
   prettier: false,
   releaseToNpm: true,
   release: true,
-  releaseTrigger: ReleaseTrigger.workflowDispatch(),
+  releaseTrigger: release.ReleaseTrigger.workflowDispatch(),
   releasableCommits: ReleasableCommits.featuresAndFixes(),
   repository: "https://github.com/Tradedal/nomoss.git",
-  sampleCode: false,
   workflowNodeVersion: "24.11.1",
+  workflowBootstrapSteps: [
+    {
+      name: "Install Yarn",
+      run: "corepack enable && corepack prepare yarn@4.17.1 --activate",
+    },
+  ],
   yarnBerryOptions: {
     version: "4.17.1",
     zeroInstalls: false,
     yarnRcOptions: {
       enableScripts: true,
-      nodeLinker: YarnNodeLinker.NODE_MODULES,
+      nodeLinker: javascript.YarnNodeLinker.NODE_MODULES,
     },
   },
 });
@@ -74,7 +81,9 @@ project.package.addField("engines", { node: ">=24" });
 project.package.addField("exports", {
   ".": "./src/index.ts",
   "./core": "./src/core/index.ts",
+  "./cli": "./src/cli.ts",
   "./providers": "./src/providers/index.ts",
+  "./providers/commands": "./src/providers/resourceCommandPolicyLayer.ts",
   "./providers/aws": "./src/providers/aws/index.ts",
   "./providers/stripe": "./src/providers/stripe/index.ts",
 });
@@ -89,49 +98,46 @@ project.package.addField("files", [
 project.package.addField("publishConfig", { access: "public" });
 project.package.addField("packageManager", "yarn@4.17.1");
 project.package.addField("scripts", {
-  check: "yarn lint && yarn typecheck:tsgo && vitest run --pool forks --passWithNoTests --exclude 'tests/**/*.integration.test.ts'",
-  "generate:aws-resource-definition": "tsx tools/compileAwsResourceDefinition.ts",
+  check:
+    "yarn format && yarn lint && yarn typecheck:tsgo && vitest run --pool forks --passWithNoTests --exclude 'tests/**/*.integration.test.ts'",
+  format: "biome check --write",
+  "format:staged": "biome check --write --staged --no-errors-on-unmatched",
+  "generate:aws-resource-definition":
+    "tsx tools/compileAwsResourceDefinition.ts",
   "generate:aws-resources": "tsx tools/compileAwsCloudControlClient.ts",
+  "generate:stripe-client": "tsx tools/compileStripeClient.ts",
   lint: "biome lint --reporter=summary",
   "lint:fix": "biome check --write",
-  "tsgo:patch": "effect-tsgo patch",
-  "typecheck:tsgo": "tsc -b .",
+  nomoss: "tsx examples/queue/cli.ts",
+  "tsgo:patch": "effect-tsgo patch --typescript",
+  "typecheck:tsgo": "yarn format:staged && effect-tsgo tsc --build .",
+  "test:integration":
+    "vitest run --config vitest.integration.config.ts --pool forks",
+  "test:integration:aws":
+    "vitest run --config vitest.integration.config.ts tests/awsUploadEvents.integration.test.ts --pool forks",
+  "test:integration:stripe":
+    "vitest run --config vitest.integration.config.ts tests/stripe --pool forks",
   projen: "tsx .projenrc.ts",
+  postinstall: "yarn tsgo:patch",
 });
 project.gitignore.addPatterns(".nomoss/");
 project.gitignore.addPatterns("refs/");
 project.defaultTask?.reset("tsx .projenrc.ts");
+project.testTask.exec("yarn check");
 
-if (project.github) {
-  const buildWorkflow = project.github.workflows.find(
-    (workflow) => workflow.name === "build",
-  );
-
-  if (buildWorkflow) {
-    buildWorkflow.file?.patch(
-      JsonPatch.add("/jobs/build/steps/2/with/package-manager-cache", false),
-    );
-
-    const buildJob = buildWorkflow.getJob("build");
-    const buildSteps = buildJob?.steps;
-    const resolvedBuildSteps =
-      typeof buildSteps === "function"
-        ? buildSteps()
-        : ((buildSteps as JobStep[] | undefined) ?? []);
-
-    buildWorkflow.updateJob("build", {
-      ...buildJob,
-      steps: [
-        resolvedBuildSteps[0],
-        {
-          name: "Install Yarn",
-          run: "corepack enable && corepack prepare yarn@4.17.1 --activate",
-        },
-        ...resolvedBuildSteps.slice(1),
-      ],
-    });
-  }
-}
+Option.fromUndefinedOr(project.github).pipe(
+  Option.flatMap((github) =>
+    Arr.findFirst(github.workflows, (workflow) => workflow.name === "build"),
+  ),
+  Option.match({
+    onNone: () => undefined,
+    onSome: (buildWorkflow) => {
+      buildWorkflow.file?.patch(
+        JsonPatch.add("/jobs/build/steps/2/with/package-manager-cache", false),
+      );
+    },
+  }),
+);
 
 new JsonFile(project, "tsconfig.json", {
   obj: {
@@ -142,10 +148,12 @@ new JsonFile(project, "tsconfig.json", {
       paths: {
         "@nomoss/core": ["./src/core/index.ts"],
         "@nomoss/providers": ["./src/providers/index.ts"],
+        "@nomoss/providers/aws": ["./src/providers/aws/index.ts"],
       },
       incremental: true,
       tsBuildInfoFile: "lib/tsconfig.tsbuildinfo",
       allowImportingTsExtensions: true,
+      resolveJsonModule: true,
       module: "NodeNext",
       moduleResolution: "NodeNext",
       target: "ESNext",
@@ -163,6 +171,7 @@ new JsonFile(project, "tsconfig.json", {
         {
           name: "@effect/language-service",
           diagnosticSeverity: {
+            unstableApiUsage: "off",
             globalDateInEffect: "error",
             globalDate: "warning",
             globalErrorInEffectCatch: "warning",
@@ -170,7 +179,7 @@ new JsonFile(project, "tsconfig.json", {
             globalFetchInEffect: "error",
             globalRandom: "error",
             globalTimers: "error",
-            importFromBarrel: "warning",
+            preferBarrelImport: "warning",
             globalConsole: "warning",
             globalConsoleInEffect: "error",
             catchAllToMapError: "warning",
@@ -185,121 +194,100 @@ new JsonFile(project, "tsconfig.json", {
             newPromise: "warning",
             nestedEffectGenYield: "warning",
           },
+          /**
+           * Generated AWS schemas apply numeric checks after annotations, which
+           * makes shorthand suggestions misleading for those declarations.
+           * Handwritten schemas retain the schemaNumber diagnostic.
+           */
+          overrides: [
+            {
+              include: [
+                "src/providers/aws/client/generated/**/*.ts",
+                "src/providers/aws/resources/generated/**/*.ts",
+              ],
+              options: {
+                diagnosticSeverity: { schemaNumber: "off" },
+              },
+            },
+          ],
           barrelImportPackages: ["effect", "@effect/*"],
           includeSuggestionsInTsc: true,
-          ignoreEffectWarningsInTscExitCode: true,
+          ignoreEffectWarningsInTscExitCode: false,
+          ignoreEffectErrorsInTscExitCode: false,
           ignoreEffectSuggestionsInTscExitCode: true,
         },
       ],
       types: ["node"],
     },
     include: [
+      ".projenrc.ts",
       "examples/**/*.ts",
       "src/**/*.ts",
       "tests/**/*.ts",
+      "tools/**/*.ts",
       "vitest.config.ts",
       "vitest.integration.config.ts",
     ],
   },
 });
 
-new TextFile(project, "biome.jsonc", {
+new JsonFile(project, "biome.jsonc", {
   marker: false,
-  lines: [
-    "{",
-    '  \"$schema\": \"node_modules/@biomejs/biome/configuration_schema.json\",',
-    '  \"root\": true,',
-    '  \"extends\": [\"@catenarycloud/linteffect\"],',
-    '  \"files\": {',
-    '    \"ignoreUnknown\": false,',
-    '    \"includes\": [\"examples/**/*.ts\", \"src/**/*.ts\", \"tests/**/*.ts\", \"vitest.config.ts\", \"vitest.integration.config.ts\"]',
-    "  },",
-    '  \"formatter\": { \"enabled\": true, \"indentStyle\": \"space\", \"indentWidth\": 2 },',
-    '  \"javascript\": { \"formatter\": { \"quoteStyle\": \"double\" } },',
-    '  \"linter\": { \"enabled\": true, \"rules\": { \"recommended\": true, \"style\": { \"useConst\": \"error\" } } },',
-    '  \"vcs\": { \"clientKind\": \"git\", \"enabled\": true, \"useIgnoreFile\": true }',
-    "}",
-  ],
+  readonly: false,
+  obj: {
+    $schema: "node_modules/@biomejs/biome/configuration_schema.json",
+    root: true,
+    extends: ["@catenarycloud/linteffect"],
+    files: {
+      ignoreUnknown: false,
+      includes: [
+        ".projenrc.ts",
+        "examples/**/*.ts",
+        "src/**/*.ts",
+        "tests/**/*.ts",
+        "tools/**/*.ts",
+        "vitest.config.ts",
+        "vitest.integration.config.ts",
+      ],
+    },
+    formatter: { enabled: true, indentStyle: "space", indentWidth: 2 },
+    javascript: { formatter: { quoteStyle: "double" } },
+    linter: {
+      enabled: true,
+      rules: { preset: "recommended", style: { useConst: "error" } },
+    },
+    vcs: { clientKind: "git", enabled: true, useIgnoreFile: true },
+  },
 });
 
-new TextFile(project, "vitest.config.ts", {
-  marker: false,
-  lines: [
-    'import { fileURLToPath } from "node:url";',
-    "",
-    'import { defineConfig } from "vitest/config";',
-    "",
-    "export default defineConfig({",
-    "  resolve: {",
-    "    alias: {",
-    '      "@nomoss/core": fileURLToPath(',
-    '        new URL("./src/core/index.ts", import.meta.url),',
-    "      ),",
-    '      "@nomoss/providers": fileURLToPath(',
-    '        new URL("./src/providers/index.ts", import.meta.url),',
-    "      ),",
-    "    },",
-    "  },",
-    "  test: {",
-    '    include: ["tests/**/*.test.ts"],',
-    "  },",
-    "});",
-    "",
-  ],
-});
-
-new TextFile(project, "vitest.integration.config.ts", {
-  marker: false,
-  lines: [
-    'import { fileURLToPath } from "node:url";',
-    "",
-    'import { defineConfig } from "vitest/config";',
-    "",
-    "export default defineConfig({",
-    "  resolve: {",
-    "    alias: {",
-    '      "@nomoss/core": fileURLToPath(',
-    '        new URL("./src/core/index.ts", import.meta.url),',
-    "      ),",
-    '      "@nomoss/providers": fileURLToPath(',
-    '        new URL("./src/providers/index.ts", import.meta.url),',
-    "      ),",
-    "    },",
-    "  },",
-    "  test: {",
-    '    include: ["tests/**/*.integration.test.ts"],',
-    "  },",
-    "});",
-    "",
-  ],
-});
-project.synth();
-
-fs.writeFileSync(
-  ".release-please-manifest.json",
-  `${JSON.stringify({ ".": currentPackageVersion }, null, 2)}\n`,
+project.addExcludeFromCleanup(
+  "vitest.config.ts",
+  "vitest.integration.config.ts",
 );
 
-fs.writeFileSync(
-  "release-please-config.json",
-  `${JSON.stringify(
-    {
-      $schema:
-        "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
-      packages: {
-        ".": {
-          "bump-patch-for-minor-pre-major": true,
-          "changelog-path": "CHANGELOG.md",
-          "include-component-in-tag": false,
-          "package-name": "nomoss",
-          "release-type": "node",
-        },
+new JsonFile(project, ".release-please-manifest.json", {
+  marker: false,
+  obj: { ".": currentPackageVersion },
+});
+
+new JsonFile(project, "release-please-config.json", {
+  marker: false,
+  obj: {
+    $schema:
+      "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+    packages: {
+      ".": {
+        "bump-patch-for-minor-pre-major": true,
+        "changelog-path": "CHANGELOG.md",
+        "include-component-in-tag": false,
+        "package-name": "nomoss",
+        "release-type": "node",
       },
     },
-    null,
-    2,
-  )}\n`,
-);
+  },
+});
+
+project.synth();
 
 const releaseWorkflowPath = ".github/workflows/release.yml";
 const releasePleaseWorkflow = `# ~~ Generated by projen. To modify, edit .projenrc.js and run "npx projen".
@@ -355,6 +343,10 @@ jobs:
         run: npm publish --access public
 `;
 
-fs.chmodSync(releaseWorkflowPath, 0o644);
-fs.writeFileSync(releaseWorkflowPath, releasePleaseWorkflow);
-fs.chmodSync(releaseWorkflowPath, 0o444);
+Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+
+  yield* fs.chmod(releaseWorkflowPath, 0o644);
+  yield* fs.writeFileString(releaseWorkflowPath, releasePleaseWorkflow);
+  yield* fs.chmod(releaseWorkflowPath, 0o444);
+}).pipe(Effect.provide(NodeFileSystem.layer), NodeRuntime.runMain);

@@ -10,12 +10,17 @@ import {
 } from "effect";
 import {
   type DependencyEdge,
+  DependencyEdgeSchema,
+  type ResourceEntity,
   type ResourceKey,
   ResourceModel,
   type ResourceNode,
-  type ResourceOutputRef,
+  type ResourceOutput,
+  ResourceOutputReference,
   ResourceOutputRefSchema,
   type ResourcePropertyPath,
+  ResourceReferenceRecordSchema,
+  type ResourceType,
 } from "./model.js";
 import {
   ResourceGraphStore,
@@ -36,8 +41,9 @@ export type ResourceDeclarationInput<
 > = {
   readonly propsSchema: PropsSchema;
   readonly outputsSchema: OutputsSchema;
-  readonly props: NoInfer<Props>;
-  readonly outputs: NoInfer<Outputs>;
+  readonly requestSchema?: Schema.Schema<Schema.Json> | undefined;
+  readonly props: NoInfer<PropsSchema["Type"]>;
+  readonly outputs?: NoInfer<OutputsSchema["Type"]> | undefined;
 };
 
 /**
@@ -52,9 +58,93 @@ export class ResourceGraphBuilder extends Context.Service<ResourceGraphBuilder>(
       const graph = yield* ResourceGraphStore;
       const model = yield* ResourceModel;
 
+      /**
+       * The registerNode service method publishes a declaration with all of its
+       * dependencies. Missing or incompatible source entities fail before the
+       * graph changes, so a rejected declaration cannot leave a partial node.
+       */
+      // CLEANUP_Q [resource-entities] Nomoss applies related resources in dependency order and
+      // rejects invalid relationships before changing infrastructure, including after a restart.
+      const registerNode = Effect.fn("ResourceGraphBuilder.registerNode")(
+        function* (
+          node: ResourceNode,
+          explicit: ReadonlyArray<ResourceDependencyInput> = [],
+        ) {
+          const references = (
+            value: Schema.Json,
+            property: ResourcePropertyPath,
+          ): ReadonlyArray<ResourceDependencyInput> =>
+            Match.value(value).pipe(
+              Match.when(
+                Schema.is(ResourceReferenceRecordSchema),
+                (reference): ReadonlyArray<ResourceDependencyInput> => [
+                  {
+                    source: reference.source,
+                    target: node.key,
+                    edge: { kind: "relationship", property, reference },
+                  },
+                ],
+              ),
+              Match.when(
+                Schema.is(ResourceOutputRefSchema),
+                (output): ReadonlyArray<ResourceDependencyInput> => [
+                  {
+                    source: output.source,
+                    target: node.key,
+                    edge: {
+                      kind: "property",
+                      property,
+                      sourceProperty: output.property,
+                    },
+                  },
+                ],
+              ),
+              Match.when(Schema.is(Schema.Array(Schema.Json)), (values) =>
+                Arr.flatMap(values, (child, index) =>
+                  references(child, [...property, String(index)]),
+                ),
+              ),
+              Match.when(
+                Schema.is(Schema.Record(Schema.String, Schema.Json)),
+                (record) =>
+                  Arr.flatMap(Record.toEntries(record), ([name, child]) =>
+                    references(child, [...property, name]),
+                  ),
+              ),
+              Match.orElse(() => []),
+            );
+
+          const saved: ReadonlyArray<ResourceDependencyInput> = Arr.map(
+            node.relationships ?? [],
+            ({ property, reference }) => ({
+              source: reference.source,
+              target: node.key,
+              edge: { kind: "relationship", property, reference },
+            }),
+          );
+          const dependencies = Arr.dedupeWith(
+            Arr.appendAll(
+              Arr.appendAll(references(node.props, []), saved),
+              explicit,
+            ),
+            (left: ResourceDependencyInput, right: ResourceDependencyInput) =>
+              left.source.logicalId === right.source.logicalId &&
+              left.target.logicalId === right.target.logicalId &&
+              Schema.toEquivalence(DependencyEdgeSchema)(left.edge, right.edge),
+          );
+
+          yield* graph.addResource(node, dependencies);
+
+          const registered: ResourceNode = node;
+
+          return registered;
+        },
+      );
+
       const resource = Effect.fn("ResourceGraphBuilder.resource")(function* (
         key: ResourceKey,
       ) {
+        const outputBinding = yield* graph.outputBinding;
         const dependencies = yield* Ref.make<
           ReadonlyArray<ResourceDependencyInput>
         >([]);
@@ -65,17 +155,17 @@ export class ResourceGraphBuilder extends Context.Service<ResourceGraphBuilder>(
          * already expressed as output references in props.
          */
         const dependsOn = Effect.fn("ResourceGraphBuilder.resource.dependsOn")(
-          function* (
-            output: ResourceOutputRef,
+          function* <Value>(
+            output: ResourceOutput<Value>,
             property: ResourcePropertyPath,
           ) {
             const dependency: ResourceDependencyInput = {
-              source: output.source,
+              source: output[ResourceOutputReference].source,
               target: key,
               edge: {
                 kind: "property",
                 property,
-                sourceProperty: output.property,
+                sourceProperty: output[ResourceOutputReference].property,
               },
             };
 
@@ -84,10 +174,12 @@ export class ResourceGraphBuilder extends Context.Service<ResourceGraphBuilder>(
         );
 
         /**
-         * register adds a resource with the schemas used to validate its inputs
-         * and eventual outputs. Source resources must already be registered
-         * before they can be referenced, including inside JSON objects and
-         * arrays or through an explicit dependsOn declaration.
+         * The register service method retains the schemas that validate a
+         * resource's inputs and eventual outputs. Source resources must already
+         * be registered before they can be referenced, including inside JSON
+         * objects and arrays or through an explicit dependsOn declaration.
+         * Omit outputs until creation completes so unresolved values remain
+         * absent before the provider supplies them.
          */
         const register = Effect.fn("ResourceGraphBuilder.resource.register")(
           function* <
@@ -107,64 +199,64 @@ export class ResourceGraphBuilder extends Context.Service<ResourceGraphBuilder>(
               key,
               propsSchema: input.propsSchema,
               outputsSchema: input.outputsSchema,
+              requestSchema: input.requestSchema,
               props: input.props,
               outputs: input.outputs,
             });
 
-            const references = (
-              value: Schema.Json,
-              property: ResourcePropertyPath,
-            ): ReadonlyArray<ResourceDependencyInput> =>
-              Match.value(value).pipe(
-                Match.when(Schema.is(ResourceOutputRefSchema), (output) => {
-                  const outputDependencies: ReadonlyArray<ResourceDependencyInput> =
-                    [
-                      {
-                        source: output.source,
-                        target: key,
-                        edge: {
-                          kind: "property",
-                          property,
-                          sourceProperty: output.property,
-                        },
-                      },
-                    ];
-
-                  return outputDependencies;
-                }),
-                Match.when(Schema.is(Schema.Array(Schema.Json)), (values) =>
-                  Arr.flatMap(values, (child, index) =>
-                    references(child, [...property, String(index)]),
-                  ),
-                ),
-                Match.when(
-                  Schema.is(Schema.Record(Schema.String, Schema.Json)),
-                  (record) =>
-                    Arr.flatMap(Record.toEntries(record), ([name, child]) =>
-                      references(child, [...property, name]),
-                    ),
-                ),
-                Match.orElse(() => []),
-              );
-
-            yield* graph.addResource(node);
-
             const resourceDependencies = yield* Ref.get(dependencies);
 
-            yield* Effect.forEach(
-              Arr.appendAll(references(node.props, []), resourceDependencies),
-              (dependency) =>
-                graph.addDependency(
-                  dependency.source,
-                  dependency.target,
-                  dependency.edge,
-                ),
-              { discard: true },
+            const registered: ResourceNode = yield* registerNode(
+              node,
+              resourceDependencies,
             );
 
-            return node;
+            return registered;
           },
         );
+
+        /**
+         * The registerEntity service method gives a provider function an entity
+         * that other declarations can pass directly. Its resource type must
+         * match the canonical declaration schema before registration succeeds.
+         */
+        // CLEANUP_Q [resource-entities] Applications can use a declared resource directly when
+        // declaring another resource that depends on it, before either exists at the provider.
+        const registerEntity = Effect.fn(
+          "ResourceGraphBuilder.resource.registerEntity",
+        )(function* <
+          Type extends ResourceType,
+          Props,
+          Outputs,
+          PropsSchema extends Schema.Schema<Props>,
+          OutputsSchema extends Schema.Schema<Outputs>,
+        >(
+          resourceType: Schema.Schema<Type>,
+          input: ResourceDeclarationInput<
+            Props,
+            Outputs,
+            PropsSchema,
+            OutputsSchema
+          >,
+        ) {
+          const node = yield* model.nodeFromResource({
+            key,
+            propsSchema: input.propsSchema,
+            outputsSchema: input.outputsSchema,
+            requestSchema: input.requestSchema,
+            props: input.props,
+            outputs: input.outputs,
+          });
+          const entity: ResourceEntity<Type> = yield* model.entityFromNode(
+            node,
+            resourceType,
+          );
+          const resourceDependencies = yield* Ref.get(dependencies);
+
+          yield* registerNode(node, resourceDependencies);
+
+          return entity;
+        });
 
         /**
          * valueFrom returns a validated declaration-time output and records
@@ -174,13 +266,13 @@ export class ResourceGraphBuilder extends Context.Service<ResourceGraphBuilder>(
          */
         const valueFrom = Effect.fn("ResourceGraphBuilder.resource.valueFrom")(
           function* <S extends Schema.Constraint>(
-            output: ResourceOutputRef,
+            output: ResourceOutput<S["Type"]>,
             property: ResourcePropertyPath,
             schema: S,
           ) {
             const decodedOutput: S["Type"] = yield* graph.outputValue(
-              output.source,
-              output.property,
+              output[ResourceOutputReference].source,
+              output[ResourceOutputReference].property,
               schema,
             );
 
@@ -193,12 +285,12 @@ export class ResourceGraphBuilder extends Context.Service<ResourceGraphBuilder>(
         /**
          * stringFrom returns a declaration-time string output and records its
          * dependency only if the read succeeds. A missing value identifies the
-         * source resource and output for reporting the unresolved input.
+         * source resource and output so callers can report the unresolved input.
          */
         const stringFrom = Effect.fn(
           "ResourceGraphBuilder.resource.stringFrom",
         )(function* (
-          output: ResourceOutputRef,
+          output: ResourceOutput<string>,
           property: ResourcePropertyPath,
         ) {
           const value: string = yield* valueFrom(
@@ -210,10 +302,17 @@ export class ResourceGraphBuilder extends Context.Service<ResourceGraphBuilder>(
           return value;
         });
 
-        return { dependsOn, register, valueFrom, stringFrom };
+        return {
+          dependsOn,
+          register,
+          registerEntity,
+          outputs: outputBinding,
+          valueFrom,
+          stringFrom,
+        };
       });
 
-      return { resource };
+      return { resource, registerNode };
     }),
   },
 ) {}

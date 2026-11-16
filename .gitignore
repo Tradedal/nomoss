@@ -49,6 +49,6 @@ jspm_packages/
 refs/
 !/tsconfig.json
 !/biome.jsonc
-!/vitest.config.ts
-!/vitest.integration.config.ts
+!/.release-please-manifest.json
+!/release-please-config.json
 !/.projenrc.js

@@ -2,9 +2,9 @@ import { Schema } from "effect";
 import { type ResourceNode, ResourceNodeSchema } from "../resource/model.js";
 
 /**
- * ResourceFailure preserves the reported error and its time in an unfinished
- * lifecycle record. Later runs can identify why the operation did not complete
- * without relying on logs from the original process.
+ * The ResourceFailureSchema schema keeps an unfinished operation diagnosable
+ * when logs from the original process are unavailable. A later run can report
+ * the saved failure before attempting recovery.
  */
 export const ResourceFailureSchema = Schema.Struct({
   errorTag: Schema.optional(Schema.NonEmptyString),
@@ -12,6 +12,12 @@ export const ResourceFailureSchema = Schema.Struct({
   occurredAt: Schema.NonEmptyString,
 });
 
+/**
+ * The ResourceStateSchema schema retains a completed removal until its
+ * containing operation commits, allowing recovery to skip that provider call.
+ * An unfinished update keeps the last applied node available for comparison
+ * with the requested configuration.
+ */
 export const ResourceStateSchema = Schema.Union([
   Schema.TaggedStruct("Creating", {
     node: ResourceNodeSchema,
@@ -37,6 +43,10 @@ export const ResourceStateSchema = Schema.Union([
     startedAt: Schema.NonEmptyString,
     lastFailure: Schema.optional(ResourceFailureSchema),
   }),
+  Schema.TaggedStruct("Deleted", {
+    node: ResourceNodeSchema,
+    completedAt: Schema.NonEmptyString,
+  }),
 ]);
 
 export const EnvironmentStateSchema = Schema.Struct({
@@ -50,9 +60,10 @@ export type ResourceState = typeof ResourceStateSchema.Type;
 export type ResourceFailure = typeof ResourceFailureSchema.Type;
 
 /**
- * ResourceStateSnapshot contains lifecycle records and applied values from
- * one state read. Updating records expose their previous nodes for planning
- * so desired properties are compared with the last applied configuration.
+ * The ResourceStateSnapshot interface separates retry records from the values
+ * available to applications in the same state read. Planning compares desired
+ * resources with those applied values so saved creation intent cannot be
+ * mistaken for completed infrastructure.
  */
 export interface ResourceStateSnapshot {
   readonly states: ReadonlyArray<ResourceState>;

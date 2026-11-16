@@ -1,43 +1,47 @@
-import type {
-  ResourceCommand,
-  ResourceCommandPolicy,
-  ResourceKey,
-} from "@nomoss/core";
+// Generated from the CloudFormation Registry resource schema. Do not edit.
+// biome-ignore-all lint/complexity/useRegexLiterals: Preserve Effect's generated regular expressions.
 import {
   annotateResourceSchema,
   ResourceGraphBuilder,
+  type ResourceKey,
   ResourceSchemaAnnotationSchema,
 } from "@nomoss/core";
-import { providerCommandPolicyTag } from "@nomoss/providers";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Effect, Schema } from "effect";
+import { ResourceOutputBinding } from "../../../../../../core/resource/resourceOutputBinding.js";
+
+interface DomainValidationOption {
+  readonly DomainName: string;
+  readonly ValidationDomain?: string;
+  readonly HostedZoneId?: string;
+}
 
 const DomainValidationOption = Schema.Struct({
   DomainName: Schema.String,
   ValidationDomain: Schema.optionalKey(Schema.String),
   HostedZoneId: Schema.optionalKey(Schema.String),
-});
+}).annotate({ identifier: "DomainValidationOption" });
 
-const Tag = Schema.Struct({ Value: Schema.String, Key: Schema.String });
+interface Tag {
+  readonly Value: string;
+  readonly Key: string;
+}
 
-const CertificatePropsSource = Schema.Struct({
-  CertificateAuthorityArn: Schema.optionalKey(Schema.String),
-  CertificateExport: Schema.optionalKey(Schema.String),
-  DomainValidationOptions: Schema.optionalKey(
-    Schema.Array(DomainValidationOption).check(Schema.isUnique()),
-  ),
-  CertificateTransparencyLoggingPreference: Schema.optionalKey(Schema.String),
-  DomainName: Schema.optionalKey(Schema.String),
-  ValidationMethod: Schema.optionalKey(Schema.String),
-  SubjectAlternativeNames: Schema.optionalKey(
-    Schema.Array(Schema.String).check(Schema.isUnique()),
-  ),
-  Tags: Schema.optionalKey(Schema.Array(Tag).check(Schema.isUnique())),
-  KeyAlgorithm: Schema.optionalKey(Schema.String),
-});
+const Tag = Schema.Struct({
+  Value: Schema.String,
+  Key: Schema.String,
+}).annotate({ identifier: "Tag" });
 
-const CertificateOutputsSource = Schema.Struct({
-  Id: Schema.optionalKey(Schema.String),
-});
+export interface CertificateProps {
+  readonly CertificateAuthorityArn?: string;
+  readonly CertificateExport?: string;
+  readonly DomainValidationOptions?: ReadonlyArray<DomainValidationOption>;
+  readonly CertificateTransparencyLoggingPreference?: string;
+  readonly DomainName: string;
+  readonly ValidationMethod?: string;
+  readonly SubjectAlternativeNames?: ReadonlyArray<string>;
+  readonly Tags?: ReadonlyArray<Tag>;
+  readonly KeyAlgorithm?: string;
+}
 
 export const CertificateResourceSchema = ResourceSchemaAnnotationSchema.make({
   provider: "aws",
@@ -45,66 +49,131 @@ export const CertificateResourceSchema = ResourceSchemaAnnotationSchema.make({
   resource: "certificate",
   operation: "create",
   stateSecretOutputKeys: [],
+  cloudControl: {
+    typeName: "AWS::CertificateManager::Certificate",
+    primaryIdentifier: ["/properties/Id"],
+    readOnlyProperties: ["/properties/Id"],
+    createOnlyProperties: [
+      "/properties/SubjectAlternativeNames",
+      "/properties/DomainValidationOptions",
+      "/properties/ValidationMethod",
+      "/properties/KeyAlgorithm",
+      "/properties/DomainName",
+      "/properties/CertificateAuthorityArn",
+    ],
+    writeOnlyProperties: [],
+  },
 });
-
 export const CertificatePropsSchema = annotateResourceSchema(
-  CertificatePropsSource,
+  Schema.Struct({
+    CertificateAuthorityArn: Schema.optionalKey(Schema.String),
+    CertificateExport: Schema.optionalKey(Schema.String),
+    DomainValidationOptions: Schema.optionalKey(
+      Schema.Array(DomainValidationOption).check(
+        Schema.isUnique().annotate({ expected: "an array with unique items" }),
+      ),
+    ),
+    CertificateTransparencyLoggingPreference: Schema.optionalKey(Schema.String),
+    DomainName: Schema.String,
+    ValidationMethod: Schema.optionalKey(Schema.String),
+    SubjectAlternativeNames: Schema.optionalKey(
+      Schema.Array(Schema.String).check(
+        Schema.isUnique().annotate({ expected: "an array with unique items" }),
+      ),
+    ),
+    Tags: Schema.optionalKey(Schema.Array(Tag)),
+    KeyAlgorithm: Schema.optionalKey(Schema.String),
+  }),
   CertificateResourceSchema,
 );
 
-export const CertificateOutputsSchema = CertificateOutputsSource;
+export interface CertificateOutputs {
+  readonly Id?: string;
+}
 
-export type CertificateProps = Schema.Schema.Type<
-  typeof CertificatePropsSchema
->;
+export const CertificateOutputsSchema = Schema.Struct({
+  Id: Schema.optionalKey(Schema.String),
+});
 
-export type CertificateOutputs = Schema.Schema.Type<
-  typeof CertificateOutputsSchema
->;
-
-export type CertificateLifecycle = {
-  readonly resolvePendingOutputs: (input: {
-    readonly key: ResourceKey;
-    readonly props: CertificateProps;
-  }) => ReturnType<(typeof CertificateOutputsSchema)["makeEffect"]>;
-  readonly execute: (
-    command: ResourceCommand,
-  ) => ReturnType<(typeof ResourceCommandPolicy)["Service"]["execute"]>;
-};
-
-export const CertificateLifecycleService = Context.Service<
-  CertificateLifecycle,
-  CertificateLifecycle
->("nomoss/providers/aws/generated/certificatemanager/certificate/lifecycle");
+export interface CertificateResource {
+  readonly key: ResourceKey;
+  readonly props: CertificateProps;
+  readonly outputs: {
+    readonly [Key in keyof CertificateOutputs]-?: Required<CertificateOutputs>[Key];
+  };
+}
 
 export const registerCertificate = Effect.fn("Certificate.register")(
   function* (input: {
     readonly key: ResourceKey;
     readonly props: CertificateProps;
   }) {
-    const graphResource = yield* (yield* ResourceGraphBuilder).resource(
-      input.key,
-    );
-    const resourceProps = yield* CertificatePropsSchema.makeEffect(input.props);
-    const resourceOutputs =
-      yield* (yield* CertificateLifecycleService).resolvePendingOutputs({
-        key: input.key,
-        props: resourceProps,
-      });
+    const graph = yield* ResourceGraphBuilder;
+    const graphResource = yield* graph.resource(input.key);
+
+    const resourceProps: CertificateProps = yield* Schema.decodeEffect(
+      CertificatePropsSchema,
+    )(input.props);
+
+    const resourceOutputs: CertificateOutputs = yield* Schema.decodeEffect(
+      CertificateOutputsSchema,
+    )({});
+
     yield* graphResource.register({
       propsSchema: CertificatePropsSchema,
       outputsSchema: CertificateOutputsSchema,
       props: resourceProps,
       outputs: resourceOutputs,
     });
-    return { key: input.key, props: resourceProps, outputs: resourceOutputs };
+
+    const resource: CertificateResource = {
+      key: input.key,
+      props: resourceProps,
+      outputs: {
+        get Id(): Required<CertificateOutputs>["Id"] {
+          const value: Required<CertificateOutputs>["Id"] =
+            ResourceOutputBinding.value(
+              graphResource.outputs,
+              input.key,
+              "Id",
+              Schema.requiredKey(CertificateOutputsSchema.fields.Id),
+            );
+          return value;
+        },
+      },
+    };
+
+    return resource;
   },
 );
-
-export const CertificateResourceCommandPolicyLayer = Layer.unwrap(
-  Effect.map(CertificateLifecycleService, (lifecycle) =>
-    Layer.succeed(providerCommandPolicyTag(CertificateResourceSchema), {
-      execute: lifecycle.execute,
-    }),
-  ),
-);
+export const CertificateOutputCatalog = [
+  {
+    source: {
+      provider: "AWS",
+      service: "CloudFormation",
+      name: "aws-certificatemanager-certificate.json",
+      format: "CloudFormation",
+    },
+    typeName: "AWS::CertificateManager::Certificate",
+    primaryIdentifier: ["/properties/Id"],
+    createOnlyProperties: [
+      "/properties/SubjectAlternativeNames",
+      "/properties/DomainValidationOptions",
+      "/properties/ValidationMethod",
+      "/properties/KeyAlgorithm",
+      "/properties/DomainName",
+      "/properties/CertificateAuthorityArn",
+    ],
+    writeOnlyProperties: [],
+    outputs: {
+      Id: {
+        schema: {
+          type: "string",
+        },
+        schemaPath: "/properties/Id",
+        valuePath: "/Id",
+        required: false,
+      },
+    },
+  },
+];

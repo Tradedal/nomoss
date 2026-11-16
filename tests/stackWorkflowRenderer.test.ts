@@ -1,5 +1,5 @@
 import { assert, layer } from "@effect/vitest";
-import { Effect } from "effect";
+import { Array as Arr, Effect } from "effect";
 import { TestConsole } from "effect/testing";
 import { PlanAction, ResourceModel } from "../src/core/resource/model.js";
 import {
@@ -15,7 +15,7 @@ layer(stackWorkflowRendererLayer, { buildPerTest: true })(
   "StackWorkflowRenderer",
   (it) => {
     it.effect(
-      "shows the deleted queue and its identifier when apply only deleted resources",
+      "Deletion results display the removed queue and its provider id",
       () =>
         Effect.gen(function* () {
           const renderer = yield* StackWorkflowRenderer;
@@ -48,7 +48,10 @@ layer(stackWorkflowRendererLayer, { buildPerTest: true })(
             resources: [],
           });
 
-          const output = (yield* TestConsole.logLines).join("\n");
+          const output = Arr.join(
+            Arr.map(yield* TestConsole.logLines, String),
+            "\n",
+          );
 
           assert.include(output, "SelectedQueue deleted");
           assert.include(output, "id=queue-1");

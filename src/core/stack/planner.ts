@@ -2,25 +2,33 @@ import {
   Array as Arr,
   Context,
   Effect,
+  Equal,
   Graph,
   HashMap,
   HashSet,
+  JsonPatch,
+  JsonPointer,
   Layer,
   Match,
+  Number as Num,
   Option,
   Order,
+  Predicate,
+  String as Str,
 } from "effect";
 
 import {
   type DependencyEdge,
-  keyString,
   PlanAction,
   type ResourceKey,
   ResourceModel,
   type ResourceNode,
   type ResourcePlan,
+  resourceGeneration,
+  resourceInstanceKey,
   resourceModelLayer,
 } from "../resource/model.js";
+import type { ResourceState } from "../state/resourceState.js";
 
 export type ResourceDependencyGraph = Graph.DirectedGraph<
   ResourceNode,
@@ -28,18 +36,21 @@ export type ResourceDependencyGraph = Graph.DirectedGraph<
 >;
 
 /**
- * ResourcePlannerService defines action selection from declared and saved
- * resources. Dependency batches are part of the returned plan so presentation
- * and execution agree on which actions can proceed in order.
+ * The ResourcePlannerService type requires returned batches to preserve the
+ * dependency order used for review and execution. Callers supply applied
+ * resources for comparison and saved lifecycle records when recovery must
+ * omit completed provider operations.
  */
 export type ResourcePlannerService = {
   /**
-   * createOrUpdateBatches selects missing resources and changed properties. The
-   * batches place source resources before resources that use their outputs.
+   * The createOrUpdateBatches service method accepts saved lifecycle records
+   * when a run must resume completed provider work. Its batches place sources
+   * before dependents and expose the remaining operations for replacements.
    */
   readonly createOrUpdateBatches: (
     desired: ResourceDependencyGraph,
     current: ReadonlyArray<ResourceNode>,
+    states?: ReadonlyArray<ResourceState>,
   ) => ReadonlyArray<ReadonlyArray<PlanAction>>;
   /**
    * deleteBatches selects saved resources absent from the declaration graph
@@ -58,20 +69,22 @@ export type ResourcePlannerService = {
     destroyRoots: ReadonlyArray<ResourceKey>,
   ) => ReadonlyArray<ReadonlyArray<PlanAction>>;
   /**
-   * planFromGraph returns the resource actions selected from the graph and
-   * saved state. Rendering and execution receive the same plan.
+   * The planFromGraph service method accepts the applied resources and their
+   * lifecycle records from one snapshot so recovery decisions use consistent
+   * evidence. Apply and teardown remain separate action groups for review.
    */
   readonly planFromGraph: (
     desired: ResourceDependencyGraph,
     current: ReadonlyArray<ResourceNode>,
     destroyRoots?: ReadonlyArray<ResourceKey>,
+    states?: ReadonlyArray<ResourceState>,
   ) => ResourcePlan;
 };
 
 /**
  * SelectedAction retains the graph location used to assign a planned action
- * to a dependency batch. The public plan exposes the action without requiring
- * rendering or execution to repeat that graph lookup.
+ * to a dependency batch. The public plan exposes the action so the renderer
+ * and executor do not need to repeat that graph lookup.
  */
 type SelectedAction = {
   readonly action: PlanAction;
@@ -91,7 +104,7 @@ const batchDepthOrder = (direction: "forward" | "reverse") =>
 
 /**
  * collectDestroyDependents includes resources that would still depend on a
- * requested removal. Selecting them together allows teardown to remove those
+ * requested removal. This selection allows teardown to remove those
  * dependents before their source resources.
  */
 const collectDestroyDependents = (
@@ -105,7 +118,7 @@ const collectDestroyDependents = (
       Option.match(
         Option.filter(
           Graph.getNode(desired, index),
-          (node) => HashSet.has(selected, keyString(node.key)) === false,
+          (node) => HashSet.has(selected, node.key.logicalId) === false,
         ),
         {
           onNone: () =>
@@ -117,7 +130,7 @@ const collectDestroyDependents = (
                 Arr.drop(remaining, 1),
                 Graph.neighborsDirected(desired, index, "outgoing"),
               ),
-              HashSet.add(selected, keyString(node.key)),
+              HashSet.add(selected, node.key.logicalId),
             ),
         },
       ),
@@ -126,7 +139,7 @@ const collectDestroyDependents = (
 /**
  * selectDestroyActions returns teardown actions for the selected resource
  * keys in graph order. Their graph indexes remain attached so removal batches
- * can account for dependencies before reversing execution order.
+ * can account for dependencies before they reverse execution order.
  */
 const selectDestroyActions = (
   desired: ResourceDependencyGraph,
@@ -135,12 +148,12 @@ const selectDestroyActions = (
   Arr.flatMap(
     Arr.fromIterable(Graph.topo(desired)),
     ([index, node]): ReadonlyArray<SelectedAction> =>
-      Match.value(HashSet.has(destroyKeys, keyString(node.key))).pipe(
+      Match.value(HashSet.has(destroyKeys, node.key.logicalId)).pipe(
         Match.when(true, () => [
           {
             action: PlanAction.Destroy({ node }),
             index,
-            key: keyString(node.key),
+            key: node.key.logicalId,
           },
         ]),
         Match.orElse(() => []),
@@ -167,13 +180,13 @@ const depthByKey = (
           Graph.neighborsDirected(desired, entry.index, "incoming"),
           -1,
           (highest, dependencyIndex) =>
-            Math.max(
+            Num.max(
               highest,
               Option.getOrElse(
                 Option.flatMap(
                   Graph.getNode(desired, dependencyIndex),
                   (dependencyNode) =>
-                    HashMap.get(depths, keyString(dependencyNode.key)),
+                    HashMap.get(depths, dependencyNode.key.logicalId),
                 ),
                 () => -1,
               ),
@@ -222,8 +235,9 @@ const batchesFor = (
 };
 
 /**
- * ResourcePlanner selects lifecycle actions and dependency batches for the
- * shared plan consumed by presentation and provider execution.
+ * The ResourcePlanner service assumes applied resources and saved lifecycle
+ * records describe one stack snapshot. Its plans retain the selected
+ * replacement order and resource dependencies needed for reviewed execution.
  */
 export class ResourcePlanner extends Context.Service<
   ResourcePlanner,
@@ -233,74 +247,226 @@ export class ResourcePlanner extends Context.Service<
     const resourceModel = yield* ResourceModel;
 
     /**
-     * currentResourcesByKey returns last-applied nodes indexed by stable
-     * resource key. The keys match saved nodes with desired declarations
-     * independently of property changes, preserving the previous provider
-     * state used to select creation or update.
+     * The currentResourcesByKey helper requires one last-applied instance per
+     * logical resource. Matching by declaration identity lets a changed request
+     * retain ownership of its existing provider object during planning.
      */
     const currentResourcesByKey = (current: ReadonlyArray<ResourceNode>) =>
       HashMap.fromIterable(
-        Arr.map(current, (node) => [keyString(node.key), node] as const),
+        Arr.map(current, (node) => [node.key.logicalId, node] as const),
       );
+
     /**
-     * selectCreateOrUpdateActions selects creation for declarations absent from
-     * saved state and update for managed resources with different properties.
-     * Unchanged resources are excluded. Updates retain their previous node,
-     * and selected actions preserve graph order for dependency batching.
+     * The requiresReplacement helper assumes the planner has selected the
+     * resource for a change or dependency refresh. A rule without property
+     * paths requests replacement for either selection. Selected paths include
+     * changes to a containing object or a nested value. A false result keeps
+     * the candidate on the ordinary update path.
+     */
+    const requiresReplacement = (node: ResourceNode, current: ResourceNode) =>
+      Option.exists(Option.fromUndefinedOr(node.schema.replacement), (rule) =>
+        Option.match(Option.fromUndefinedOr(rule.properties), {
+          onNone: () => true,
+          onSome: (properties) =>
+            Arr.some(JsonPatch.get(current.props, node.props), (change) =>
+              Arr.some(properties, (path) => {
+                const pointer = Arr.match(path, {
+                  onEmpty: () => "",
+                  onNonEmpty: (segments) =>
+                    `/${Arr.join(Arr.map(segments, JsonPointer.escapeToken), "/")}`,
+                });
+
+                return Predicate.some([
+                  Equal.equals(pointer),
+                  (value: string) => Str.startsWith(`${pointer}/`)(value),
+                  (value: string) => Str.startsWith(`${value}/`)(pointer),
+                ])(change.path);
+              }),
+            ),
+        }),
+      );
+
+    /**
+     * The replacementAction helper reuses an unfinished instance's generation
+     * and saved operation order when constructing a recovery plan. Only
+     * operations without completed results remain in the returned plan, so a
+     * retry can proceed without repeating provider work.
+     */
+    const replacementAction = (
+      node: ResourceNode,
+      current: ResourceNode,
+      states: ReadonlyArray<ResourceState>,
+      pending: Option.Option<ResourceState>,
+    ) => {
+      const generation = Option.match(pending, {
+        onNone: () => resourceGeneration(current) + 1,
+        onSome: (state) => resourceGeneration(state.node),
+      });
+      const target: ResourceNode = { ...node, generation };
+      const rule = Option.match(pending, {
+        onNone: () => node.schema.replacement,
+        onSome: (state) => state.node.schema.replacement,
+      });
+      const create = PlanAction.Create({ node: target });
+      const remove = PlanAction.Destroy({ node: current });
+      const ordered = Match.value(rule?.order).pipe(
+        Match.when("createBeforeDestroy", () => [create, remove]),
+        Match.orElse(() => [remove, create]),
+      );
+      const operations = Arr.filter(
+        ordered,
+        Predicate.not((operation: typeof create | typeof remove) =>
+          Arr.some(
+            states,
+            Predicate.and(
+              (state: ResourceState) =>
+                resourceInstanceKey(state.node) ===
+                resourceInstanceKey(operation.node),
+              (state) =>
+                Match.value(operation).pipe(
+                  Match.tag("Create", () =>
+                    Predicate.Struct({
+                      _tag: Predicate.or(
+                        Equal.equals("Created"),
+                        Equal.equals("Updated"),
+                      ),
+                    })(state),
+                  ),
+                  Match.tag("Destroy", () => state._tag === "Deleted"),
+                  Match.exhaustive,
+                ),
+            ),
+          ),
+        ),
+      );
+
+      return PlanAction.Replace({ node: target, current, operations });
+    };
+    /**
+     * The selectCreateOrUpdateActions helper keeps a dependent resource in the
+     * plan when an earlier action may change its request values. Execution must
+     * resolve those values after the source finishes and can retain the applied
+     * instance when its request is unchanged. Explicit prerequisites affect
+     * ordering without requesting that dependent refresh.
      */
     const selectCreateOrUpdateActions = (
       desired: ResourceDependencyGraph,
       current: ReadonlyArray<ResourceNode>,
-    ): ReadonlyArray<SelectedAction> =>
-      currentResourcesByKey(current).pipe((currentByKey) =>
-        Arr.flatMap(
-          Arr.fromIterable(Graph.topo(desired)),
-          ([index, node]): ReadonlyArray<SelectedAction> =>
-            Option.match(HashMap.get(currentByKey, keyString(node.key)), {
-              onNone: () => [
-                {
-                  action: PlanAction.Create({ node }),
-                  index,
-                  key: keyString(node.key),
-                },
-              ],
-              onSome: (currentNode) =>
-                Option.match(
-                  Option.liftPredicate(
-                    currentNode,
-                    (candidate) =>
-                      resourceModel.propsEqual(candidate, node) === false,
-                  ),
-                  {
-                    onNone: () => [],
-                    onSome: (candidate) => [
-                      {
-                        action: PlanAction.Update({
-                          current: candidate,
-                          node,
-                        }),
-                        index,
-                        key: keyString(node.key),
-                      },
-                    ],
-                  },
+      states: ReadonlyArray<ResourceState>,
+    ): ReadonlyArray<SelectedAction> => {
+      const currentByKey = currentResourcesByKey(current);
+      const ordered = Arr.fromIterable(Graph.topo(desired));
+      const selected = Arr.reduce(
+        ordered,
+        HashMap.empty<Graph.NodeIndex, SelectedAction>(),
+        (selected, [index, node]) => {
+          const sourceChanged = Arr.some(
+            Graph.incomingEdges(desired, index),
+            (edge) =>
+              Graph.getEdge(desired, edge).pipe(
+                Option.exists((edge) =>
+                  Predicate.and(
+                    Predicate.Struct({
+                      kind: Predicate.or(
+                        Equal.equals("property"),
+                        Equal.equals("relationship"),
+                      ),
+                    }),
+                    () => HashMap.has(selected, edge.source),
+                  )(edge.data),
                 ),
-            }),
-        ),
+              ),
+          );
+          return Option.match(HashMap.get(currentByKey, node.key.logicalId), {
+            onNone: () =>
+              HashMap.set(selected, index, {
+                action: PlanAction.Create({ node }),
+                index,
+                key: node.key.logicalId,
+              }),
+            onSome: (currentNode) =>
+              Option.match(
+                Option.liftPredicate(
+                  currentNode,
+                  Predicate.or(
+                    Predicate.not((candidate: ResourceNode) =>
+                      resourceModel.propsEqual(candidate, node),
+                    ),
+                    () => sourceChanged,
+                  ),
+                ),
+                {
+                  onNone: () => selected,
+                  onSome: (candidate) => {
+                    const instance = Option.match(
+                      Option.fromUndefinedOr(candidate.generation),
+                      {
+                        onNone: () => ({}),
+                        onSome: (generation) => ({ generation }),
+                      },
+                    );
+                    const desired: ResourceNode = { ...node, ...instance };
+                    const pending = Arr.findFirst(
+                      states,
+                      Predicate.and(
+                        (state: ResourceState) =>
+                          state.node.key.logicalId === node.key.logicalId,
+                        (state) =>
+                          resourceGeneration(state.node) >
+                          resourceGeneration(candidate),
+                      ),
+                    );
+                    const action = Match.value(
+                      Predicate.or(
+                        () => Option.isSome(pending),
+                        (desired: ResourceNode) =>
+                          requiresReplacement(desired, candidate),
+                      )(node),
+                    ).pipe(
+                      Match.when(true, () =>
+                        replacementAction(node, candidate, states, pending),
+                      ),
+                      Match.orElse(() =>
+                        PlanAction.Update({
+                          current: candidate,
+                          node: desired,
+                        }),
+                      ),
+                    );
+
+                    return HashMap.set(selected, index, {
+                      action,
+                      index,
+                      key: node.key.logicalId,
+                    });
+                  },
+                },
+              ),
+          });
+        },
       );
+      const actions: ReadonlyArray<SelectedAction> = Arr.flatMap(
+        ordered,
+        ([index]) => HashMap.get(selected, index).pipe(Option.toArray),
+      );
+      return actions;
+    };
 
     /**
-     * createOrUpdateBatches returns creation and update actions ordered so a
-     * resource's changed prerequisites complete before its own operation.
-     * Resources requiring no mutation contribute no action to the batches.
+     * The createOrUpdateBatches service method keeps resources that consume
+     * changed source outputs scheduled after those sources. Execution can
+     * resolve their requests at that point and preserve an existing instance
+     * when the resolved values are unchanged. Saved lifecycle records remove
+     * completed operations from replacement plans.
      */
     const createOrUpdateBatches = (
       desired: ResourceDependencyGraph,
       current: ReadonlyArray<ResourceNode>,
+      states: ReadonlyArray<ResourceState> = [],
     ) => {
       const batches: ResourcePlan["createOrUpdate"] = batchesFor(
         desired,
-        selectCreateOrUpdateActions(desired, current),
+        selectCreateOrUpdateActions(desired, current, states),
         "forward",
       );
 
@@ -313,8 +479,9 @@ export class ResourcePlanner extends Context.Service<
      */
     const desiredResourceKeys = (graph: ResourceDependencyGraph) =>
       HashSet.fromIterable(
-        Arr.map(Arr.fromIterable(Graph.topo(graph)), ([, node]) =>
-          keyString(node.key),
+        Arr.map(
+          Arr.fromIterable(Graph.topo(graph)),
+          ([, node]) => node.key.logicalId,
         ),
       );
 
@@ -332,7 +499,7 @@ export class ResourcePlanner extends Context.Service<
           Arr.map(
             Arr.filter(
               current,
-              (node) => HashSet.has(desiredKeys, keyString(node.key)) === false,
+              (node) => HashSet.has(desiredKeys, node.key.logicalId) === false,
             ),
             (node) => [PlanAction.Delete({ node })],
           ),
@@ -343,14 +510,14 @@ export class ResourcePlanner extends Context.Service<
 
     /**
      * resourceIndexes associates stable resource keys with locations in this
-     * graph. Requested teardown roots can then identify graph nodes without
-     * treating an index from another snapshot as the same resource.
+     * graph. Requested teardown roots can then identify graph nodes. An index
+     * from another snapshot does not identify the same resource.
      */
     const resourceIndexes = (graph: ResourceDependencyGraph) =>
       HashMap.fromIterable(
         Arr.map(
           Arr.fromIterable(Graph.nodes(graph)),
-          ([index, node]) => [keyString(node.key), index] as const,
+          ([index, node]) => [node.key.logicalId, index] as const,
         ),
       );
     /**
@@ -364,7 +531,7 @@ export class ResourcePlanner extends Context.Service<
     ) =>
       resourceIndexes(desired).pipe((indexByKey) =>
         Arr.reduce(destroyRoots, HashSet.empty<string>(), (selected, root) =>
-          Option.match(HashMap.get(indexByKey, keyString(root)), {
+          Option.match(HashMap.get(indexByKey, root.logicalId), {
             onNone: () => selected,
             onSome: (index) =>
               collectDestroyDependents(desired, [index], selected),
@@ -374,7 +541,7 @@ export class ResourcePlanner extends Context.Service<
 
     /**
      * destroyBatches returns teardown actions for the selected roots and their
-     * dependents in reverse dependency order. Resources still using a source
+     * dependents in reverse dependency order. Resources that still use a source
      * are removed before that source can be destroyed.
      */
     const destroyBatches = (
@@ -396,17 +563,19 @@ export class ResourcePlanner extends Context.Service<
     };
 
     /**
-     * planFromGraph combines desired changes, deletions, and explicitly
-     * requested teardown into one plan. The plan retains separate action
-     * groups so apply and destroy can execute their assigned operations.
+     * The planFromGraph service method requires current resources and saved
+     * lifecycle records to describe the same stack snapshot. Its separate
+     * apply and teardown groups let callers review only the work their command
+     * will execute, including the remaining operations of a replacement.
      */
     const planFromGraph = (
       desired: ResourceDependencyGraph,
       current: ReadonlyArray<ResourceNode>,
       destroyRoots: ReadonlyArray<ResourceKey> = [],
+      states: ReadonlyArray<ResourceState> = [],
     ) => {
       const plan: ResourcePlan = {
-        createOrUpdate: createOrUpdateBatches(desired, current),
+        createOrUpdate: createOrUpdateBatches(desired, current, states),
         delete: deleteBatches(desired, current),
         destroy: destroyBatches(desired, destroyRoots),
       };

@@ -6,9 +6,9 @@ import {
   Layer,
   Match,
   Option,
+  String as Str,
 } from "effect";
 import {
-  keyString,
   type PlanAction,
   ResourceModel,
   type ResourceNode,
@@ -22,9 +22,10 @@ import type {
 } from "./resourceStackLifecycle.js";
 
 /**
- * StackWorkflowRenderer presents lifecycle plans and results to operators.
- * Resource labels and available provider identifiers come from lifecycle nodes
- * so displayed actions refer to the same resources execution manages.
+ * The StackWorkflowRenderer service uses the lifecycle plan and applied nodes
+ * as the authority for displayed operations and provider identities. Replacement
+ * order remains visible during review, and completion summaries identify the
+ * applied successor so operators can follow changes to provider ownership.
  */
 export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer>()(
   "nomoss/core/stack/stackWorkflowRenderer",
@@ -44,9 +45,10 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
       };
 
       /**
-       * renderPlan displays the selected resource actions in the lifecycle
-       * plan's group order. An empty action set is reported as no changes for
-       * the named stack.
+       * The renderPlan service method includes replacement operation order so
+       * an operator can review changes that will replace provider identities.
+       * It retains the plan's action group order and reports an empty plan as
+       * no changes for the named stack.
        */
       const renderPlan = Effect.fn("StackWorkflowRenderer.renderPlan")(
         function* (input: {
@@ -70,6 +72,13 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
                     `\u001b[32m[+] ${model.resourceLabel(node)}\u001b[0m`,
                   Update: ({ node }) =>
                     `\u001b[33m[~] ${model.resourceLabel(node)}\u001b[0m`,
+                  Replace: ({ node, operations }) =>
+                    `\u001b[33m[+-] ${model.resourceLabel(node)} replace (${Arr.join(
+                      Arr.map(operations, (operation) =>
+                        Str.toLowerCase(operation._tag),
+                      ),
+                      " then ",
+                    )})\u001b[0m`,
                   Delete: ({ node }) =>
                     `\u001b[31m[-] ${model.resourceLabel(node)}\u001b[0m`,
                   Destroy: ({ node }) =>
@@ -89,9 +98,9 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
       );
 
       /**
-       * renderActionStart labels each planned operation before execution.
-       * These static start lines identify intended actions; they are not live
-       * observations of provider acceptance or resource progress.
+       * The renderActionStart service method receives the plan's actions before
+       * provider observations are available. Its static status lines identify
+       * intended work and remain unchanged throughout provider execution.
        */
       const renderActionStart = Effect.fn(
         "StackWorkflowRenderer.renderActionStart",
@@ -105,6 +114,7 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
               Match.tagsExhaustive({
                 Create: () => "creating",
                 Update: () => "updating",
+                Replace: () => "replacing",
                 Delete: () => "deleting",
                 Destroy: () => "destroying",
               }),
@@ -119,15 +129,16 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
       });
 
       /**
-       * renderApplyResult reports every applied action, including deletion when
-       * the final resource collection no longer contains that node. The planned
-       * node retains its identifier for the deletion summary.
+       * The renderApplyResult service method uses final applied identities for
+       * creation, update, and replacement summaries. A removed resource uses
+       * the identity retained by its plan because the final resource collection
+       * has released ownership of that object.
        */
       const renderApplyResult = Effect.fn(
         "StackWorkflowRenderer.renderApplyResult",
       )(function* (result: ResourceApplyResult) {
         const resourcesByKey = new Map(
-          Arr.map(result.resources, (node) => [keyString(node.key), node]),
+          Arr.map(result.resources, (node) => [node.key.logicalId, node]),
         );
 
         const actions = Arr.flatten(
@@ -141,7 +152,7 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
           actions,
           (action) => {
             const identifier = Option.fromUndefinedOr(
-              resourcesByKey.get(keyString(action.node.key)),
+              resourcesByKey.get(action.node.key.logicalId),
             ).pipe(
               Option.getOrElse(() => action.node),
               renderResourceIdentifier,
@@ -157,6 +168,11 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
                 "Update",
                 ({ node }) =>
                   `\u001b[33m[~] ${model.resourceLabel(node)} updated ${identifier}\u001b[0m`,
+              ),
+              Match.tag(
+                "Replace",
+                ({ node }) =>
+                  `\u001b[33m[+-] ${model.resourceLabel(node)} replaced ${identifier}\u001b[0m`,
               ),
               Match.tag(
                 "Delete",
@@ -180,15 +196,15 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
       });
 
       /**
-       * renderDestroyResult identifies resources removed by the teardown plan
-       * using the provider nodes retained in its result. An empty teardown
+       * The renderDestroyResult service method identifies resources removed by the teardown plan
+       * through the provider nodes retained in its result. An empty teardown
        * reports no changes for the stack.
        */
       const renderDestroyResult = Effect.fn(
         "StackWorkflowRenderer.renderDestroyResult",
       )(function* (result: ResourceDestroyResult) {
         const resourcesByKey = new Map(
-          Arr.map(result.resources, (node) => [keyString(node.key), node]),
+          Arr.map(result.resources, (node) => [node.key.logicalId, node]),
         );
 
         const actions = Arr.flatten(result.plan.destroy);
@@ -200,7 +216,7 @@ export class StackWorkflowRenderer extends Context.Service<StackWorkflowRenderer
           actions,
           (action) => {
             const identifier = Option.fromUndefinedOr(
-              resourcesByKey.get(keyString(action.node.key)),
+              resourcesByKey.get(action.node.key.logicalId),
             ).pipe(
               Option.map(renderResourceIdentifier),
               Option.getOrElse(() => ""),

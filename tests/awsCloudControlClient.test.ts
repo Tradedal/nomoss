@@ -1,9 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Match, Schema } from "effect";
-import * as HttpClient from "effect/http/HttpClient";
-import * as HttpClientRequest from "effect/http/HttpClientRequest";
-import * as HttpClientResponse from "effect/http/HttpClientResponse";
-import * as HttpApiClient from "effect/http-api/HttpApiClient";
+import { Array as Arr, Effect, Match, Schema } from "effect";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
+import { HttpApiClient } from "effect/http-api";
 import {
   CreateResourceInput,
   cloudControlApi,
@@ -14,7 +12,7 @@ import {
 } from "../src/providers/aws/client/generated/cloudControl.js";
 
 describe("generated Cloud Control contracts", () => {
-  it("preserves required properties, constraints, and JSON resource documents", () => {
+  it("Resource creation rejects invalid Cloud Control inputs", () => {
     assert.isTrue(
       Schema.is(CreateResourceInput)({
         TypeName: "AWS::SQS::Queue",
@@ -43,7 +41,7 @@ describe("generated Cloud Control contracts", () => {
     );
   });
 
-  it("decodes RPC timestamps as epoch seconds and validates status values", () => {
+  it("Cloud Control progress uses valid statuses and numeric timestamps", () => {
     assert.deepStrictEqual(
       Schema.decodeUnknownSync(GetResourceRequestStatusOutput)({
         ProgressEvent: {
@@ -72,7 +70,7 @@ describe("generated Cloud Control contracts", () => {
     );
   });
 
-  it("retains modeled errors, signing, idempotency, and pagination metadata", () => {
+  it("The Cloud Control catalog includes the AWS execution metadata", () => {
     assert.strictEqual(cloudControlService.signingName, "cloudcontrolapi");
     assert.deepStrictEqual(
       cloudControlOperations.CreateResource.idempotencyTokens,
@@ -94,7 +92,8 @@ describe("generated Cloud Control contracts", () => {
       502,
     );
     assert.deepStrictEqual(
-      cloudControlOperations.GetResourceRequestStatus.errors.map(
+      Arr.map(
+        cloudControlOperations.GetResourceRequestStatus.errors,
         (error) => error.name,
       ),
       ["RequestTokenNotFoundException"],
@@ -170,7 +169,7 @@ const scenarios: ReadonlyArray<{
 
 describe("generated Cloud Control HTTP operations", () => {
   it.effect.each(scenarios)(
-    "encodes and decodes $name through POST /",
+    "$name accepts the generated input and returns the decoded response",
     (scenario) =>
       Effect.gen(function* () {
         const transport = HttpClient.make(
@@ -202,6 +201,7 @@ describe("generated Cloud Control HTTP operations", () => {
               ),
               scenario.payload,
             );
+
             const response: HttpClientResponse.HttpClientResponse =
               HttpClientResponse.fromWeb(
                 request,
@@ -215,9 +215,11 @@ describe("generated Cloud Control HTTP operations", () => {
                   },
                 ),
               );
+
             return response;
           }),
         );
+
         const execute = yield* HttpApiClient.endpoint(cloudControlApi, {
           group: "cloudcontrol",
           endpoint: scenario.name,

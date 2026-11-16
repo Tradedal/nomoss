@@ -9,18 +9,19 @@ import {
   Option,
   Record,
   Schema,
+  String as Str,
   Stream,
 } from "effect";
 
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
-import type { ResourceNode } from "../resource/model.js";
+import { type ResourceNode, resourceGeneration } from "../resource/model.js";
 import { type ResourceState, ResourceStateSchema } from "./resourceState.js";
 
 /**
- * StateSecretReference identifies a Keychain value in a saved resource record.
- * Lifecycle callers receive the restored value in memory, allowing later
- * provider updates without storing the raw secret in the state document.
+ * The StateSecretReference schema lets saved resource records refer to
+ * Keychain values without raw secrets in the state document. Lifecycle callers
+ * receive the restored value in memory for later provider updates.
  */
 export const StateSecretReferenceSchema = Schema.TaggedStruct(
   "NomossStateSecretRef",
@@ -46,10 +47,11 @@ enum MacOSKeychainServiceName {
 }
 
 /**
- * StateSecretService preserves annotated resource outputs across state writes
- * and reads. Stripe webhook updates depend on the signing secret returned only
- * at creation. The Keychain implementation keeps that value externally and
- * restores it for later use through the reference saved in resource state.
+ * The StateSecretService service requires protected creation-time outputs to
+ * remain usable across later resource operations. A configured external store
+ * replaces those values with saved references. Restoration must supply the
+ * referenced values before provider work can proceed, including when a read
+ * omits a webhook's signing secret.
  */
 export class StateSecretService extends Context.Service<StateSecretService>()(
   "nomoss/core/state/stateSecretService",
@@ -58,6 +60,12 @@ export class StateSecretService extends Context.Service<StateSecretService>()(
       const childProcessSpawner =
         yield* ChildProcessSpawner.ChildProcessSpawner;
 
+      /**
+       * The persistStateSecrets service method completes required secret writes
+       * before returning records for state persistence. Those records preserve
+       * lifecycle progress and use references for externally stored outputs.
+       * A failure requires the caller to retain its previous state document.
+       */
       const persistStateSecrets = Effect.fn(
         "StateSecretService.persistStateSecrets",
       )(function* (
@@ -78,6 +86,12 @@ export class StateSecretService extends Context.Service<StateSecretService>()(
         return persisted;
       });
 
+      /**
+       * The restoreStateSecrets service method requires every external secret
+       * reference in the supplied records to be readable. Its successful result
+       * preserves lifecycle status and supplies values needed for later provider
+       * operations.
+       */
       const restoreStateSecrets = Effect.fn(
         "StateSecretService.restoreStateSecrets",
       )(function* (resourceStates: ReadonlyArray<ResourceState>) {
@@ -102,8 +116,8 @@ export class StateSecretService extends Context.Service<StateSecretService>()(
 
 /**
  * StateSecretServiceError identifies the secret and storage operation that
- * failed. State loading or saving fails with it so a provider update cannot
- * silently proceed after losing a required secret.
+ * failed. A state read or write fails with it so a provider update cannot
+ * silently proceed after a required secret is lost.
  */
 export class StateSecretServiceError extends Data.TaggedError(
   "StateSecretServiceError",
@@ -113,16 +127,31 @@ export class StateSecretServiceError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
+/**
+ * The stateSecretReferenceFor helper assigns separate Keychain entries to
+ * provider generations so unfinished operations retain each instance's secret.
+ * Generation zero preserves the entry names used by existing saved resources,
+ * including records without a generation.
+ */
 const stateSecretReferenceFor = (
   stack: string,
   node: ResourceNode,
   outputKey: string,
-): StateSecretReference =>
-  StateSecretReferenceSchema.make({
+): StateSecretReference => {
+  const key = Match.value(resourceGeneration(node)).pipe(
+    Match.when(0, () => `${stack}/${node.key.logicalId}/${outputKey}`),
+    Match.orElse(
+      (generation) =>
+        `${stack}/${node.key.logicalId}/instances/${generation}/${outputKey}`,
+    ),
+  );
+
+  return StateSecretReferenceSchema.make({
     _tag: "NomossStateSecretRef",
-    key: `${stack}/${node.key.logicalId}/${outputKey}`,
+    key,
     store: "macos-keychain",
   });
+};
 
 /**
  * executeSecurity runs a Keychain command in the caller's process scope.
@@ -226,7 +255,7 @@ const readMacOSKeychainSecret = Effect.fn(
     "read",
   ).pipe(Effect.scoped);
 
-  return secret.replace(/\n$/, "");
+  return Str.replace(/\n$/, "")(secret);
 });
 
 /**
@@ -413,136 +442,65 @@ const restoreResourceNodeSecrets = Effect.fn(
 });
 
 /**
- * persistResourceStateSecrets prepares resource values for storage without
- * changing their lifecycle phase.
- * Updating records contain desired and previous nodes, both of which may carry
- * a secret that must survive an interrupted update.
+ * The persistResourceStateSecrets helper preserves the instance generation and
+ * lifecycle status while preparing protected outputs for storage. An unfinished
+ * update also preserves its previous node so recovery can still use the last
+ * applied provider values.
  */
 const persistResourceStateSecrets = (
   stack: string,
   resourceState: ResourceState,
 ) =>
   Match.value(resourceState).pipe(
-    Match.when({ _tag: "Updating" }, (updating) =>
+    Match.tag("Updating", (updating) =>
       Effect.zipWith(
         persistResourceNodeSecrets(stack, updating.node),
         persistResourceNodeSecrets(stack, updating.previous),
         (node, previous) =>
           ResourceStateSchema.make({
-            _tag: "Updating",
-            startedAt: updating.startedAt,
-            lastFailure: updating.lastFailure,
+            ...updating,
             node,
             previous,
           }),
       ),
     ),
-    Match.when({ _tag: "Creating" }, (creating) =>
-      Effect.map(persistResourceNodeSecrets(stack, creating.node), (node) =>
-        ResourceStateSchema.make({
-          _tag: "Creating",
-          startedAt: creating.startedAt,
-          lastFailure: creating.lastFailure,
-          node,
-        }),
+    Match.orElse((state) =>
+      Effect.map(persistResourceNodeSecrets(stack, state.node), (node) =>
+        ResourceStateSchema.make({ ...state, node }),
       ),
     ),
-    Match.when({ _tag: "Created" }, (created) =>
-      Effect.map(persistResourceNodeSecrets(stack, created.node), (node) =>
-        ResourceStateSchema.make({
-          _tag: "Created",
-          completedAt: created.completedAt,
-          node,
-        }),
-      ),
-    ),
-    Match.when({ _tag: "Updated" }, (updated) =>
-      Effect.map(persistResourceNodeSecrets(stack, updated.node), (node) =>
-        ResourceStateSchema.make({
-          _tag: "Updated",
-          completedAt: updated.completedAt,
-          node,
-        }),
-      ),
-    ),
-    Match.when({ _tag: "Deleting" }, (deleting) =>
-      Effect.map(persistResourceNodeSecrets(stack, deleting.node), (node) =>
-        ResourceStateSchema.make({
-          _tag: "Deleting",
-          startedAt: deleting.startedAt,
-          lastFailure: deleting.lastFailure,
-          node,
-        }),
-      ),
-    ),
-    Match.exhaustive,
   );
 
 /**
- * restoreResourceStateSecrets restores secrets without changing saved status,
- * timestamps, or failure. Both nodes of an unfinished update must be usable by
- * consumers comparing requested values with the previous provider state.
+ * The restoreResourceStateSecrets helper requires every referenced secret to
+ * be readable before the saved operation becomes usable. An unfinished update
+ * restores both nodes so callers can compare the requested configuration with
+ * the last applied provider values.
  */
 const restoreResourceStateSecrets = (resourceState: ResourceState) =>
   Match.value(resourceState).pipe(
-    Match.when({ _tag: "Updating" }, (updating) =>
+    Match.tag("Updating", (updating) =>
       Effect.zipWith(
         restoreResourceNodeSecrets(updating.node),
         restoreResourceNodeSecrets(updating.previous),
         (node, previous) =>
           ResourceStateSchema.make({
-            _tag: "Updating",
-            startedAt: updating.startedAt,
-            lastFailure: updating.lastFailure,
+            ...updating,
             node,
             previous,
           }),
       ),
     ),
-    Match.when({ _tag: "Creating" }, (creating) =>
-      Effect.map(restoreResourceNodeSecrets(creating.node), (node) =>
-        ResourceStateSchema.make({
-          _tag: "Creating",
-          startedAt: creating.startedAt,
-          lastFailure: creating.lastFailure,
-          node,
-        }),
+    Match.orElse((state) =>
+      Effect.map(restoreResourceNodeSecrets(state.node), (node) =>
+        ResourceStateSchema.make({ ...state, node }),
       ),
     ),
-    Match.when({ _tag: "Created" }, (created) =>
-      Effect.map(restoreResourceNodeSecrets(created.node), (node) =>
-        ResourceStateSchema.make({
-          _tag: "Created",
-          completedAt: created.completedAt,
-          node,
-        }),
-      ),
-    ),
-    Match.when({ _tag: "Updated" }, (updated) =>
-      Effect.map(restoreResourceNodeSecrets(updated.node), (node) =>
-        ResourceStateSchema.make({
-          _tag: "Updated",
-          completedAt: updated.completedAt,
-          node,
-        }),
-      ),
-    ),
-    Match.when({ _tag: "Deleting" }, (deleting) =>
-      Effect.map(restoreResourceNodeSecrets(deleting.node), (node) =>
-        ResourceStateSchema.make({
-          _tag: "Deleting",
-          startedAt: deleting.startedAt,
-          lastFailure: deleting.lastFailure,
-          node,
-        }),
-      ),
-    ),
-    Match.exhaustive,
   );
 
 /**
  * StateSecretServiceDefaultLayer retains secret outputs in local resource
- * state. Applications selecting external secret storage use the configured
+ * state. Applications that select external secret storage use the configured
  * Layer to replace this behavior.
  */
 export const StateSecretServiceDefaultLayer = Layer.succeed(

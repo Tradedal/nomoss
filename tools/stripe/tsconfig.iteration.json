@@ -1,0 +1,7 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "../../.nomoss/stripe-iteration.tsbuildinfo"
+  },
+  "include": ["../../src/providers/stripe/client/generated/**/*.ts"]
+}

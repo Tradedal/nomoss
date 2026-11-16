@@ -4,7 +4,7 @@ import type { ResourceNode } from "./model.js";
 
 /**
  * PlanRepairChange describes provider drift in a form that presentation can
- * report without interpreting provider-specific action strings.
+ * report directly. Presentation does not need to interpret provider-specific action strings.
  */
 export type PlanRepairChange = Data.TaggedEnum<{
   Added: {
@@ -113,9 +113,9 @@ export type ResourceCommand = Data.TaggedEnum<{
 export const ResourceCommand = Data.taggedEnum<ResourceCommand>();
 
 /**
- * ResourceCommandResult preserves the distinction between observing or
- * selecting an action and actually completing a mutation. Lifecycle callers
- * use completed nodes for saved state and downstream output resolution.
+ * The ResourceCommandResult type distinguishes observations and planned actions
+ * from completed mutations. Lifecycle callers use completed nodes for saved
+ * state and downstream output resolution.
  */
 export type ResourceCommandResult = Data.TaggedEnum<{
   Observed: {
