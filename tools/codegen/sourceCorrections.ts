@@ -13,6 +13,14 @@ import {
 } from "effect";
 import { SourceCorrection } from "./correctionSchemas.js";
 
+const decodeArray = Schema.decodeUnknownEffect(Schema.Array(Schema.Json));
+const decodeObject = Schema.decodeUnknownEffect(Schema.JsonObject);
+
+const readProperty = <A>(
+  document: Effect.Effect<A, Schema.SchemaError>,
+  get: (document: A) => Option.Option<Schema.Json>,
+) => document.pipe(Effect.map(get), Effect.flatMap(Effect.fromOption));
+
 /**
  * The SourceCorrectionError class identifies the rejected correction and its
  * path and expected value when a target is missing, its value has changed, or
@@ -47,9 +55,7 @@ export class SourceCorrections extends Context.Service<SourceCorrections>()(
        */
       const applyCorrection = Effect.fn("SourceCorrections.applyCorrection")(
         function* (snapshot: unknown, input: SourceCorrection) {
-          const source = yield* Schema.decodeUnknownEffect(Schema.JsonObject)(
-            snapshot,
-          );
+          const source = yield* decodeObject(snapshot);
 
           const correction =
             yield* Schema.decodeEffect(SourceCorrection)(input);
@@ -60,20 +66,10 @@ export class SourceCorrections extends Context.Service<SourceCorrections>()(
             (value: Schema.Json, segment) =>
               Match.value(segment).pipe(
                 Match.when(Match.number, (index) =>
-                  Schema.decodeUnknownEffect(Schema.Array(Schema.Json))(
-                    value,
-                  ).pipe(
-                    Effect.flatMap((values) =>
-                      Effect.fromOption(Arr.get(values, index)),
-                    ),
-                  ),
+                  readProperty(decodeArray(value), Arr.get(index)),
                 ),
                 Match.orElse((key) =>
-                  Schema.decodeUnknownEffect(Schema.JsonObject)(value).pipe(
-                    Effect.flatMap((object) =>
-                      Effect.fromOption(Record.get(object, key)),
-                    ),
-                  ),
+                  readProperty(decodeObject(value), Record.get(key)),
                 ),
               ),
           ).pipe(
