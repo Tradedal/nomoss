@@ -1,23 +1,33 @@
 {
   "dependencies": [
     {
-      "name": "@biomejs/biome",
-      "version": "2.4.12",
+      "name": "@aws-cdk/service-spec-importers",
+      "version": "0.0.145",
       "type": "build"
     },
     {
-      "name": "@catenarycloud/linteffect",
-      "version": "0.0.7-dev.2",
+      "name": "@aws-cdk/service-spec-types",
+      "version": "0.0.289",
+      "type": "build"
+    },
+    {
+      "name": "@biomejs/biome",
+      "version": "2.6.6",
       "type": "build"
     },
     {
       "name": "@effect/tsgo",
-      "version": "0.23.0",
+      "version": "0.63.0",
       "type": "build"
     },
     {
       "name": "@effect/vitest",
-      "version": "4.0.0-beta.93",
+      "version": "4.1.4",
+      "type": "build"
+    },
+    {
+      "name": "@tradedal/linteffect",
+      "version": "0.1.1-dev.3",
       "type": "build"
     },
     {
@@ -40,6 +50,16 @@
       "type": "build"
     },
     {
+      "name": "ts-morph",
+      "version": "27.0.2",
+      "type": "build"
+    },
+    {
+      "name": "typescript-ast",
+      "version": "npm:typescript@6.0.2",
+      "type": "build"
+    },
+    {
       "name": "typescript",
       "version": "7.0.2",
       "type": "build"
@@ -51,32 +71,72 @@
     },
     {
       "name": "vitest",
-      "version": "^4.1.4",
+      "version": "^5.0.5",
       "type": "build"
     },
     {
-      "name": "@distilled.cloud/aws",
-      "version": "^0.27.0",
+      "name": "@aws-crypto/sha256-js",
+      "version": "^5.2.0",
       "type": "runtime"
     },
     {
-      "name": "@distilled.cloud/stripe",
-      "version": "^0.27.0",
+      "name": "@aws-sdk/core",
+      "version": "^3.979.1",
+      "type": "runtime"
+    },
+    {
+      "name": "@aws-sdk/credential-provider-node",
+      "version": "^3.972.92",
       "type": "runtime"
     },
     {
       "name": "@effect/platform-node",
-      "version": "4.0.0-beta.93",
+      "version": "4.1.4",
+      "type": "runtime"
+    },
+    {
+      "name": "@smithy/core",
+      "version": "^3.38.1",
+      "type": "runtime"
+    },
+    {
+      "name": "@smithy/signature-v4",
+      "version": "^5.7.5",
+      "type": "runtime"
+    },
+    {
+      "name": "@smithy/types",
+      "version": "^4.19.0",
       "type": "runtime"
     },
     {
       "name": "effect",
-      "version": "4.0.0-beta.93",
+      "version": "4.1.4",
+      "type": "runtime"
+    },
+    {
+      "name": "esbuild",
+      "version": "^0.27.0",
+      "type": "runtime"
+    },
+    {
+      "name": "fflate",
+      "version": "^0.8.3",
+      "type": "runtime"
+    },
+    {
+      "name": "redis",
+      "version": "^6.3.1",
       "type": "runtime"
     },
     {
       "name": "tsx",
       "version": "^4.20.6",
+      "type": "runtime"
+    },
+    {
+      "name": "yaml",
+      "version": "^2.6.0",
       "type": "runtime"
     }
   ],

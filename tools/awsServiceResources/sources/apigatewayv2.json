@@ -1,0 +1,32 @@
+{
+  "smithy": {
+    "specification": "refs/aws-api-models/models/apigatewayv2/service/2018-11-29/apigatewayv2-2018-11-29.json",
+    "revision": "1b9ff13fe6c28ea9774a527e53cda6a3b91369dc",
+    "sha256": "423a8e8562ca06a12ee6c90f8d0b39ae05e184354de4d83c74d8118d9179fcc4",
+    "serviceId": "com.amazonaws.apigatewayv2#ApiGatewayV2",
+    "operations": [
+      "CreateApi",
+      "GetApi",
+      "UpdateApi",
+      "DeleteApi",
+      "CreateIntegration",
+      "GetIntegration",
+      "UpdateIntegration",
+      "DeleteIntegration",
+      "CreateRoute",
+      "GetRoute",
+      "UpdateRoute",
+      "DeleteRoute",
+      "CreateStage",
+      "GetStage",
+      "UpdateStage",
+      "DeleteStage"
+    ]
+  },
+  "cloudFormation": {
+    "region": "us-east-1",
+    "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-apigatewayv2-api.json",
+    "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+    "sha256": "37a4a489f3072cbf7fdb4913440a3b5887816604c0b877e6c150184e5cbca55f"
+  }
+}

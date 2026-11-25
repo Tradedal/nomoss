@@ -1,186 +1,223 @@
-import { Effect, Logger, Match, Schema } from "effect";
+import { Effect, Layer } from "effect";
+import { Argument, Command, Flag } from "effect/cli";
 
-import { Argument, Command, Flag } from "effect/unstable/cli";
-
+import { resourceStackRuntimeLayer } from "./core/runtime/stackRuntimeLayer.js";
 import {
-  UploadEventsStackNameSchema,
-  uploadEventsStack,
-} from "../examples/upload-events/stack.js";
+  ResourceStackDeclarationFailed,
+  ResourceStackDefinition,
+  ResourceStackName,
+} from "./core/stack/resourceStackDefinition.js";
 import {
-  applyLiveStack,
-  destroyStack,
-  listStackResources,
-  printGraph,
-  printLiveDiff,
-  printPlan,
-  type ResourceOutputFormat,
-  showStackResource,
-} from "./providers/aws/stackWorkflow.js";
+  type ResourceApplicationPreparation,
+  ResourceStackOperations,
+  resourceStackOperationsLayer,
+} from "./core/stack/resourceStackOperations.js";
 
-const defaultStackName = uploadEventsStack.name;
-
-const stackFlag = Flag.string("stack").pipe(
-  Flag.withDescription("Stack name"),
-  Flag.withDefault(defaultStackName),
-);
-
-const profileFlag = Flag.string("profile").pipe(
-  Flag.withDescription("AWS SSO profile used by the provider layer"),
-);
-
-const resourceFormatFlag = Flag.choice("format", [
-  "text",
-  "json",
-  "logfmt",
-  "logger-json",
-  "structured",
-] as const).pipe(
-  Flag.withDescription("Resource output format"),
-  Flag.withDefault("text" as ResourceOutputFormat),
-);
-
-const logicalIdArgument = Argument.string("logical-id");
-
-const decodeStackName = (value: string) =>
-  Schema.decodeUnknownEffect(UploadEventsStackNameSchema)(value);
-
-const resourceLoggerLayer = (format: ResourceOutputFormat) =>
-  Logger.layer([
-    Match.value(format).pipe(
-      Match.when("logfmt", () => Logger.consoleLogFmt),
-      Match.when("logger-json", () => Logger.consoleJson),
-      Match.when("structured", () => Logger.consoleStructured),
-      Match.orElse(() => Logger.consolePretty({ colors: false })),
-    ),
-  ]);
-
-const nomoss = Command.make("nomoss").pipe(
-  Command.withDescription("Effect-native infrastructure graph prototype"),
-);
-
-export const nomossCliCommand = Command.withSubcommands(nomoss, [
-  Command.withDescription(
-    Command.make("graph", { stack: stackFlag }, (flags) =>
-      Effect.gen(function* () {
-        const stackName = yield* decodeStackName(flags.stack);
-
-        yield* printGraph(stackName);
-      }),
-    ),
-    "Print the discovered resource graph as Mermaid",
+const propertyDiffFlags = {
+  detailed: Flag.Boolean("detailed").pipe(
+    Flag.withDescription("Show saved and desired property values"),
+    Flag.withDefault(false),
   ),
-  Command.make("plan", { stack: stackFlag }, (flags) =>
-    Effect.gen(function* () {
-      const stackName = yield* decodeStackName(flags.stack);
+};
 
-      yield* printPlan(stackName);
-    }),
-  ).pipe(Command.withDescription("Print create batches for a stack")),
-  Command.make(
-    "list",
-    { stack: stackFlag, format: resourceFormatFlag },
-    (flags) =>
-      Effect.gen(function* () {
-        const stackName = yield* decodeStackName(flags.stack);
-        const output = listStackResources({
-          stackName,
-          format: flags.format,
-        });
+type PropertyDiffFlags = Command.Command.Config.Infer<typeof propertyDiffFlags>;
 
-        yield* Match.value(flags.format).pipe(
-          Match.when("logfmt", () =>
-            Effect.provide(output, resourceLoggerLayer(flags.format)),
-          ),
-          Match.when("logger-json", () =>
-            Effect.provide(output, resourceLoggerLayer(flags.format)),
-          ),
-          Match.when("structured", () =>
-            Effect.provide(output, resourceLoggerLayer(flags.format)),
-          ),
-          Match.orElse(() => output),
-        );
-      }),
-  ).pipe(Command.withDescription("List stack resources")),
-  Command.make(
-    "show",
-    {
-      stack: stackFlag,
-      format: resourceFormatFlag,
-      logicalId: logicalIdArgument,
-    },
-    (flags) =>
-      Effect.gen(function* () {
-        const stackName = yield* decodeStackName(flags.stack);
-        const output = showStackResource({
-          stackName,
-          logicalId: flags.logicalId,
-          format: flags.format,
-        });
+const renderDiff = Effect.fn("NomossCli.diff")(function* ({
+  detailed,
+}: PropertyDiffFlags) {
+  const operations = yield* ResourceStackOperations;
+  const prepared = yield* ResourceStackDefinition;
 
-        yield* Match.value(flags.format).pipe(
-          Match.when("logfmt", () =>
-            Effect.provide(output, resourceLoggerLayer(flags.format)),
-          ),
-          Match.when("logger-json", () =>
-            Effect.provide(output, resourceLoggerLayer(flags.format)),
-          ),
-          Match.when("structured", () =>
-            Effect.provide(output, resourceLoggerLayer(flags.format)),
-          ),
-          Match.orElse(() => output),
-        );
-      }),
-  ).pipe(Command.withDescription("Show one stack resource")),
-  Command.make("diff", { profile: profileFlag, stack: stackFlag }, (flags) =>
-    Effect.gen(function* () {
-      const stackName = yield* decodeStackName(flags.stack);
+  yield* operations.renderDiff(prepared, detailed);
+});
 
-      yield* printLiveDiff({
-        profile: flags.profile,
-        stackName,
-      });
-    }),
-  ).pipe(Command.withDescription("Print live resource changes before apply")),
-  Command.make("apply", { profile: profileFlag, stack: stackFlag }, (flags) =>
-    Effect.gen(function* () {
-      const stackName = yield* decodeStackName(flags.stack);
+const diff = Command.make("diff", propertyDiffFlags, renderDiff).pipe(
+  Command.withDescription("Show the application stack plan"),
+);
 
-      yield* applyLiveStack({
-        profile: flags.profile,
-        stackName,
-      });
-    }),
-  ).pipe(Command.withDescription("Apply live resource changes")),
-  Command.make(
-    "destroy",
-    {
-      profile: profileFlag,
-      stack: stackFlag,
-    },
-    (flags) =>
-      Effect.gen(function* () {
-        const stackName = yield* decodeStackName(flags.stack);
+const renderDependencies = Effect.fn("NomossCli.dependencies")(function* () {
+  const operations = yield* ResourceStackOperations;
+  const prepared = yield* ResourceStackDefinition;
 
-        yield* destroyStack({
-          profile: flags.profile,
-          stackName,
-        });
-      }),
-  ).pipe(Command.withDescription("Destroy a stack")),
-  Command.make(
-    "create",
-    {
-      profile: profileFlag,
-      stack: stackFlag,
-    },
-    (flags) =>
-      Effect.gen(function* () {
-        const stackName = yield* decodeStackName(flags.stack);
+  yield* operations.renderDependencies(prepared);
+});
 
-        yield* applyLiveStack({
-          profile: flags.profile,
-          stackName,
-        });
-      }),
-  ).pipe(Command.withDescription("Create missing stack resources")),
-]);
+const dependencies = Command.make("dependencies", {}, renderDependencies).pipe(
+  Command.withDescription("Show which resources depend on each other"),
+);
+
+const renderCreate = <Output, E, R>(
+  preparation: Effect.Effect<ResourceApplicationPreparation<Output>, E, R>,
+  renderOutputs?: (outputs: Output) => Effect.Effect<void>,
+) =>
+  Effect.fn("NomossCli.create")(function* () {
+    const operations = yield* ResourceStackOperations;
+    const prepared = yield* preparation;
+    const { outputs } = yield* operations.renderCreate(prepared);
+
+    yield* renderOutputs?.(outputs) ?? Effect.void;
+  });
+
+const create = Command.make(
+  "create",
+  {},
+  renderCreate(ResourceStackDefinition),
+).pipe(Command.withDescription("Deploy a stack with no applied resources"));
+
+const renderUpdate = Effect.fn("NomossCli.update")(function* ({
+  detailed,
+}: PropertyDiffFlags) {
+  const operations = yield* ResourceStackOperations;
+  const prepared = yield* ResourceStackDefinition;
+
+  yield* operations.renderUpdate(prepared, detailed);
+});
+
+const update = Command.make("update", propertyDiffFlags, renderUpdate).pipe(
+  Command.withDescription("Apply changes to a deployed stack"),
+);
+
+const renderReconcile = Effect.fn("NomossCli.reconcile")(function* () {
+  const operations = yield* ResourceStackOperations;
+  const prepared = yield* ResourceStackDefinition;
+
+  yield* operations.renderReconcile(prepared);
+});
+
+const reconcile = Command.make("reconcile", {}, renderReconcile).pipe(
+  Command.withDescription("Refresh application stack state from its providers"),
+);
+
+const renderDelete = Effect.fn("NomossCli.delete")(function* () {
+  const operations = yield* ResourceStackOperations;
+  const prepared = yield* ResourceStackDefinition;
+
+  yield* operations.renderDestroy(prepared);
+});
+
+const deleteStack = Command.make("delete", {}, renderDelete).pipe(
+  Command.withAlias("destroy"),
+  Command.withDescription("Remove the resources managed by the stack"),
+);
+
+/**
+ * The stackLifecycleCommands tuple lists the lifecycle commands in help order.
+ * Applications that install it with Command.withSubcommands supply the stack
+ * operations and prepared declaration used by its handlers.
+ *
+ * @see ../../command-options-fund/refs/effect/packages/effect/src/cli/Command.ts (Command.withSubcommands)
+ */
+export const stackLifecycleCommands = [
+  diff,
+  dependencies,
+  create,
+  update,
+  reconcile,
+  deleteStack,
+] as const;
+
+const renderSavedResources = Effect.fn("NomossCli.state.list")(function* () {
+  const operations = yield* ResourceStackOperations;
+  const stackName = yield* ResourceStackName;
+
+  yield* operations.renderSavedResources(stackName);
+});
+
+const stateList = Command.make("list", {}, renderSavedResources).pipe(
+  Command.withDescription("List resources in saved stack state"),
+);
+
+const renderSavedResource = Effect.fn("NomossCli.state.read")(function* ({
+  logicalId,
+}: {
+  readonly logicalId: string;
+}) {
+  const operations = yield* ResourceStackOperations;
+  const stackName = yield* ResourceStackName;
+
+  yield* operations.renderSavedResource(stackName, logicalId);
+});
+
+const stateRead = Command.make(
+  "read",
+  { logicalId: Argument.String("logical-id") },
+  renderSavedResource,
+).pipe(Command.withDescription("Show a resource from saved stack state"));
+
+export const stackStateCommand = () =>
+  Command.make("state").pipe(
+    Command.withDescription("Inspect saved stack state"),
+    Command.withSubcommands([stateList, stateRead]),
+  );
+
+/**
+ * The withStackCommands function adds Nomoss operations to a command created
+ * with Command.make. Command.withSubcommands preserves the parent command's
+ * name and flags. Command.provideEffect prepares the declaration for lifecycle
+ * handlers. State inspection and deletion use the stack name and its saved
+ * records, so they can run when the declaration is incomplete.
+ * An application can supply renderCreateOutputs to present selected values
+ * after create succeeds. Command.withHandler gives create access to the
+ * typed outputs of that application's declaration.
+ *
+ * @see ../../command-options-fund/refs/effect/packages/effect/src/cli/Command.ts (Command.withSubcommands, Command.provideEffect and Command.withHandler)
+ */
+export const withStackCommands = <Output, Error, Requirements>(stack: {
+  readonly name: string;
+  readonly resources: Effect.Effect<() => Output, Error, Requirements>;
+  readonly renderCreateOutputs?: (outputs: Output) => Effect.Effect<void>;
+}) => {
+  const prepare = ResourceStackOperations.use((operations) =>
+    operations.Stack(stack.name, stack.resources).pipe(
+      Effect.catchCause((cause) =>
+        Effect.fail(
+          new ResourceStackDeclarationFailed({
+            stackName: stack.name,
+            cause,
+          }),
+        ),
+      ),
+    ),
+  );
+
+  const prepareRemoval = ResourceStackOperations.use((operations) =>
+    operations.Stack(
+      stack.name,
+      Effect.succeed(() => undefined),
+    ),
+  );
+
+  return Command.withSubcommands([
+    Command.provideEffect(diff, ResourceStackDefinition, prepare),
+    Command.provideEffect(dependencies, ResourceStackDefinition, prepare),
+    Command.withHandler(
+      create,
+      renderCreate(prepare, stack.renderCreateOutputs),
+    ),
+    Command.provideEffect(update, ResourceStackDefinition, prepare),
+    Command.provideEffect(reconcile, ResourceStackDefinition, prepare),
+    Command.provideEffect(deleteStack, ResourceStackDefinition, prepareRemoval),
+    Command.provideSync(stackStateCommand(), ResourceStackName, stack.name),
+  ]);
+};
+
+/**
+ * The nomossCliCommand command lets an application manage the stack selected
+ * by ResourceStackDefinition in its runtime. Provide ResourceStackOperations
+ * from that same runtime when configuring the command. Create deploys stacks
+ * without applied resources, and update applies changes to deployed stacks.
+ */
+export const nomossCliCommand = Command.make("nomoss").pipe(
+  Command.withDescription("Effect-native infrastructure automation"),
+  Command.withSubcommands([...stackLifecycleCommands, stackStateCommand()]),
+);
+
+/**
+ * The stackCommandRuntimeLayer supplies the shared graph and stack operations
+ * to the command tree. The application provides its provider and state services.
+ *
+ * @see ../../command-options-fund/refs/effect-website/apps/web/src/content/docs/v4/requirements-management/layers.mdx
+ */
+export const stackCommandRuntimeLayer = resourceStackOperationsLayer.pipe(
+  Layer.provideMerge(resourceStackRuntimeLayer),
+);

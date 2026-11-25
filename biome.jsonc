@@ -1,13 +1,41 @@
 {
   "$schema": "node_modules/@biomejs/biome/configuration_schema.json",
   "root": true,
-  "extends": ["@catenarycloud/linteffect"],
+  "extends": ["@tradedal/linteffect"],
   "files": {
     "ignoreUnknown": false,
-    "includes": ["examples/**/*.ts", "src/**/*.ts", "tests/**/*.ts", "vitest.config.ts", "vitest.integration.config.ts"]
+    "includes": [
+      ".projenrc.ts",
+      "examples/**/*.ts",
+      "src/**/*.ts",
+      "tests/**/*.ts",
+      "tools/**/*.ts",
+      "vitest.config.ts",
+      "vitest.integration.config.ts"
+    ]
   },
-  "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2 },
-  "javascript": { "formatter": { "quoteStyle": "double" } },
-  "linter": { "enabled": true, "rules": { "recommended": true, "style": { "useConst": "error" } } },
-  "vcs": { "clientKind": "git", "enabled": true, "useIgnoreFile": true }
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double"
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "style": {
+        "useConst": "error"
+      }
+    }
+  },
+  "vcs": {
+    "clientKind": "git",
+    "enabled": true,
+    "useIgnoreFile": true
+  }
 }

@@ -1,1049 +1,411 @@
-import { assert, describe, it } from "@effect/vitest";
-import { Array as Arr, Effect, Match } from "effect";
-
+import { NodeFileSystem, NodePath } from "@effect/platform-node";
+import { assert, it } from "@effect/vitest";
 import {
-  ResourceModel,
-  ResourceNodeSchema,
-  resourceOutputRef,
-} from "../src/core/model.js";
-import { ResourceGraphStore } from "../src/core/resourceGraphStore.js";
-import { ResourceOutputResolver } from "../src/core/resourceOutputResolver.js";
-import { ResourceStackLifecycle } from "../src/core/resourceStackLifecycle.js";
+  Array as Arr,
+  ConfigProvider,
+  Context,
+  Deferred,
+  Effect,
+  Fiber,
+  Layer,
+  Match,
+  Option,
+  Ref,
+  Terminal,
+} from "effect";
+import { TerminalCapabilities } from "effect/cli";
+import { KeyValueStore } from "effect/persistence";
+import { TestClock, TestConsole } from "effect/testing";
+import { AWSQueue } from "nomoss/providers/aws/sqs/queue";
 import {
-  type ResourceState,
-  ResourceStateStore,
-} from "../src/core/stateStore.js";
+  type ResourceCommand,
+  ResourceCommandResult,
+  ResourceCommandUnsupported,
+} from "../src/core/resource/lifecycle.js";
 import {
-  QueueOutputsSchema,
-  QueuePropsSchema,
-} from "../src/providers/aws/awsQueue.js";
+  ResourceCommandExecutionFailed,
+  ResourceCommandPolicy,
+} from "../src/core/resource/resourceCommandPolicy.js";
+import { ResourceGraphStore } from "../src/core/resource/resourceGraphStore.js";
+import { resourceStackRuntimeLayer } from "../src/core/runtime/stackRuntimeLayer.js";
 import {
-  pendingStripeCustomerOutputs,
-  StripeCustomerCreateFailed,
-  StripeCustomerOutputsSchema,
-  StripeCustomerPropsSchema,
-} from "../src/providers/stripe/stripeCustomer.js";
-import {
-  StripeProductOutputsSchema,
-  StripeProductPropsSchema,
-} from "../src/providers/stripe/stripeProduct.js";
-import { StripeResources } from "../src/providers/stripe/stripeResources.js";
-import {
-  StripeWebhookEndpointOutputsSchema,
-  StripeWebhookEndpointPropsSchema,
-} from "../src/providers/stripe/stripeWebhookEndpoint.js";
-import {
-  ProviderCommandFixtureCapture,
-  ResourceStackLifecycleProviderFixture,
-  StripeBillingConfigurationExportFixture,
-} from "./support/providerResourceCommandPolicyFixture.js";
+  ResourceStackOperations,
+  resourceStackOperationsLayer,
+} from "../src/core/stack/resourceStackOperations.js";
+import { StateSecretServiceDefaultLayer } from "../src/core/state/stateSecretService.js";
 
-/**
- * This file validates the Nomoss stack-lifecycle design, not individual AWS
- * or Stripe APIs. The test body defines a resource graph, runs the public
- * lifecycle service, and reads persisted state. Provider behavior comes from a
- * named fixture layer that keeps provider resource policies live and replaces
- * only external provider effects.
- */
-describe("ResourceStackLifecycle", () => {
-  it.effect(
-    "resolves dependency output values through object and array property paths",
-    () =>
-      Effect.gen(function* () {
-        const resolver = yield* ResourceOutputResolver;
-        const sourceNode = yield* ResourceNodeSchema.makeEffect({
-          key: { logicalId: "PlanPrice" },
-          schema: {
-            operation: "create",
-            provider: "stripe",
-            resource: "price",
-            service: "billing",
-            stateSecretOutputKeys: [],
-          },
-          props: {},
-          outputs: {
-            ProductId: "price_test_active",
-          },
-        });
-        const targetNode = yield* ResourceNodeSchema.makeEffect({
-          key: { logicalId: "PortalConfiguration" },
-          schema: {
-            operation: "create",
-            provider: "stripe",
-            resource: "billing-portal-configuration",
-            service: "billing",
-            stateSecretOutputKeys: [],
-          },
-          props: {
-            name: "Portal configuration",
-            metadata: {
-              features: {
-                subscription_update: {
-                  products: [
-                    {
-                      prices: ["nomoss:pending:price"],
-                    },
-                  ],
-                },
-              },
-            },
-          },
-          outputs: {},
-        });
+const queues = ["Orders", "Invoices", "Dispatch", "Exports", "Receipts"];
 
-        const resolved = yield* resolver.resolveNode(
-          targetNode,
-          [sourceNode],
-          [
-            {
-              source: sourceNode.key,
-              target: targetNode.key,
-              edge: {
-                kind: "property",
-                property:
-                  "metadata.features.subscription_update.products.0.prices.0",
-                sourceProperty: "ProductId",
-              },
-            },
-          ],
-        );
+const QueueResponses = Context.Service<Deferred.Deferred<void>>(
+  "nomoss/tests/QueueResponses",
+);
 
-        assert.deepStrictEqual(resolved.props, {
-          name: "Portal configuration",
-          metadata: {
-            features: {
-              subscription_update: {
-                products: [
-                  {
-                    prices: ["price_test_active"],
-                  },
-                ],
-              },
-            },
-          },
-        });
-      }).pipe(
-        Effect.provide(
-          ResourceStackLifecycleProviderFixture.successfulCrossProviderStack(),
-        ),
-      ),
-  );
+const provider = Layer.effect(
+  ResourceCommandPolicy,
+  Effect.gen(function* () {
+    const started = yield* Ref.make(0);
+    const allStarted = yield* Deferred.make<void>();
+    const responses = yield* QueueResponses;
+    const receiptsRemovalFailed = yield* Ref.make(false);
 
-  it.effect(
-    "persists mixed-provider resources after dependency-ordered apply and clears them after destroy",
-    () =>
-      Effect.gen(function* () {
-        const model = yield* ResourceModel;
-        const graph = yield* ResourceGraphStore;
-        const lifecycle = yield* ResourceStackLifecycle;
-        const stateStore = yield* ResourceStateStore;
-        const capture = yield* ProviderCommandFixtureCapture;
-        const queueNode = yield* model.nodeFromResource({
-          key: { logicalId: "EventsQueue" },
-          propsSchema: QueuePropsSchema,
-          outputsSchema: QueueOutputsSchema,
-          props: { QueueName: "events" },
-          outputs: {
-            QueueUrl: "nomoss:pending:sqs:events",
-            QueueArn: "nomoss:pending:sqs-arn:events",
-          },
-        });
-        const customerNode = yield* model.nodeFromResource({
-          key: { logicalId: "BillingCustomer" },
-          propsSchema: StripeCustomerPropsSchema,
-          outputsSchema: StripeCustomerOutputsSchema,
-          props: {
-            name: "Billing customer",
-            metadata: {
-              queue: "events",
-            },
-          },
-          outputs: pendingStripeCustomerOutputs("BillingCustomer"),
-        });
+    const createQueue = Effect.fnUntraced(function* ({
+      decision: { node },
+    }: Extract<ResourceCommand, { _tag: "Apply" }>) {
+      // The provider returns queue URLs once every request is in flight.
+      // A default cap below the batch size would stall this deployment.
+      const requests = yield* Ref.updateAndGet(started, (count) => count + 1);
 
-        /**
-         * The dependency is the behavior under review: a Stripe resource can
-         * rely on an AWS-created value while Nomoss keeps lifecycle ordering
-         * in the library instead of the consumer application.
-         */
-        yield* graph.addResource(queueNode);
-        yield* graph.addResource(customerNode);
-        yield* graph.addDependency(queueNode.key, customerNode.key, {
-          kind: "property",
-          property: "metadata.queue",
-          sourceProperty: "QueueUrl",
-        });
+      yield* Deferred.succeed(allStarted, undefined).pipe(
+        Effect.when(Effect.succeed(requests === queues.length)),
+      );
 
-        const prepared = yield* lifecycle.prepare("billing-stack");
-        yield* lifecycle.apply(prepared);
-        const savedAfterApply =
-          yield* stateStore.loadResources("billing-stack");
-        yield* lifecycle.destroy(prepared);
-        const savedAfterDestroy =
-          yield* stateStore.loadResources("billing-stack");
+      yield* Deferred.await(allStarted);
+      yield* Deferred.await(responses);
 
-        assert.deepStrictEqual(yield* capture.snapshot, [
-          "create aws queue",
-          "create stripe customer",
-          "destroy stripe customer",
-          "destroy aws queue",
-        ]);
-        assert.deepStrictEqual(
-          Arr.map(
-            savedAfterApply,
-            (node) => `${node.schema.provider}:${node.key.logicalId}`,
-          ),
-          ["aws:EventsQueue", "stripe:BillingCustomer"],
-        );
-        assert.deepStrictEqual(savedAfterDestroy, []);
-      }).pipe(
-        Effect.provide(
-          ResourceStackLifecycleProviderFixture.successfulCrossProviderStack(),
-        ),
-      ),
-  );
+      return ResourceCommandResult.Created({
+        node: {
+          ...node,
+          cloudControlIdentifier: `${node.key.logicalId.toLowerCase()}-id`,
+          outputs: { QueueUrl: `https://sqs.example/${node.key.logicalId}` },
+        },
+      });
+    });
 
-  it.effect(
-    "writes Stripe price with the applied Product id after Product creates",
-    () =>
-      Effect.gen(function* () {
-        const stripe = yield* StripeResources;
-        const lifecycle = yield* ResourceStackLifecycle;
-        const stateStore = yield* ResourceStateStore;
-        const capture = yield* ProviderCommandFixtureCapture;
-        const starter = yield* stripe.Product({
-          logicalId: "StarterProduct",
-          props: {
-            active: true,
-            name: "Example Starter",
-            metadata: {
-              plan: "starter",
-            },
-            type: "service",
-          },
-        });
-
-        yield* stripe.Price({
-          logicalId: "StarterMonthlyPrice",
-          product: starter.ProductId,
-          props: {
-            active: true,
-            currency: "usd",
-            lookup_key: "example_starter_monthly_dev",
-            metadata: {
-              plan: "starter",
-            },
-            nickname: "Starter monthly",
-            recurring: {
-              interval: "month",
-              interval_count: 1,
-            },
-            tax_behavior: "unspecified",
-            unit_amount: 2900,
-          },
-        });
-
-        const prepared = yield* lifecycle.prepare("billing-catalog");
-        yield* lifecycle.apply(prepared);
-        const savedAfterApply =
-          yield* stateStore.loadResources("billing-catalog");
-        yield* lifecycle.destroy(prepared);
-
-        assert.deepStrictEqual(yield* capture.snapshot, [
-          "create stripe product",
-          "create stripe price",
-          "destroy stripe price",
-          "destroy stripe product",
-        ]);
-        assert.deepStrictEqual(
-          Arr.map(savedAfterApply, (node) => ({
-            logicalId: node.key.logicalId,
-            props: node.props,
-            resource: node.schema.resource,
-          })),
-          [
-            {
-              logicalId: "StarterProduct",
-              props: {
-                active: true,
-                metadata: {
-                  plan: "starter",
-                },
-                name: "Example Starter",
-                type: "service",
-              },
-              resource: "product",
-            },
-            {
-              logicalId: "StarterMonthlyPrice",
-              props: {
-                active: true,
-                currency: "usd",
-                lookup_key: "example_starter_monthly_dev",
-                metadata: {
-                  plan: "starter",
-                },
-                nickname: "Starter monthly",
-                product: "prod_test_starter",
-                recurring: {
-                  interval: "month",
-                  interval_count: 1,
-                },
-                tax_behavior: "unspecified",
-                unit_amount: 2900,
-              },
-              resource: "price",
-            },
-          ],
-        );
-      }).pipe(
-        Effect.provide(
-          ResourceStackLifecycleProviderFixture.successfulCrossProviderStack(),
-        ),
-      ),
-  );
-
-  it.effect(
-    "records Stripe price failure before provider create when Product id is unavailable",
-    () =>
-      Effect.gen(function* () {
-        const model = yield* ResourceModel;
-        const stripe = yield* StripeResources;
-        const lifecycle = yield* ResourceStackLifecycle;
-        const stateStore = yield* ResourceStateStore;
-        const capture = yield* ProviderCommandFixtureCapture;
-        const customer = yield* stripe.Customer({
-          logicalId: "BillingCustomer",
-          props: {
-            name: "Billing customer",
-            metadata: {
-              plan: "starter",
-            },
-          },
-        });
-        const appliedCustomer = yield* model.nodeFromResource({
-          key: customer.key,
-          propsSchema: StripeCustomerPropsSchema,
-          outputsSchema: StripeCustomerOutputsSchema,
-          props: customer.props,
-          outputs: {
-            CustomerId: "cus_test_billing",
-          },
-        });
-
-        yield* stateStore.saveResources("billing-missing-output", [
-          appliedCustomer,
-        ]);
-        yield* stripe.Price({
-          logicalId: "StarterMonthlyPrice",
-          product: resourceOutputRef(customer.key, "ProductId"),
-          props: {
-            active: true,
-            currency: "usd",
-            lookup_key: "example_starter_monthly_dev",
-            metadata: {
-              plan: "starter",
-            },
-            nickname: "Starter monthly",
-            recurring: {
-              interval: "month",
-              interval_count: 1,
-            },
-            tax_behavior: "unspecified",
-            unit_amount: 2900,
-          },
-        });
-
-        const prepared = yield* lifecycle.prepare("billing-missing-output");
-        const error = yield* lifecycle.apply(prepared).pipe(Effect.flip);
-        const savedStates = yield* stateStore.loadResourceStates(
-          "billing-missing-output",
-        );
-
-        yield* Match.value(error).pipe(
+    return {
+      execute: (command) =>
+        Match.value(command).pipe(
           Match.when(
-            { _tag: "ResourceOutputResolutionMissing" },
-            () => Effect.void,
-          ),
-          Match.orElse((unexpected) => Effect.fail(unexpected)),
-        );
-        assert.deepStrictEqual(yield* capture.snapshot, []);
-        assert.deepStrictEqual(
-          Arr.map(savedStates, (state) =>
-            Match.value(state).pipe(
-              Match.when({ _tag: "Creating" }, (creating) => ({
-                logicalId: creating.node.key.logicalId,
-                phase: creating._tag,
-                failureTag: creating.lastFailure?.errorTag,
-              })),
-              Match.orElse((other) => ({
-                logicalId: other.node.key.logicalId,
-                phase: other._tag,
-                failureTag: undefined,
-              })),
-            ),
-          ),
-          [
-            {
-              logicalId: "BillingCustomer",
-              phase: "Created",
-              failureTag: undefined,
-            },
-            {
-              logicalId: "StarterMonthlyPrice",
-              phase: "Creating",
-              failureTag: "ResourceOutputResolutionMissing",
-            },
-          ],
-        );
-      }).pipe(
-        Effect.provide(
-          ResourceStackLifecycleProviderFixture.successfulCrossProviderStack(),
-        ),
-      ),
-  );
-
-  it.effect(
-    "persists Stripe webhook endpoint state after apply and clears it after destroy",
-    () =>
-      Effect.gen(function* () {
-        const stripe = yield* StripeResources;
-        const lifecycle = yield* ResourceStackLifecycle;
-        const stateStore = yield* ResourceStateStore;
-
-        yield* stripe.WebhookEndpoint({
-          logicalId: "BillingWebhookEndpoint",
-          props: {
-            api_version: "2026-03-25.dahlia",
-            description: "Example dev billing webhook",
-            enabled_events: ["checkout.session.completed"],
-            metadata: {
-              application: "example",
-              environment: "dev",
-            },
-            url: "https://example.test/api/stripe/webhook",
-          },
-        });
-
-        const prepared = yield* lifecycle.prepare("billing-webhook");
-        yield* lifecycle.apply(prepared);
-        const savedAfterApply =
-          yield* stateStore.loadResources("billing-webhook");
-        yield* lifecycle.destroy(prepared);
-        const savedAfterDestroy =
-          yield* stateStore.loadResources("billing-webhook");
-
-        assert.deepStrictEqual(
-          Arr.map(savedAfterApply, (node) => ({
-            logicalId: node.key.logicalId,
-            resource: node.schema.resource,
-            outputs: node.outputs,
-          })),
-          [
-            {
-              logicalId: "BillingWebhookEndpoint",
-              resource: "webhook-endpoint",
-              outputs: {
-                WebhookEndpointId: "we_test_billing_events",
-                WebhookSigningSecret: "whsec_test_billing_events",
-              },
-            },
-          ],
-        );
-        assert.deepStrictEqual(savedAfterDestroy, []);
-      }).pipe(
-        Effect.provide(
-          ResourceStackLifecycleProviderFixture.successfulCrossProviderStack(),
-        ),
-      ),
-  );
-
-  it.effect(
-    "keeps the Stripe webhook signing secret in state when endpoint updates omit it",
-    () =>
-      Effect.gen(function* () {
-        const model = yield* ResourceModel;
-        const stripe = yield* StripeResources;
-        const lifecycle = yield* ResourceStackLifecycle;
-        const stateStore = yield* ResourceStateStore;
-        const capture = yield* ProviderCommandFixtureCapture;
-        const current = yield* model.nodeFromResource({
-          key: { logicalId: "BillingWebhookEndpoint" },
-          propsSchema: StripeWebhookEndpointPropsSchema,
-          outputsSchema: StripeWebhookEndpointOutputsSchema,
-          props: {
-            endpoint: {
-              api_version: "2026-03-25.dahlia",
-              description: "Example dev billing webhook",
-              enabled_events: ["checkout.session.completed"],
-              metadata: {
-                application: "example",
-                environment: "dev",
-              },
-              url: "https://example.test/api/stripe/webhook",
-            },
-          },
-          outputs: {
-            WebhookEndpointId: "we_test_billing_events",
-            WebhookSigningSecret: "whsec_test_billing_events",
-          },
-        });
-        yield* stateStore.saveResources("billing-webhook-update", [current]);
-        yield* stripe.WebhookEndpoint({
-          logicalId: "BillingWebhookEndpoint",
-          props: {
-            api_version: "2026-03-25.dahlia",
-            description: "Example dev billing webhook v2",
-            enabled_events: ["checkout.session.completed"],
-            metadata: {
-              application: "example",
-              environment: "dev",
-            },
-            url: "https://example.test/api/stripe/webhook",
-          },
-        });
-
-        const prepared = yield* lifecycle.prepare("billing-webhook-update");
-        yield* lifecycle.apply(prepared);
-        yield* lifecycle.apply(prepared);
-        const saved = yield* stateStore.loadResources("billing-webhook-update");
-        const events = yield* capture.snapshot;
-
-        assert.deepStrictEqual(
-          Arr.map(saved, (node) => node.outputs),
-          [
-            {
-              WebhookEndpointId: "we_test_billing_events",
-              WebhookSigningSecret: "whsec_test_billing_events",
-            },
-          ],
-        );
-        assert.deepStrictEqual(events, ["update stripe webhook endpoint"]);
-      }).pipe(
-        Effect.provide(
-          ResourceStackLifecycleProviderFixture.successfulCrossProviderStack(),
-        ),
-      ),
-  );
-
-  it.effect(
-    "persists Stripe billing portal configuration after apply and clears it after destroy",
-    () =>
-      Effect.gen(function* () {
-        const stripe = yield* StripeResources;
-        const lifecycle = yield* ResourceStackLifecycle;
-        const stateStore = yield* ResourceStateStore;
-
-        yield* stripe.BillingPortalConfiguration({
-          logicalId: "BillingPortalConfiguration",
-          props: {
-            business_profile: {
-              headline: "Example billing",
-            },
-            default_return_url: "https://app.example.test/account/billing",
-            features: {
-              invoice_history: {
-                enabled: true,
-              },
-              payment_method_update: {
-                enabled: true,
-              },
-              subscription_cancel: {
-                enabled: true,
-                mode: "at_period_end",
-                proration_behavior: "none",
-              },
-              subscription_update: {
-                enabled: false,
-              },
-            },
-            login_page: {
-              enabled: false,
-            },
-            metadata: {
-              application: "example",
-              environment: "dev",
-            },
-            name: "Example dev billing portal",
-          },
-        });
-
-        const prepared = yield* lifecycle.prepare("billing-portal");
-        yield* lifecycle.apply(prepared);
-        const savedAfterApply =
-          yield* stateStore.loadResources("billing-portal");
-        yield* lifecycle.destroy(prepared);
-        const savedAfterDestroy =
-          yield* stateStore.loadResources("billing-portal");
-
-        assert.deepStrictEqual(
-          Arr.map(savedAfterApply, (node) => ({
-            logicalId: node.key.logicalId,
-            resource: node.schema.resource,
-            outputs: node.outputs,
-          })),
-          [
-            {
-              logicalId: "BillingPortalConfiguration",
-              resource: "billing-portal-configuration",
-              outputs: {
-                BillingPortalConfigurationId: "bpc_test_example",
-              },
-            },
-          ],
-        );
-        assert.deepStrictEqual(savedAfterDestroy, []);
-      }).pipe(
-        Effect.provide(
-          ResourceStackLifecycleProviderFixture.successfulCrossProviderStack(),
-        ),
-      ),
-  );
-
-  it.effect(
-    "writes Stripe billing configuration from resource outputs after apply and removes it after destroy",
-    () =>
-      Effect.gen(function* () {
-        const stripe = yield* StripeResources;
-        const lifecycle = yield* ResourceStackLifecycle;
-        const stateStore = yield* ResourceStateStore;
-        const exports = yield* StripeBillingConfigurationExportFixture;
-        const product = yield* stripe.Product({
-          logicalId: "StarterProduct",
-          props: {
-            active: true,
-            name: "Example Starter",
-            type: "service",
-          },
-        });
-        const price = yield* stripe.Price({
-          logicalId: "StarterMonthlyPrice",
-          product: product.ProductId,
-          props: {
-            active: true,
-            currency: "usd",
-            lookup_key: "example_starter_monthly_dev",
-            metadata: {
-              plan: "starter",
-            },
-            nickname: "Starter monthly",
-            recurring: {
-              interval: "month",
-              interval_count: 1,
-            },
-            tax_behavior: "unspecified",
-            unit_amount: 2900,
-          },
-        });
-        const portal = yield* stripe.BillingPortalConfiguration({
-          logicalId: "BillingPortalConfiguration",
-          props: {
-            features: {
-              invoice_history: {
-                enabled: true,
-              },
-            },
-          },
-        });
-        const webhook = yield* stripe.WebhookEndpoint({
-          logicalId: "BillingWebhookEndpoint",
-          props: {
-            api_version: "2026-03-25.dahlia",
-            description: "Example dev billing webhook",
-            enabled_events: ["checkout.session.completed"],
-            url: "https://example.test/api/stripe/webhook",
-          },
-        });
-
-        yield* stripe.BillingConfigurationExport({
-          logicalId: "BillingConfigurationExport",
-          apiVersion: "2026-06-24.dahlia",
-          billingPortalConfigurationId: portal.BillingPortalConfigurationId,
-          mode: "test",
-          outputPath: "./.nomoss/state/test-billing.json",
-          prices: {
-            activeMonthly: price.PriceId,
-            advancedMonthly: price.PriceId,
-            starterMonthly: price.PriceId,
-          },
-          products: {
-            active: product.ProductId,
-            advanced: product.ProductId,
-            starter: product.ProductId,
-          },
-          webhookEndpoint: {
-            id: webhook.WebhookEndpointId,
-          },
-        });
-
-        const prepared = yield* lifecycle.prepare("billing-export");
-        yield* lifecycle.apply(prepared);
-        const savedAfterApply =
-          yield* stateStore.loadResources("billing-export");
-        const exportedAfterApply = yield* exports.snapshot;
-        yield* lifecycle.destroy(prepared);
-        const exportedAfterDestroy = yield* exports.snapshot;
-
-        assert.deepStrictEqual(
-          exportedAfterApply.get("./.nomoss/state/test-billing.json"),
-          {
-            apiVersion: "2026-06-24.dahlia",
-            billingPortalConfigurationId: "bpc_test_example",
-            mode: "test",
-            prices: {
-              activeMonthly: "price_test_starter_monthly",
-              advancedMonthly: "price_test_starter_monthly",
-              starterMonthly: "price_test_starter_monthly",
-            },
-            products: {
-              active: "prod_test_starter",
-              advanced: "prod_test_starter",
-              starter: "prod_test_starter",
-            },
-            webhookEndpoint: {
-              id: "we_test_billing_events",
-            },
-          },
-        );
-        assert.deepStrictEqual(
-          Arr.map(savedAfterApply, (node) => node.key.logicalId),
-          [
-            "StarterProduct",
-            "BillingPortalConfiguration",
-            "BillingWebhookEndpoint",
-            "StarterMonthlyPrice",
-            "BillingConfigurationExport",
-          ],
-        );
-        assert.deepStrictEqual(exportedAfterDestroy.size, 0);
-      }).pipe(
-        Effect.provide(
-          ResourceStackLifecycleProviderFixture.successfulCrossProviderStack(),
-        ),
-      ),
-  );
-
-  it.effect(
-    "resource-failed-update-retry.behavior retries update from the saved applied Product state",
-    () =>
-      Effect.gen(function* () {
-        const model = yield* ResourceModel;
-        const stripe = yield* StripeResources;
-        const lifecycle = yield* ResourceStackLifecycle;
-        const stateStore = yield* ResourceStateStore;
-        const capture = yield* ProviderCommandFixtureCapture;
-        const appliedProduct = yield* model.nodeFromResource({
-          key: { logicalId: "StarterProduct" },
-          propsSchema: StripeProductPropsSchema,
-          outputsSchema: StripeProductOutputsSchema,
-          props: {
-            active: true,
-            name: "Example Starter",
-            metadata: {
-              plan: "starter",
-            },
-            type: "service",
-          },
-          outputs: {
-            ProductId: "prod_test_starter",
-          },
-        });
-
-        yield* stateStore.saveResources("billing-update-retry", [
-          appliedProduct,
-        ]);
-        yield* stripe.Product({
-          logicalId: "StarterProduct",
-          props: {
-            active: true,
-            name: "Example Starter Plus",
-            metadata: {
-              plan: "starter",
-            },
-            type: "service",
-          },
-        });
-
-        const prepared = yield* lifecycle.prepare("billing-update-retry");
-        const error = yield* lifecycle.apply(prepared).pipe(Effect.flip);
-        const failedStates = yield* stateStore.loadResourceStates(
-          "billing-update-retry",
-        );
-        yield* lifecycle.apply(prepared);
-        const recoveredStates = yield* stateStore.loadResourceStates(
-          "billing-update-retry",
-        );
-
-        yield* Match.value(error).pipe(
-          Match.when(
-            { _tag: "ResourceCommandExecutionFailed" },
-            () => Effect.void,
-          ),
-          Match.orElse((unexpected) => Effect.fail(unexpected)),
-        );
-        assert.deepStrictEqual(yield* capture.snapshot, [
-          "update stripe product prod_test_starter Example Starter Plus",
-          "update stripe product prod_test_starter Example Starter Plus",
-        ]);
-        assert.strictEqual(failedStates.length, 1);
-        const failedState = failedStates.find(
-          (
-            state,
-          ): state is Extract<ResourceState, { readonly _tag: "Updating" }> =>
-            state._tag === "Updating",
-        );
-        assert.ok(failedState);
-        const { desiredProps, previousOutputs, previousProps } =
-          yield* Effect.all({
-            desiredProps: model.decodeProps(
-              failedState.node,
-              StripeProductPropsSchema,
-            ),
-            previousOutputs: model.decodeOutputs(
-              failedState.previous,
-              StripeProductOutputsSchema,
-            ),
-            previousProps: model.decodeProps(
-              failedState.previous,
-              StripeProductPropsSchema,
-            ),
-          });
-        const failedStateSummary = [
-          {
-            desiredName: desiredProps.name,
-            failureTag: failedState.lastFailure?.errorTag,
-            phase: failedState._tag,
-            previousName: previousProps.name,
-            productId: previousOutputs.ProductId,
-          },
-        ];
-        assert.deepStrictEqual(failedStateSummary, [
-          {
-            desiredName: "Example Starter Plus",
-            failureTag: "StripeProductUpdateFailed",
-            phase: "Updating",
-            previousName: "Example Starter",
-            productId: "prod_test_starter",
-          },
-        ]);
-        const recoveredStateSummary = yield* Effect.forEach(
-          recoveredStates,
-          (state) =>
-            Effect.all({
-              outputs: model.decodeOutputs(
-                state.node,
-                StripeProductOutputsSchema,
+            { _tag: "Apply", decision: { _tag: "Update" } },
+            ({ decision: { node, current } }) =>
+              Effect.succeed(
+                ResourceCommandResult.Updated({
+                  node: { ...current, props: node.props },
+                }),
               ),
-              props: model.decodeProps(state.node, StripeProductPropsSchema),
-            }).pipe(
-              Effect.map(({ outputs, props }) => ({
-                name: props.name,
-                phase: state._tag,
-                productId: outputs.ProductId,
-              })),
-            ),
-        );
-        assert.deepStrictEqual(recoveredStateSummary, [
-          {
-            name: "Example Starter Plus",
-            phase: "Updated",
-            productId: "prod_test_starter",
-          },
-        ]);
-      }).pipe(
-        Effect.provide(
-          ResourceStackLifecycleProviderFixture.productUpdateFailsOnce(),
-        ),
-      ),
-  );
-
-  it.effect(
-    "resource-failed-delete-retry.behavior retries destroy from the saved deleting Product state",
-    () =>
-      Effect.gen(function* () {
-        const model = yield* ResourceModel;
-        const stripe = yield* StripeResources;
-        const lifecycle = yield* ResourceStackLifecycle;
-        const stateStore = yield* ResourceStateStore;
-        const capture = yield* ProviderCommandFixtureCapture;
-        const appliedProduct = yield* model.nodeFromResource({
-          key: { logicalId: "StarterProduct" },
-          propsSchema: StripeProductPropsSchema,
-          outputsSchema: StripeProductOutputsSchema,
-          props: {
-            active: true,
-            name: "Example Starter",
-            metadata: {
-              plan: "starter",
-            },
-            type: "service",
-          },
-          outputs: {
-            ProductId: "prod_test_destroy_retry",
-          },
-        });
-
-        yield* stateStore.saveResources("billing-destroy-retry", [
-          appliedProduct,
-        ]);
-        yield* stripe.Product({
-          logicalId: "StarterProduct",
-          props: {
-            active: true,
-            name: "Example Starter",
-            metadata: {
-              plan: "starter",
-            },
-            type: "service",
-          },
-        });
-
-        const prepared = yield* lifecycle.prepare("billing-destroy-retry");
-        const error = yield* lifecycle.destroy(prepared).pipe(Effect.flip);
-        const failedStates = yield* stateStore.loadResourceStates(
-          "billing-destroy-retry",
-        );
-        yield* lifecycle.destroy(prepared);
-        const recoveredStates = yield* stateStore.loadResourceStates(
-          "billing-destroy-retry",
-        );
-
-        yield* Match.value(error).pipe(
+          ),
           Match.when(
-            { _tag: "ResourceCommandExecutionFailed" },
-            () => Effect.void,
+            { _tag: "Apply", decision: { _tag: "Destroy" } },
+            (command) =>
+              Effect.gen(function* () {
+                const { node } = command.decision;
+                const shouldFail = node.key.logicalId === "Receipts";
+
+                const failedBefore = yield* Ref.getAndSet(
+                  receiptsRemovalFailed,
+                  true,
+                ).pipe(Effect.when(Effect.succeed(shouldFail)));
+
+                yield* Effect.fail(
+                  new ResourceCommandExecutionFailed({
+                    command,
+                    cause: {
+                      _tag: "QueueRemovalUnavailable",
+                      message: "Temporary queue removal failure",
+                    },
+                  }),
+                ).pipe(
+                  Effect.when(
+                    Effect.succeed(Option.contains(failedBefore, false)),
+                  ),
+                );
+
+                return ResourceCommandResult.Destroyed({ node });
+              }),
           ),
-          Match.orElse((unexpected) => Effect.fail(unexpected)),
-        );
-        assert.deepStrictEqual(yield* capture.snapshot, [
-          "destroy stripe product prod_test_destroy_retry",
-          "destroy stripe product prod_test_destroy_retry",
-        ]);
-        assert.strictEqual(failedStates.length, 1);
-        const failedState = failedStates.find(
-          (
-            state,
-          ): state is Extract<ResourceState, { readonly _tag: "Deleting" }> =>
-            state._tag === "Deleting",
-        );
-        assert.ok(failedState);
-        const failedDestroyOutputs = yield* model.decodeOutputs(
-          failedState.node,
-          StripeProductOutputsSchema,
-        );
-        const failedDestroyStateSummary = [
-          {
-            failureTag: failedState.lastFailure?.errorTag,
-            phase: failedState._tag,
-            productId: failedDestroyOutputs.ProductId,
-          },
-        ];
-        assert.deepStrictEqual(failedDestroyStateSummary, [
-          {
-            failureTag: "StripeProductDestroyFailed",
-            phase: "Deleting",
-            productId: "prod_test_destroy_retry",
-          },
-        ]);
-        assert.deepStrictEqual(recoveredStates, []);
-      }).pipe(
-        Effect.provide(
-          ResourceStackLifecycleProviderFixture.productDestroyFailsOnce(),
-        ),
-      ),
-  );
-
-  it.effect(
-    "rolls back created dependency resources and keeps no saved state when a dependent provider create fails",
-    () =>
-      Effect.gen(function* () {
-        const model = yield* ResourceModel;
-        const graph = yield* ResourceGraphStore;
-        const lifecycle = yield* ResourceStackLifecycle;
-        const stateStore = yield* ResourceStateStore;
-        const capture = yield* ProviderCommandFixtureCapture;
-        const queueNode = yield* model.nodeFromResource({
-          key: { logicalId: "EventsQueue" },
-          propsSchema: QueuePropsSchema,
-          outputsSchema: QueueOutputsSchema,
-          props: { QueueName: "events" },
-          outputs: {
-            QueueUrl: "nomoss:pending:sqs:events",
-            QueueArn: "nomoss:pending:sqs-arn:events",
-          },
-        });
-        const customerNode = yield* model.nodeFromResource({
-          key: { logicalId: "BillingCustomer" },
-          propsSchema: StripeCustomerPropsSchema,
-          outputsSchema: StripeCustomerOutputsSchema,
-          props: {
-            name: "Billing customer",
-            metadata: {
-              queue: "events",
-            },
-          },
-          outputs: pendingStripeCustomerOutputs("BillingCustomer"),
-        });
-
-        /**
-         * The same dependency shape is used for the failure path because
-         * rollback only proves the required behavior after a dependency was
-         * created for a later provider resource.
-         */
-        yield* graph.addResource(queueNode);
-        yield* graph.addResource(customerNode);
-        yield* graph.addDependency(queueNode.key, customerNode.key, {
-          kind: "property",
-          property: "metadata.queue",
-          sourceProperty: "QueueUrl",
-        });
-
-        const prepared = yield* lifecycle.prepare("billing-stack");
-        const error = yield* lifecycle.apply(prepared).pipe(Effect.flip);
-        const saved = yield* stateStore.loadResources("billing-stack");
-        const savedStates =
-          yield* stateStore.loadResourceStates("billing-stack");
-
-        const failedCommand = yield* Match.value(error).pipe(
-          Match.when({ _tag: "ResourceCommandExecutionFailed" }, (failed) =>
-            Effect.succeed(failed),
-          ),
-          Match.orElse((unexpected) => Effect.fail(unexpected)),
-        );
-        assert.ok(failedCommand.cause instanceof StripeCustomerCreateFailed);
-        assert.deepStrictEqual(yield* capture.snapshot, [
-          "create aws queue",
-          "create stripe customer",
-          "destroy aws queue",
-        ]);
-        assert.deepStrictEqual(saved, []);
-        assert.deepStrictEqual(
-          Arr.map(savedStates, (state) =>
-            Match.value(state).pipe(
-              Match.when({ _tag: "Creating" }, (creating) => ({
-                logicalId: creating.node.key.logicalId,
-                phase: creating._tag,
-                failureTag: creating.lastFailure?.errorTag,
-              })),
-              Match.orElse((other) => ({
-                logicalId: other.node.key.logicalId,
-                phase: other._tag,
-                failureTag: undefined,
-              })),
+          Match.tag("Apply", createQueue),
+          Match.orElse(() =>
+            Effect.fail(
+              new ResourceCommandExecutionFailed({
+                command,
+                cause: new ResourceCommandUnsupported({ command }),
+              }),
             ),
           ),
-          [
-            {
-              logicalId: "BillingCustomer",
-              phase: "Creating",
-              failureTag: "StripeCustomerCreateFailed",
-            },
-          ],
-        );
-      }).pipe(
-        Effect.provide(
-          ResourceStackLifecycleProviderFixture.dependentStripeCreateFailure(),
         ),
-      ),
-  );
+    };
+  }),
+);
+
+const queueResources = Effect.fnUntraced(function* (
+  visibilityTimeout: number,
+  ordersVisibilityTimeout = visibilityTimeout,
+) {
+  const resources = yield* Effect.forEach(queues, (logicalId) => {
+    const timeout = Match.value(logicalId).pipe(
+      Match.when("Orders", () => ordersVisibilityTimeout),
+      Match.orElse(() => visibilityTimeout),
+    );
+
+    return AWSQueue({
+      logicalId,
+      props: {
+        QueueName: logicalId.toLowerCase(),
+        VisibilityTimeout: timeout,
+        Tags: [{ Key: "source", Value: "pending" }],
+      },
+    });
+  });
+
+  return () => resources.map((resource) => resource.QueueUrl);
 });
+
+const dependentQueueResources = Effect.fnUntraced(function* (
+  ordersVisibilityTimeout = 45,
+) {
+  const outputs = yield* queueResources(45, ordersVisibilityTimeout);
+  const graph = yield* ResourceGraphStore;
+
+  yield* graph.addDependency(
+    { logicalId: "Receipts" },
+    { logicalId: "Orders" },
+    { kind: "prerequisite", reason: "Orders uses Receipts" },
+  );
+
+  yield* Effect.forEach(
+    [
+      ["Orders", "Invoices"],
+      ["Invoices", "Dispatch"],
+    ],
+    ([source, target]) =>
+      graph.addDependency(
+        { logicalId: source },
+        { logicalId: target },
+        {
+          kind: "property",
+          property: ["Tags", "0", "Value"],
+          sourceProperty: "QueueUrl",
+        },
+      ),
+    { discard: true },
+  );
+
+  return outputs;
+});
+
+const runtime = resourceStackOperationsLayer.pipe(
+  Layer.provideMerge(resourceStackRuntimeLayer),
+  Layer.provide([
+    provider,
+    KeyValueStore.layerMemory,
+    StateSecretServiceDefaultLayer,
+    NodeFileSystem.layer,
+    NodePath.layer,
+  ]),
+  Layer.provideMerge(Layer.effect(QueueResponses, Deferred.make<void>())),
+  Layer.provideMerge(ConfigProvider.layer(ConfigProvider.fromUnknown({}))),
+  Layer.provideMerge(TestConsole.layer),
+);
+
+it.effect(
+  "Queue workflow reports dependency rechecks as unchanged and retries teardown after removing its declarations",
+  () =>
+    Effect.gen(function* () {
+      const operations = yield* ResourceStackOperations;
+      const responses = yield* QueueResponses;
+
+      const prepared = yield* operations.Stack(
+        "queue-workflow",
+        queueResources(30),
+      );
+
+      const frames = yield* Ref.make<ReadonlyArray<string>>([]);
+      const firstFrame = yield* Deferred.make<string>();
+
+      const terminal = Terminal.make({
+        columns: Effect.succeed(80),
+        rows: Effect.succeed(24),
+        size: Effect.die("Unused terminal resize input"),
+        readInput: Effect.die("Unused terminal key input"),
+        readLine: Effect.die("Unused terminal line input"),
+        display: (frame) =>
+          Ref.update(frames, (lines) => [...lines, frame]).pipe(
+            Effect.andThen(() => Deferred.succeed(firstFrame, frame)),
+            Effect.asVoid,
+          ),
+      });
+
+      const terminalContext = Context.make(Terminal.Terminal, terminal).pipe(
+        Context.add(TerminalCapabilities.TerminalCapabilities, {
+          canAnimate: true,
+          canColor: false,
+          canPrompt: false,
+        }),
+      );
+
+      const deployment = yield* operations
+        .renderCreate(prepared)
+        .pipe(Effect.provideContext(terminalContext), Effect.forkScoped);
+
+      const running = yield* Deferred.await(firstFrame);
+
+      assert.include(running, "create running");
+
+      // The queue deployment waits for its concurrent provider requests.
+      // Advancing time during that wait verifies the duration shown to the
+      // operator. See node_modules/effect/src/testing/TestClock.ts (adjust).
+      yield* TestClock.adjust("2 seconds");
+
+      yield* Deferred.succeed(responses, undefined);
+
+      const applied = yield* Fiber.join(deployment);
+
+      const displayed = yield* Ref.get(frames);
+
+      assert.include(displayed.join(""), "✓ aws:sqs:queue/Orders  created");
+      assert.include(displayed.join(""), "id=orders-id");
+
+      assert.deepStrictEqual(applied.outputs, [
+        "https://sqs.example/Orders",
+        "https://sqs.example/Invoices",
+        "https://sqs.example/Dispatch",
+        "https://sqs.example/Exports",
+        "https://sqs.example/Receipts",
+      ]);
+
+      const createdSummary = Arr.join(
+        Arr.map(yield* TestConsole.logLines, String),
+        "\n",
+      );
+
+      assert.include(
+        createdSummary,
+        'Stack "queue-workflow" deployed in 2.0s.',
+      );
+      assert.include(
+        createdSummary,
+        "Resources: 5 created, 0 updated, 0 replaced, 0 deleted, 0 unchanged.",
+      );
+
+      const next = yield* operations.Stack(
+        "queue-workflow",
+        dependentQueueResources(),
+      );
+
+      yield* operations
+        .renderUpdate(next, true)
+        .pipe(Effect.provideContext(terminalContext));
+
+      const plan = yield* TestConsole.logLines;
+      const updated = yield* Ref.get(frames);
+
+      assert.include(plan.join("\n"), "-   VisibilityTimeout: 30");
+      assert.include(plan.join("\n"), "+   VisibilityTimeout: 45");
+      assert.include(updated.join(""), "✓ aws:sqs:queue/Orders  updated");
+      assert.include(
+        Arr.join(Arr.map(plan, String), "\n"),
+        "Resources: 0 created, 5 updated, 0 replaced, 0 deleted, 0 unchanged.",
+      );
+
+      yield* operations
+        .renderUpdate(next)
+        .pipe(Effect.provideContext(terminalContext));
+
+      const unchangedSummary = Arr.join(
+        Arr.map(yield* TestConsole.logLines, String),
+        "\n",
+      );
+
+      assert.include(
+        unchangedSummary,
+        "Resources: 0 created, 0 updated, 0 replaced, 0 deleted, 5 unchanged.",
+      );
+
+      // The queue workflow changes Orders while its URL stays stable. Its
+      // dependent queues must appear as unchanged in terminal output and totals.
+      yield* Effect.forEach(
+        [
+          { canAnimate: true, visibilityTimeout: 60 },
+          { canAnimate: false, visibilityTimeout: 75 },
+        ],
+        Effect.fnUntraced(function* ({ canAnimate, visibilityTimeout }) {
+          yield* Ref.set(frames, []);
+
+          const before = yield* TestConsole.logLines;
+          const changed = yield* operations.Stack(
+            "queue-workflow",
+            dependentQueueResources(visibilityTimeout),
+          );
+          yield* operations
+            .renderUpdate(changed)
+            .pipe(
+              Effect.provideContext(
+                Context.add(
+                  terminalContext,
+                  TerminalCapabilities.TerminalCapabilities,
+                  { canAnimate, canColor: false, canPrompt: false },
+                ),
+              ),
+            );
+
+          const logs = Arr.join(
+            Arr.map(
+              Arr.drop(yield* TestConsole.logLines, before.length),
+              String,
+            ),
+            "\n",
+          );
+          const displayed = Arr.join(yield* Ref.get(frames), "");
+          const progress = Match.value(canAnimate).pipe(
+            Match.when(true, () => displayed),
+            Match.orElse(() => logs),
+          );
+
+          assert.include(progress, "✓ aws:sqs:queue/Invoices  unchanged");
+          assert.include(progress, "✓ aws:sqs:queue/Dispatch  unchanged");
+          assert.notInclude(progress, "✓ aws:sqs:queue/Invoices  updated");
+          assert.notInclude(progress, "✓ aws:sqs:queue/Dispatch  updated");
+          assert.include(
+            logs,
+            "Resources: 0 created, 1 updated, 0 replaced, 0 deleted, 4 unchanged.",
+          );
+        }),
+        { discard: true },
+      );
+
+      const empty = yield* operations.Stack(
+        "queue-workflow",
+        Effect.succeed(() => undefined),
+      );
+
+      const error = yield* operations
+        .renderDestroy(empty)
+        .pipe(Effect.provideContext(terminalContext), Effect.flip);
+
+      assert.instanceOf(error, ResourceCommandExecutionFailed);
+
+      const retry = yield* operations.planDestroyPrepared(empty);
+      const remaining = retry.plan.destroy
+        .flat()
+        .map(({ node }) => node.key.logicalId);
+
+      assert.include(remaining, "Receipts");
+      assert.notInclude(remaining, "Orders");
+
+      const removed = yield* operations
+        .renderDestroy(empty)
+        .pipe(Effect.provideContext(terminalContext));
+
+      const teardown = yield* Ref.get(frames);
+
+      assert.isTrue(removed.destroyed);
+      assert.sameMembers(
+        removed.resources.map(({ key }) => key.logicalId),
+        remaining,
+      );
+      assert.include(teardown.join(""), "✓ aws:sqs:queue/Orders  destroyed");
+
+      const removedSummary = Arr.join(
+        Arr.map(yield* TestConsole.logLines, String),
+        "\n",
+      );
+
+      assert.include(
+        removedSummary,
+        `Resources: 0 created, 0 updated, 0 replaced, ${removed.resources.length} deleted, 0 unchanged.`,
+      );
+
+      const finished = yield* operations.planDestroyPrepared(empty);
+
+      assert.isEmpty(finished.plan.destroy);
+    }).pipe(Effect.provide(runtime), Effect.timeout("3 seconds")),
+);

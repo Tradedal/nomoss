@@ -1,0 +1,15 @@
+{
+  "smithy": {
+    "specification": "refs/aws-api-models/models/sfn/service/2016-11-23/sfn-2016-11-23.json",
+    "revision": "1b9ff13fe6c28ea9774a527e53cda6a3b91369dc",
+    "sha256": "38dd64c074f5c05320978970dafa6e0f199ab2e33b6065232002e8a603c5f6ed",
+    "serviceId": "com.amazonaws.sfn#AWSStepFunctions",
+    "operations": ["CreateStateMachine", "DescribeStateMachine", "UpdateStateMachine", "DeleteStateMachine"]
+  },
+  "cloudFormation": {
+    "region": "us-east-1",
+    "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-stepfunctions-statemachine.json",
+    "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+    "sha256": "5dd45189277cc814a52af6b1da7ab9300cb0ddbfed0555586e84962e8a58a3bb"
+  }
+}

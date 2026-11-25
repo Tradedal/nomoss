@@ -1,18 +1,36 @@
-#!/usr/bin/env node
+import { Effect, FileSystem, Path, Schema } from "effect";
 
-import { Effect } from "effect";
+export {
+  nomossCliCommand,
+  stackCommandRuntimeLayer,
+  stackLifecycleCommands,
+  stackStateCommand,
+  withStackCommands,
+} from "./cliCommand.js";
+export { renderCliFailure } from "./cliDiagnostics.js";
 
-import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
-import { Command } from "effect/unstable/cli";
-
-import { nomossCliCommand } from "./cliCommand.js";
-import { nomossCliRuntimeLayer } from "./cliRuntimeLayer.js";
-
-export const cli = nomossCliCommand.pipe(
-  Command.run({
-    version: "0.0.1",
-  }),
-  Effect.provide(nomossCliRuntimeLayer),
+const PackageVersion = Schema.fromJsonString(
+  Schema.Struct({ version: Schema.NonEmptyString }),
 );
 
-NodeRuntime.runMain(cli);
+/**
+ * nomossCliVersion reads the installed package version for application command
+ * entry points. Version output then identifies the Nomoss build that
+ * executes the command tree.
+ */
+export const nomossCliVersion = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+
+  const packagePath: string = yield* path.fromFileUrl(
+    new URL("../package.json", import.meta.url),
+  );
+
+  const metadata = yield* fs
+    .readFileString(packagePath)
+    .pipe(Effect.flatMap(Schema.decodeEffect(PackageVersion)));
+
+  const version: string = metadata.version;
+
+  return version;
+});

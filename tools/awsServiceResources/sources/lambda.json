@@ -1,0 +1,46 @@
+{
+  "smithy": {
+    "specification": "refs/aws-api-models/models/lambda/service/2015-03-31/lambda-2015-03-31.json",
+    "revision": "1b9ff13fe6c28ea9774a527e53cda6a3b91369dc",
+    "sha256": "86623aaedadeea08db251618ff3359cde218f5c22535095739dd3f390bd0f01d",
+    "serviceId": "com.amazonaws.lambda#AWSGirApiService",
+    "operations": [
+      "CreateFunction",
+      "GetFunctionConfiguration",
+      "UpdateFunctionConfiguration",
+      "UpdateFunctionCode",
+      "DeleteFunction",
+      "AddPermission",
+      "GetPolicy",
+      "RemovePermission"
+    ],
+    "corrections": [
+      {
+        "id": "lambda-delete-function-status",
+        "reason": "The live DeleteFunction response in us-east-1 has status 204. The Smithy HTTP trait omits the code and the converter defaults to 200.",
+        "op": "replace",
+        "path": [
+          "shapes",
+          "com.amazonaws.lambda#DeleteFunction",
+          "traits",
+          "smithy.api#http"
+        ],
+        "expected": {
+          "method": "DELETE",
+          "uri": "/2015-03-31/functions/{FunctionName}"
+        },
+        "value": {
+          "method": "DELETE",
+          "uri": "/2015-03-31/functions/{FunctionName}",
+          "code": 204
+        }
+      }
+    ]
+  },
+  "cloudFormation": {
+    "region": "us-east-1",
+    "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-lambda-function.json",
+    "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+    "sha256": "dd30d0d073e95ebbd962498fda21f5a498992d10b38bc4b9ef21a6c268adb055"
+  }
+}

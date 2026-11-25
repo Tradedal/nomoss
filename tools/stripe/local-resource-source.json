@@ -1,0 +1,73 @@
+{
+  "source": {
+    "provider": "Stripe",
+    "service": "Billing",
+    "name": "tools/stripe/local-resource-source.json",
+    "format": "JsonSchema"
+  },
+  "resources": {
+    "Stripe::Billing::BillingConfigurationExport": {
+      "resource": "configuration-export",
+      "propsSchema": "StripeBillingConfigurationExportPropsSchema",
+      "outputs": { "OutputPath": "outputPath" },
+      "primaryIdentifier": ["/properties/OutputPath"],
+      "file": {
+        "pathProperty": "outputPath",
+        "pathOutput": "OutputPath"
+      },
+      "replacement": {
+        "order": "destroyBeforeCreate",
+        "properties": [["outputPath"]]
+      },
+      "input": {
+        "properties": {
+          "apiVersion": { "type": "string" },
+          "billingPortalConfigurationId": { "type": "string" },
+          "mode": { "type": "string", "enum": ["test", "live"] },
+          "outputPath": { "type": "string", "minLength": 1 },
+          "prices": {
+            "type": "object",
+            "properties": {
+              "activeMonthly": { "type": "string" },
+              "advancedMonthly": { "type": "string" },
+              "starterMonthly": { "type": "string" }
+            },
+            "required": ["activeMonthly", "advancedMonthly", "starterMonthly"],
+            "additionalProperties": false
+          },
+          "products": {
+            "type": "object",
+            "properties": {
+              "active": { "type": "string" },
+              "advanced": { "type": "string" },
+              "starter": { "type": "string" }
+            },
+            "required": ["active", "advanced", "starter"],
+            "additionalProperties": false
+          },
+          "webhookEndpoint": {
+            "type": "object",
+            "properties": { "id": { "type": "string" } },
+            "required": ["id"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["apiVersion", "billingPortalConfigurationId", "mode", "outputPath", "prices", "products", "webhookEndpoint"]
+      },
+      "document": {
+        "schema": "StripeBillingConfigurationExportDocumentSchema",
+        "properties": ["apiVersion", "billingPortalConfigurationId", "mode", "prices", "products", "webhookEndpoint"]
+      },
+      "references": [
+        { "propertyPath": ["billingPortalConfigurationId"], "resourceType": "Stripe::Billing::BillingPortalConfiguration", "output": "BillingPortalConfigurationId" },
+        { "propertyPath": ["prices", "activeMonthly"], "resourceType": "Stripe::Billing::Price", "output": "PriceId" },
+        { "propertyPath": ["prices", "advancedMonthly"], "resourceType": "Stripe::Billing::Price", "output": "PriceId" },
+        { "propertyPath": ["prices", "starterMonthly"], "resourceType": "Stripe::Billing::Price", "output": "PriceId" },
+        { "propertyPath": ["products", "active"], "resourceType": "Stripe::Billing::Product", "output": "ProductId" },
+        { "propertyPath": ["products", "advanced"], "resourceType": "Stripe::Billing::Product", "output": "ProductId" },
+        { "propertyPath": ["products", "starter"], "resourceType": "Stripe::Billing::Product", "output": "ProductId" },
+        { "propertyPath": ["webhookEndpoint", "id"], "resourceType": "Stripe::Billing::WebhookEndpoint", "output": "WebhookEndpointId" }
+      ]
+    }
+  }
+}

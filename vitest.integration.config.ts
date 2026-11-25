@@ -1,7 +1,13 @@
+import { fileURLToPath } from "node:url";
+import { Record } from "effect";
 import { defineConfig } from "vitest/config";
+import tsconfig from "./tsconfig.json" with { type: "json" };
 
 export default defineConfig({
-  test: {
-    include: ["tests/**/*.integration.test.ts"],
+  resolve: {
+    alias: Record.map(tsconfig.compilerOptions.paths, ([path]) =>
+      fileURLToPath(new URL(path, import.meta.url)),
+    ),
   },
+  test: { include: ["tests/**/*.integration.test.ts"] },
 });

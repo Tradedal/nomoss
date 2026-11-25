@@ -1,0 +1,48 @@
+{
+  "lifecycle": {
+    "attributeMapSchema": "QueueAttributeMap",
+    "tagMapSchema": "TagMap",
+    "operations": {
+      "create": "CreateQueue",
+      "read": "GetQueueAttributes",
+      "update": "SetQueueAttributes",
+      "remove": "DeleteQueue",
+      "readTags": "ListQueueTags",
+      "tag": "TagQueue",
+      "untag": "UntagQueue"
+    },
+    "nameProperty": "QueueName",
+    "fifoProperty": "FifoQueue",
+    "createTagsParameter": "tags",
+    "outputAttributes": { "Arn": "QueueArn" },
+    "missingErrors": ["QueueDoesNotExist", "AWS.SimpleQueueService.NonExistentQueue"],
+    "resets": {
+      "ContentBasedDeduplication": false,
+      "DelaySeconds": 0,
+      "KmsDataKeyReusePeriodSeconds": 300,
+      "MaximumMessageSize": 1048576,
+      "MessageRetentionPeriod": 345600,
+      "ReceiveMessageWaitTimeSeconds": 0,
+      "RedriveAllowPolicy": "",
+      "RedrivePolicy": "",
+      "VisibilityTimeout": 30
+    }
+  },
+  "smithy": {
+    "specification": "refs/aws-api-models/models/sqs/service/2012-11-05/sqs-2012-11-05.json",
+    "revision": "1b9ff13fe6c28ea9774a527e53cda6a3b91369dc",
+    "sha256": "f34a7d2560fb9776206fb35958b8d0fc5f17d33f377bb7512d55a34a8c0c78f0",
+    "serviceId": "com.amazonaws.sqs#AmazonSQS"
+  },
+  "cloudFormation": {
+    "region": "us-east-1",
+    "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-sqs-queue.json",
+    "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+    "sha256": "2e484214f7c5fdc7f97ae2e5bce027293b2ea55776a3c133ee0326cbde8cedf6"
+  },
+  "relationships": {
+    "specification": "refs/aws-cdk-service-spec/sources/OobRelationships/relationships.json",
+    "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+    "sha256": "6c650d20b4487e56cd5e8423376d8af0cfa2ff42e1b9dcb02eb7f2edd9935c0e"
+  }
+}

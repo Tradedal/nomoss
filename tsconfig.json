@@ -3,9 +3,18 @@
   "compilerOptions": {
     "noEmit": true,
     "rootDir": ".",
+    "paths": {
+      "@nomoss/core": [
+        "./src/core/index.ts"
+      ],
+      "@nomoss/providers": [
+        "./src/providers/index.ts"
+      ]
+    },
     "incremental": true,
     "tsBuildInfoFile": "lib/tsconfig.tsbuildinfo",
     "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "target": "ESNext",
@@ -23,6 +32,7 @@
       {
         "name": "@effect/language-service",
         "diagnosticSeverity": {
+          "unstableApiUsage": "off",
           "globalDateInEffect": "error",
           "globalDate": "warning",
           "globalErrorInEffectCatch": "warning",
@@ -30,7 +40,7 @@
           "globalFetchInEffect": "error",
           "globalRandom": "error",
           "globalTimers": "error",
-          "importFromBarrel": "warning",
+          "preferBarrelImport": "warning",
           "globalConsole": "warning",
           "globalConsoleInEffect": "error",
           "catchAllToMapError": "warning",
@@ -45,12 +55,26 @@
           "newPromise": "warning",
           "nestedEffectGenYield": "warning"
         },
+        "overrides": [
+          {
+            "include": [
+              "src/providers/aws/client/generated/**/*.ts",
+              "src/providers/aws/resources/generated/**/*.ts"
+            ],
+            "options": {
+              "diagnosticSeverity": {
+                "schemaNumber": "off"
+              }
+            }
+          }
+        ],
         "barrelImportPackages": [
           "effect",
           "@effect/*"
         ],
         "includeSuggestionsInTsc": true,
-        "ignoreEffectWarningsInTscExitCode": true,
+        "ignoreEffectWarningsInTscExitCode": false,
+        "ignoreEffectErrorsInTscExitCode": false,
         "ignoreEffectSuggestionsInTscExitCode": true
       }
     ],
@@ -59,9 +83,11 @@
     ]
   },
   "include": [
+    ".projenrc.ts",
     "examples/**/*.ts",
     "src/**/*.ts",
     "tests/**/*.ts",
+    "tools/**/*.ts",
     "vitest.config.ts",
     "vitest.integration.config.ts"
   ],

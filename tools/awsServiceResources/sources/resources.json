@@ -1,0 +1,192 @@
+{
+  "region": "us-east-1",
+  "services": ["tools/awsServiceResources/sources/sqs.json"],
+  "relationships": {
+    "specification": "refs/aws-cdk-service-spec/sources/OobRelationships/relationships.json",
+    "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+    "sha256": "6c650d20b4487e56cd5e8423376d8af0cfa2ff42e1b9dcb02eb7f2edd9935c0e"
+  },
+  "resources": [
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-iam-role.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "f43e323a6b7f7e652687bf09bd0c4c2bf986b62cfc8c466b4d5e88e88c4731a1"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-iam-managedpolicy.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "dca5255cf325cab22457f5bdae12e1f507c46650f3a281e5a65852625e0a8e05"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-iam-rolepolicy.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "1d002b01bf0266927d83036737a8a70e860279d46012523b20bb171c603f9222"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-iam-user.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "54812c6331c5b24959c098a9466b498cddb674c0fc1d749d72f81f8fa082f095"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-iam-userpolicy.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "c59a805ff31baf3d75eb3bd751797d9e4931e76acdb731af02520f9466145fb8"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-iam-group.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "a5c2fbd75fd2abc2d0e6184354a6b6acaa7c30faee08e2cac56619fe7dbb783c"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-iam-grouppolicy.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "962513dc9345dff7fac23ad65d18caaffaa2c42a95d8cb9a7fadbabb93de4487"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-iam-usertogroupaddition.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "bd7426a918867eaf2c33f4e2da4088a95e7cbf5c2c46956bf390278e31b4b590"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-iam-instanceprofile.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "35885c41188f2226ef5c1672d078b8a280197eb2dfecee82295c080e52a322ff"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-iam-policy.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "558b83d6187c3ece70014a9ece2f657762bcd487e21119b2a457c3237de4aa78"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-sqs-queue.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "2e484214f7c5fdc7f97ae2e5bce027293b2ea55776a3c133ee0326cbde8cedf6"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-s3-bucket.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "c60060e0af9d6132fc9f9a283e07f0d2a4b99d8e1be841ddd961e4463c22a7f3"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-sns-topic.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "7e777eee64b69542af94fc3e68d6dadc37fa30e03d07105e459441fb8eca435b"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-kms-key.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "418c1eead905b74a900218ec918469dc8c3aaff97e9ba3986cedbad6bb1960b4"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-stepfunctions-statemachine.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "5dd45189277cc814a52af6b1da7ab9300cb0ddbfed0555586e84962e8a58a3bb"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-lambda-function.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "dd30d0d073e95ebbd962498fda21f5a498992d10b38bc4b9ef21a6c268adb055"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-apigatewayv2-api.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "37a4a489f3072cbf7fdb4913440a3b5887816604c0b877e6c150184e5cbca55f"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-lambda-permission.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "0187005a8c18a9968d2f6f32cff25d56b7195814295b3a3203da4f0d9db51733"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-apigatewayv2-integration.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "8b8cbc049eb3625b75144520c05c28498e936d6a4170aaa2f61490b08affedb3"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-apigatewayv2-route.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "c6c9119fb6aec601c0f8b675bcf8ce7298f270fb7fe7e237284fd206c3647c05"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-apigatewayv2-stage.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "d257a8bc9dbb7e6c47f3396fc4021a60b5cb9cf7920117a3187d1f8f6c2b30e8"
+    }
+  ],
+  "relationshipOverrides": {
+    "AWS::IAM::RolePolicy": {
+      "relationships": {
+        "RoleName": [
+          {
+            "cloudformationType": "AWS::IAM::Role",
+            "propertyPath": "/properties/RoleName"
+          }
+        ]
+      }
+    },
+    "AWS::IAM::GroupPolicy": {
+      "relationships": {
+        "GroupName": [
+          {
+            "cloudformationType": "AWS::IAM::Group",
+            "propertyPath": "/properties/GroupName"
+          }
+        ]
+      }
+    },
+    "AWS::IAM::UserPolicy": {
+      "relationships": {
+        "UserName": [
+          {
+            "cloudformationType": "AWS::IAM::User",
+            "propertyPath": "/properties/UserName"
+          }
+        ]
+      }
+    },
+    "AWS::IAM::UserToGroupAddition": {
+      "relationships": {
+        "GroupName": [
+          {
+            "cloudformationType": "AWS::IAM::Group",
+            "propertyPath": "/properties/GroupName"
+          }
+        ],
+        "Users": [
+          {
+            "cloudformationType": "AWS::IAM::User",
+            "propertyPath": "/properties/UserName"
+          }
+        ]
+      }
+    },
+    "AWS::ApiGatewayV2::Stage": {
+      "relationships": {
+        "ApiId": [
+          {
+            "cloudformationType": "AWS::ApiGatewayV2::Api",
+            "propertyPath": "/properties/ApiId"
+          }
+        ]
+      }
+    },
+    "AWS::Lambda::Permission": {
+      "relationships": {
+        "FunctionName": [
+          {
+            "cloudformationType": "AWS::Lambda::Function",
+            "propertyPath": "/properties/Arn"
+          },
+          {
+            "cloudformationType": "AWS::Lambda::Alias",
+            "propertyPath": "/properties/Id"
+          },
+          {
+            "cloudformationType": "AWS::Lambda::Version",
+            "propertyPath": "/properties/FunctionArn"
+          }
+        ]
+      }
+    }
+  }
+}

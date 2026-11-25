@@ -1,41 +1,71 @@
-import fs from "node:fs";
+import { NodeFileSystem, NodeRuntime } from "@effect/platform-node";
+import { Array as Arr, Effect, FileSystem, Option } from "effect";
 import {
-  javascript,
   JsonFile,
   JsonPatch,
+  javascript,
   ReleasableCommits,
-  TextFile,
+  release,
 } from "projen";
-import { JobStep } from "projen/lib/github/workflows-model";
-import { YarnNodeLinker } from "projen/lib/javascript";
-import { ReleaseTrigger } from "projen/lib/release";
+import packageManifest from "./package.json" with { type: "json" };
+import packageExports from "./tools/package-exports.json" with { type: "json" };
 
-const packageManifestPath = "package.json";
-const currentPackageVersion = fs.existsSync(packageManifestPath)
-  ? JSON.parse(fs.readFileSync(packageManifestPath, "utf8")).version ?? "0.0.0"
-  : "0.0.0";
+const currentPackageVersion: string = packageManifest.version;
 
 const project = new javascript.NodeProject({
   defaultReleaseBranch: "main",
   description: "Effect-native infrastructure automation for TypeScript.",
   deps: [
-    "@distilled.cloud/aws@^0.27.0",
-    "@distilled.cloud/stripe@^0.27.0",
-    "@effect/platform-node@4.0.0-beta.93",
-    "effect@4.0.0-beta.93",
+    // The AWS client resolves service addresses and credentials and uses the SDK's AWS Query codec.
+    // @aws-crypto/sha256-js is a legacy dependency. AwsRequestSigner uses @smithy/core for SHA-256.
+    "@aws-crypto/sha256-js@^5.2.0",
+    "@aws-sdk/core@^3.979.1",
+    "@aws-sdk/credential-provider-node@^3.972.92",
+
+    // AwsRequestSigner signs HTTP requests with SigV4. The AWS Query codec uses Smithy schema types.
+    "@smithy/core@^3.38.1",
+    "@smithy/signature-v4@^5.7.5",
+    "@smithy/types@^4.19.0",
+
+    // Effect runs stack operations on Node.js. Redis satisfies the Node platform package's peer dependency.
+    "@effect/platform-node@4.1.4",
+    "effect@4.1.4",
+    "redis@^6.3.1",
+
+    // The asset service builds TypeScript handlers with esbuild and packages deployment ZIPs with fflate.
+    "esbuild@^0.27.0",
+    "fflate@^0.8.3",
+
+    // tsx runs the TypeScript CLI and project scripts. The CLI uses YAML for detailed property diffs.
     "tsx@^4.20.6",
+    "yaml@^2.6.0",
   ],
-  copyrightOwner: "Roman Naumenko",
+  copyrightOwner: "Tradedal",
   devDeps: [
-    "@biomejs/biome@2.4.12",
-    "@catenarycloud/linteffect@0.0.7-dev.2",
-    "@effect/tsgo@0.23.0",
-    "@effect/vitest@4.0.0-beta.93",
+    // The AWS resource generator imports Registry metadata through the CDK service specification.
+    "@aws-cdk/service-spec-importers@0.0.145",
+    "@aws-cdk/service-spec-types@0.0.289",
+
+    // Biome checks repository code with the shared Effect lint rules.
+    "@biomejs/biome@2.6.6",
+    "@tradedal/linteffect@0.1.1-dev.3",
+
+    // Effect's compiler diagnostics extend the project's TypeScript checks for Node.js.
+    "@effect/tsgo@0.63.0",
     "@types/node@^24.0.0",
-    "projen@^0.98.34",
     "typescript@7.0.2",
+
+    // Projen generates the package manifest, project tasks, and release configuration.
+    "projen@^0.98.34",
+
+    // The generators emit TypeScript syntax trees with ts-morph. The alias makes TypeScript 6 available alongside the project compiler.
+    "ts-morph@27.0.2",
+    "typescript-ast@npm:typescript@6.0.2",
+
+    // Vitest runs the suites through Vite. Effect's test integration runs cases that require Effect services.
+    "@effect/vitest@4.1.4",
     "vite@^8.0.7",
-    "vitest@^4.1.4",
+    "vitest@^5.0.5",
   ],
   entrypoint: "",
   github: true,
@@ -48,20 +78,27 @@ const project = new javascript.NodeProject({
   prettier: false,
   releaseToNpm: true,
   release: true,
-  releaseTrigger: ReleaseTrigger.workflowDispatch(),
+  releaseTrigger: release.ReleaseTrigger.workflowDispatch(),
   releasableCommits: ReleasableCommits.featuresAndFixes(),
   repository: "https://github.com/Tradedal/nomoss.git",
-  sampleCode: false,
   workflowNodeVersion: "24.11.1",
+  workflowBootstrapSteps: [
+    {
+      name: "Install Yarn",
+      run: "corepack enable && corepack prepare yarn@4.17.1 --activate",
+    },
+  ],
   yarnBerryOptions: {
     version: "4.17.1",
     zeroInstalls: false,
     yarnRcOptions: {
       enableScripts: true,
-      nodeLinker: YarnNodeLinker.NODE_MODULES,
+      nodeLinker: javascript.YarnNodeLinker.NODE_MODULES,
     },
   },
 });
+
+project.tryFindObjectFile(".yarnrc.yml")?.addOverride("npmMinimalAgeGate", 0);
 
 project.release?.publisher?.publishToNpm({
   trustedPublishing: true,
@@ -70,18 +107,12 @@ project.release?.publisher?.publishToNpm({
 project.package.addVersion(currentPackageVersion);
 project.package.addField("type", "module");
 project.package.addField("engines", { node: ">=24" });
-project.package.addField("bin", "bin/nomoss");
-project.package.addField("exports", {
-  ".": "./src/index.ts",
-  "./core": "./src/core/index.ts",
-  "./providers": "./src/providers/index.ts",
-  "./providers/aws": "./src/providers/aws/index.ts",
-  "./providers/stripe": "./src/providers/stripe/index.ts",
-});
+// NodePackage.addField publishes the import paths applications use, such as nomoss/core.
+project.package.addField("exports", packageExports);
 project.package.addField("files", [
   "README.md",
+  "ROADMAP.md",
   "LICENSE",
-  "bin",
   "docs",
   "examples",
   "media",
@@ -90,46 +121,46 @@ project.package.addField("files", [
 project.package.addField("publishConfig", { access: "public" });
 project.package.addField("packageManager", "yarn@4.17.1");
 project.package.addField("scripts", {
-  check: "yarn lint && yarn typecheck:tsgo && vitest run --pool forks --passWithNoTests --exclude 'tests/**/*.integration.test.ts'",
+  check:
+    "yarn format && yarn lint && yarn typecheck:tsgo && vitest run --pool forks --passWithNoTests --exclude 'tests/**/*.integration.test.ts'",
+  format: "biome check --write",
+  "format:staged": "biome check --write --staged --no-errors-on-unmatched",
+  "generate:aws-resource-definition":
+    "tsx tools/compileAwsResourceDefinition.ts",
+  "generate:aws-resources": "tsx tools/compileAwsCloudControlClient.ts",
+  "generate:stripe-client": "tsx tools/compileStripeClient.ts",
   lint: "biome lint --reporter=summary",
   "lint:fix": "biome check --write",
-  "tsgo:patch": "effect-tsgo patch",
-  "typecheck:tsgo": "tsc -b .",
+  nomoss: "tsx examples/cli.ts",
+  "tsgo:patch": "effect-tsgo patch --typescript",
+  "typecheck:tsgo": "yarn format:staged && effect-tsgo tsc --build .",
+  "test:integration":
+    "vitest run --config vitest.integration.config.ts --pool forks",
+  "test:integration:aws":
+    "vitest run --config vitest.integration.config.ts tests/awsUploadEvents.integration.test.ts --pool forks",
+  "test:integration:stripe":
+    "vitest run --config vitest.integration.config.ts tests/stripe --pool forks",
   projen: "tsx .projenrc.ts",
+  postinstall: "yarn tsgo:patch",
 });
 project.gitignore.addPatterns(".nomoss/");
+project.gitignore.addPatterns("refs/");
 project.defaultTask?.reset("tsx .projenrc.ts");
+project.testTask.exec("yarn check");
 
-if (project.github) {
-  const buildWorkflow = project.github.workflows.find(
-    (workflow) => workflow.name === "build",
-  );
-
-  if (buildWorkflow) {
-    buildWorkflow.file?.patch(
-      JsonPatch.add("/jobs/build/steps/2/with/package-manager-cache", false),
-    );
-
-    const buildJob = buildWorkflow.getJob("build");
-    const buildSteps = buildJob?.steps;
-    const resolvedBuildSteps =
-      typeof buildSteps === "function"
-        ? buildSteps()
-        : ((buildSteps as JobStep[] | undefined) ?? []);
-
-    buildWorkflow.updateJob("build", {
-      ...buildJob,
-      steps: [
-        resolvedBuildSteps[0],
-        {
-          name: "Install Yarn",
-          run: "corepack enable && corepack prepare yarn@4.17.1 --activate",
-        },
-        ...resolvedBuildSteps.slice(1),
-      ],
-    });
-  }
-}
+Option.fromUndefinedOr(project.github).pipe(
+  Option.flatMap((github) =>
+    Arr.findFirst(github.workflows, (workflow) => workflow.name === "build"),
+  ),
+  Option.match({
+    onNone: () => undefined,
+    onSome: (buildWorkflow) => {
+      buildWorkflow.file?.patch(
+        JsonPatch.add("/jobs/build/steps/2/with/package-manager-cache", false),
+      );
+    },
+  }),
+);
 
 new JsonFile(project, "tsconfig.json", {
   obj: {
@@ -137,9 +168,14 @@ new JsonFile(project, "tsconfig.json", {
     compilerOptions: {
       noEmit: true,
       rootDir: ".",
+      paths: {
+        "@nomoss/core": ["./src/core/index.ts"],
+        "@nomoss/providers": ["./src/providers/index.ts"],
+      },
       incremental: true,
       tsBuildInfoFile: "lib/tsconfig.tsbuildinfo",
       allowImportingTsExtensions: true,
+      resolveJsonModule: true,
       module: "NodeNext",
       moduleResolution: "NodeNext",
       target: "ESNext",
@@ -157,6 +193,7 @@ new JsonFile(project, "tsconfig.json", {
         {
           name: "@effect/language-service",
           diagnosticSeverity: {
+            unstableApiUsage: "off",
             globalDateInEffect: "error",
             globalDate: "warning",
             globalErrorInEffectCatch: "warning",
@@ -164,7 +201,7 @@ new JsonFile(project, "tsconfig.json", {
             globalFetchInEffect: "error",
             globalRandom: "error",
             globalTimers: "error",
-            importFromBarrel: "warning",
+            preferBarrelImport: "warning",
             globalConsole: "warning",
             globalConsoleInEffect: "error",
             catchAllToMapError: "warning",
@@ -179,95 +216,100 @@ new JsonFile(project, "tsconfig.json", {
             newPromise: "warning",
             nestedEffectGenYield: "warning",
           },
+          /**
+           * Generated AWS schemas apply numeric checks after annotations, which
+           * makes shorthand suggestions misleading for those declarations.
+           * Handwritten schemas retain the schemaNumber diagnostic.
+           */
+          overrides: [
+            {
+              include: [
+                "src/providers/aws/client/generated/**/*.ts",
+                "src/providers/aws/resources/generated/**/*.ts",
+              ],
+              options: {
+                diagnosticSeverity: { schemaNumber: "off" },
+              },
+            },
+          ],
           barrelImportPackages: ["effect", "@effect/*"],
           includeSuggestionsInTsc: true,
-          ignoreEffectWarningsInTscExitCode: true,
+          ignoreEffectWarningsInTscExitCode: false,
+          ignoreEffectErrorsInTscExitCode: false,
           ignoreEffectSuggestionsInTscExitCode: true,
         },
       ],
       types: ["node"],
     },
     include: [
+      ".projenrc.ts",
       "examples/**/*.ts",
       "src/**/*.ts",
       "tests/**/*.ts",
+      "tools/**/*.ts",
       "vitest.config.ts",
       "vitest.integration.config.ts",
     ],
   },
 });
 
-new TextFile(project, "biome.jsonc", {
+new JsonFile(project, "biome.jsonc", {
   marker: false,
-  lines: [
-    "{",
-    '  \"$schema\": \"node_modules/@biomejs/biome/configuration_schema.json\",',
-    '  \"root\": true,',
-    '  \"extends\": [\"@catenarycloud/linteffect\"],',
-    '  \"files\": {',
-    '    \"ignoreUnknown\": false,',
-    '    \"includes\": [\"examples/**/*.ts\", \"src/**/*.ts\", \"tests/**/*.ts\", \"vitest.config.ts\", \"vitest.integration.config.ts\"]',
-    "  },",
-    '  \"formatter\": { \"enabled\": true, \"indentStyle\": \"space\", \"indentWidth\": 2 },',
-    '  \"javascript\": { \"formatter\": { \"quoteStyle\": \"double\" } },',
-    '  \"linter\": { \"enabled\": true, \"rules\": { \"recommended\": true, \"style\": { \"useConst\": \"error\" } } },',
-    '  \"vcs\": { \"clientKind\": \"git\", \"enabled\": true, \"useIgnoreFile\": true }',
-    "}",
-  ],
+  readonly: false,
+  obj: {
+    $schema: "node_modules/@biomejs/biome/configuration_schema.json",
+    root: true,
+    extends: ["@tradedal/linteffect"],
+    files: {
+      ignoreUnknown: false,
+      includes: [
+        ".projenrc.ts",
+        "examples/**/*.ts",
+        "src/**/*.ts",
+        "tests/**/*.ts",
+        "tools/**/*.ts",
+        "vitest.config.ts",
+        "vitest.integration.config.ts",
+      ],
+    },
+    formatter: { enabled: true, indentStyle: "space", indentWidth: 2 },
+    javascript: { formatter: { quoteStyle: "double" } },
+    linter: {
+      enabled: true,
+      rules: { preset: "recommended", style: { useConst: "error" } },
+    },
+    vcs: { clientKind: "git", enabled: true, useIgnoreFile: true },
+  },
 });
 
-new TextFile(project, "vitest.config.ts", {
-  marker: false,
-  lines: [
-    'import { defineConfig } from "vitest/config";',
-    "",
-    "export default defineConfig({",
-    "  test: {",
-    '    include: ["tests/**/*.test.ts"],',
-    "  },",
-    "});",
-  ],
-});
-
-new TextFile(project, "vitest.integration.config.ts", {
-  marker: false,
-  lines: [
-    'import { defineConfig } from "vitest/config";',
-    "",
-    "export default defineConfig({",
-    "  test: {",
-    '    include: ["tests/**/*.integration.test.ts"],',
-    "  },",
-    "});",
-  ],
-});
-project.synth();
-
-fs.writeFileSync(
-  ".release-please-manifest.json",
-  `${JSON.stringify({ ".": currentPackageVersion }, null, 2)}\n`,
+project.addExcludeFromCleanup(
+  "vitest.config.ts",
+  "vitest.integration.config.ts",
 );
 
-fs.writeFileSync(
-  "release-please-config.json",
-  `${JSON.stringify(
-    {
-      $schema:
-        "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
-      packages: {
-        ".": {
-          "bump-patch-for-minor-pre-major": true,
-          "changelog-path": "CHANGELOG.md",
-          "include-component-in-tag": false,
-          "package-name": "nomoss",
-          "release-type": "node",
-        },
+new JsonFile(project, ".release-please-manifest.json", {
+  marker: false,
+  obj: { ".": currentPackageVersion },
+});
+
+new JsonFile(project, "release-please-config.json", {
+  marker: false,
+  obj: {
+    $schema:
+      "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+    packages: {
+      ".": {
+        "bump-patch-for-minor-pre-major": true,
+        "changelog-path": "CHANGELOG.md",
+        "include-component-in-tag": false,
+        "package-name": "nomoss",
+        "release-type": "node",
       },
     },
-    null,
-    2,
-  )}\n`,
-);
+  },
+});
+
+project.synth();
 
 const releaseWorkflowPath = ".github/workflows/release.yml";
 const releasePleaseWorkflow = `# ~~ Generated by projen. To modify, edit .projenrc.js and run "npx projen".
@@ -323,6 +365,10 @@ jobs:
         run: npm publish --access public
 `;
 
-fs.chmodSync(releaseWorkflowPath, 0o644);
-fs.writeFileSync(releaseWorkflowPath, releasePleaseWorkflow);
-fs.chmodSync(releaseWorkflowPath, 0o444);
+Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+
+  yield* fs.chmod(releaseWorkflowPath, 0o644);
+  yield* fs.writeFileString(releaseWorkflowPath, releasePleaseWorkflow);
+  yield* fs.chmod(releaseWorkflowPath, 0o444);
+}).pipe(Effect.provide(NodeFileSystem.layer), NodeRuntime.runMain);

@@ -1,17 +1,61 @@
-export * from "./lifecycle.js";
-export * from "./model.js";
-export * from "./physicalNameStore.js";
-export * from "./planner.js";
-export * from "./resourceCommandPolicy.js";
-export * from "./resourceGraphBuilder.js";
-export * from "./resourceGraphStore.js";
-export * from "./resourceOutputResolver.js";
-export * from "./resourcePolicy.js";
-export * from "./resourceStackDefinition.js";
-export * from "./resourceStackLifecycle.js";
-export * from "./resourceStackOperations.js";
-export * from "./runtimeLayer.js";
-export * from "./stackWorkflowRenderer.js";
-export * from "./stateSecretService.js";
-export * from "./stateStore.js";
-export * from "./tracing.js";
+export * from "./asset.js";
+export * from "./resource/lifecycle.js";
+export {
+  annotateResourceSchema,
+  type CloudFormationPropertyReference,
+  CloudFormationPropertyReferenceSchema,
+  CloudFormationPropertyReferencesAnnotationId,
+  type DependencyEdge,
+  DependencyEdgeSchema,
+  PlanAction,
+  ResourceEntity,
+  ResourceEntityTypeMismatch,
+  ResourceIdentityMismatch,
+  type ResourceInputJson,
+  ResourceInputJsonSchema,
+  type ResourceKey,
+  ResourceKeySchema,
+  ResourceModel,
+  type ResourceNode,
+  ResourceNodeSchema,
+  ResourceOutput,
+  ResourceOutputResolutionMissing,
+  ResourceOutputSchema,
+  ResourceOutputSchemaMissing,
+  type ResourcePlan,
+  type ResourcePropertyPath,
+  ResourcePropertyPathSchema,
+  type ResourceReferenceRecord,
+  ResourceReferenceRecordSchema,
+  ResourceReferenceSchema,
+  ResourceReferenceSourceMismatch,
+  type ResourceRelationship,
+  ResourceRelationshipSchema,
+  type ResourceRequestMapping,
+  ResourceRequestMappingSchema,
+  ResourceRequestSchemaMissing,
+  type ResourceSchemaAnnotation,
+  ResourceSchemaAnnotationId,
+  ResourceSchemaAnnotationMissing,
+  ResourceSchemaAnnotationSchema,
+  type ResourceType,
+  ResourceTypeSchema,
+  readResourceSchemaAnnotation,
+  resourceModelLayer,
+} from "./resource/model.js";
+export * from "./resource/resourceCommandPolicy.js";
+export * from "./resource/resourceGraphBuilder.js";
+export * from "./resource/resourceGraphStore.js";
+export { ResourceOutputStackMismatch } from "./resource/resourceOutputBinding.js";
+export { ResourceOutputPropertyPathInvalid } from "./resource/resourceOutputResolver.js";
+export * from "./runtime/stackRuntimeLayer.js";
+export * from "./runtime/tracing.js";
+export * from "./stack/planner.js";
+export * from "./stack/resourceStackDefinition.js";
+export * from "./stack/resourceStackLifecycle.js";
+export * from "./stack/resourceStackOperations.js";
+export * from "./stack/stackWorkflowRenderer.js";
+export * from "./state/localState.js";
+export * from "./state/resourceState.js";
+export * from "./state/stateSecretService.js";
+export * from "./state/stateStore.js";
