@@ -20,7 +20,7 @@ The planner uses generated mutability metadata and provider semantics to decide 
 
 ## Provider capabilities
 
-Cloud Control provides the generic lifecycle for supported AWS types. A provider service that needs additional AWS operations calls their generated Smithy contracts through the internal client. [AWS resource contract](aws-resource-lifecycle-management.md)
+A resource's type identifies its management definition. That definition selects the provider operations and supplies the mappings and rules the stack needs to confirm a change and preserve ownership. AWS resources execute generated operations for their native service API through the internal client. See the [AWS resource contract](aws-resource-lifecycle-management.md).
 
 Public service methods let a lifecycle compose provider capabilities. Each capability defines schemas for its data and returns typed failures that explain unsuccessful calls. Layers supply the dependencies those methods require. [Effect development contract](../development/effect-native-development.md)
 
@@ -40,4 +40,4 @@ The public API covers the application stack lifecycle, from declaration and plan
 
 The core validates related resource entities, retains their request mappings in saved state, and obtains current source values before dependent mutations. Generated Stripe inputs enforce resource types at resolved relationship paths. AWS entity inputs and unresolved provider relationships remain unfinished, so applications cannot assume that every generated property supports this workflow.
 
-Each resource needs a contract that identifies which Cloud Control operations it supports. The contract also establishes identity across execution contexts so Nomoss can adopt the intended object, recover after interruption, and destroy only the object it owns. Those decisions remain open for resource types without such a contract.
+Each managed resource needs a contract that defines the identity and provider operations for its lifecycle. A later run uses that identity to recover after interruption and remove only the object the stack owns. Adoption requires evidence that matches the contract. The [AWS coverage reference](aws-resource-coverage.md) records which resource types have verified management.

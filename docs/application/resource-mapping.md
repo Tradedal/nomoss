@@ -1,12 +1,10 @@
 # Resource mapping
 
-An application can declare a Stripe product and its price before either exists in Stripe. The Product declaration returns a typed resource entity. The application passes that entity to the Price declaration, and Nomoss supplies the product's assigned ID when it creates the price.
+A resource mapping identifies the entities a property accepts and the values each entity supplies to a provider request. It also specifies how a later run identifies the object to read or change. The same contract applies to provider and local resources.
 
-A resource mapping identifies the entities a property accepts and the provider values each entity supplies. It also specifies how a later run identifies the object to read or change. The same contract applies to provider resources and to local resources such as BillingConfigurationExport, which writes application configuration to a file.
+## Example: declare a product and its price
 
-## Declare related resources before they exist
-
-Inside an application declaration, the StripeResources service supplies the resource functions used below. The product variable identifies the declared Product even though its Stripe ID is still unavailable.
+An application can declare a Stripe product and its price before either exists in Stripe. The StripeResources service supplies both declarations. The Product declaration returns an entity, and Nomoss supplies its assigned ID when it creates the price.
 
 ```ts
 const stripe = yield* StripeResources;
@@ -34,7 +32,7 @@ After apply, the application can read price.PriceId directly. A read before the 
 
 ## Validate declarations against the provider's rules
 
-A declaration rejects invalid inputs before a provider mutation. The same source governs TypeScript and runtime validation. For Stripe that source is OpenAPI. AWS uses CloudFormation Registry for resource properties and Smithy for Cloud Control requests. A local resource uses its registered Effect schema.
+A declaration rejects invalid inputs before a provider mutation. The same source governs TypeScript and runtime validation. For Stripe that source is OpenAPI. AWS uses CloudFormation Registry for resource properties and Smithy for requests to native service APIs. A local resource uses its registered Effect schema.
 
 Registry classifications determine which AWS properties an application can set or change. AWS supplies read-only values. A change to a create-only property requires replacement. A write-only value needs a retention rule because provider reads omit it. Where Registry leaves mutability or retention open, the resource policy defines the rule before Nomoss applies a change or accepts an observation.
 
@@ -60,7 +58,6 @@ Stripe's external_account operation can return a bank account or a card. The res
 
 Generated identity names can differ from provider parameter names. A Customer read passes CustomerId as customer. A Product read passes ProductId as id. The resource contract maps each saved output to the parameter and preserves the constraints of the source field or creation parameter.
 
-An application declares a queue before AWS assigns QueueUrl, its Registry primary identifier. Cloud Control also returns an opaque Identifier. Later requests require that value and the resource type, so Nomoss saves it separately from the complete observed resource model, even for types without read-only properties. The internal client validates Cloud Control requests and responses against their Smithy contracts. [AWS resource specification](aws-resource-lifecycle-management.md)
 
 A mapped read uses the identity from the last successful apply. A new declaration first needs a successful creation and saved identity. ResourceReadIdentityMissing identifies a read without that applied record. Invalid saved outputs stop the request locally. If the response identifies a different object, Nomoss reports ResourceIdentityMismatch and preserves the previous state.
 
@@ -107,8 +104,6 @@ The published resource catalog explains which declarations a maintainer can use 
 Small provider documents let maintainers check generated declarations and accepted entity types without credentials or a reference checkout. These cases also identify which missing requirements prevent generation. Source comparisons cover the AWS Queue Registry model, the corrected Stripe specification, and the BillingConfigurationExport schema. They establish compatibility of public names and validation as well as relationship, identity, and retention rules. An invalid output policy stops publication. [testing contract](../development/testing.md)
 
 In the billing acceptance workflow, a later run reads the original Product and Price. After price replacement, dependent requests use the new identity. Production lifecycle and state coverage also exercises nested and cross-provider relationships, multi-value mappings, and recovery after reload or failure. An unrelated type stops the dependent mutation. Failed reads and teardown retries preserve the state and secrets needed for recovery. [testing contract](../development/testing.md)
-
-The S3-to-SQS acceptance workflow creates its resources through generated Cloud Control declarations, uploads an object, receives the event from SQS, and removes the managed resources.
 
 ## Current limits
 

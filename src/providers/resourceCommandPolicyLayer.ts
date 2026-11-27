@@ -7,23 +7,38 @@ import {
 import type { ResourceSchemaAnnotation } from "../core/resource/model.js";
 import {
   ResourceCommandExecutionFailed,
+  type ResourceCommandFailure,
   ResourceCommandPolicy,
 } from "../core/resource/resourceCommandPolicy.js";
 
-/**
- * ProviderResourceCommandPolicy is the execution contract each registered
- * provider implements. Its service tag is derived from persisted resource
- * metadata so later commands can locate the same resource capability.
- */
-interface ProviderResourceCommandPolicy {
-  readonly execute: (
-    command: ResourceCommand,
-  ) => ReturnType<(typeof ResourceCommandPolicy)["Service"]["execute"]>;
-}
+type ProviderResourceCommandPolicy = ResourceCommandPolicy["Service"];
 
 /**
- * providerCommandPolicyTag identifies the registration for a resource schema.
- * Providers supply the implementation in the same runtime as command execution.
+ * The ResourceCommandPolicyResolver service can select a policy from saved
+ * metadata after a resource disappears from the declaration. It reports
+ * absence for unsupported types and reports initialization failures separately.
+ *
+ * @see ../../node_modules/effect/src/Context.ts (Service)
+ */
+export class ResourceCommandPolicyResolver extends Context.Service<
+  ResourceCommandPolicyResolver,
+  {
+    readonly resolve: (
+      schema: ResourceSchemaAnnotation,
+    ) => Effect.Effect<
+      Option.Option<ProviderResourceCommandPolicy>,
+      ResourceCommandFailure
+    >;
+  }
+>()(
+  "nomoss/providers/resourceCommandPolicyLayer/ResourceCommandPolicyResolver",
+) {}
+
+/**
+ * The providerCommandPolicyTag function identifies the registration for a
+ * resource schema. Providers supply it in the runtime that issues commands.
+ *
+ * @see ../../node_modules/effect/src/Context.ts (Service)
  */
 export const providerCommandPolicyTag = (schema: ResourceSchemaAnnotation) =>
   Context.Service<ProviderResourceCommandPolicy, ProviderResourceCommandPolicy>(
@@ -31,27 +46,68 @@ export const providerCommandPolicyTag = (schema: ResourceSchemaAnnotation) =>
   );
 
 /**
- * awsCloudControlCommandPolicyTag registers the common lifecycle used by
- * Cloud Control resources. Their saved metadata selects the resource type for
- * each invocation, so separate type registrations are unnecessary.
+ * The resourceCommandPolicy function keeps the provider's failure attached to
+ * its command. The stack can record the failed action while diagnostics still
+ * have the original cause.
+ *
+ * @see ../../node_modules/effect/src/Effect.ts (mapError)
  */
-export const awsCloudControlCommandPolicyTag = Context.Service<
-  ProviderResourceCommandPolicy,
-  ProviderResourceCommandPolicy
->("nomoss/providers/resourceCommandPolicyLayer/aws-cloud-control");
+export const resourceCommandPolicy = <Failure extends ResourceCommandFailure>(
+  execute: (
+    command: ResourceCommand,
+  ) => Effect.Effect<ResourceCommandResult, Failure>,
+): ProviderResourceCommandPolicy => ({
+  execute: (command) =>
+    execute(command).pipe(
+      Effect.mapError(
+        (cause) => new ResourceCommandExecutionFailed({ command, cause }),
+      ),
+    ),
+});
 
 /**
- * The providerResourceCommandPolicyLayerLive Layer uses provider registrations
- * from the application's runtime. An absent registration produces a typed unsupported
- * command that retains the original request for diagnosis.
+ * The registerResourceCommands function lets a provider register one executor
+ * for several type identifiers. A caller can keep an old identifier as an
+ * alias when saved resources still use it.
+ *
+ * @see ../../node_modules/effect/src/Context.ts (make and add)
+ */
+export const registerResourceCommands = <
+  Failure extends ResourceCommandFailure,
+>(
+  execute: (
+    command: ResourceCommand,
+  ) => Effect.Effect<ResourceCommandResult, Failure>,
+  tag: Context.Key<
+    ProviderResourceCommandPolicy,
+    ProviderResourceCommandPolicy
+  >,
+  ...aliases: ReadonlyArray<
+    Context.Key<ProviderResourceCommandPolicy, ProviderResourceCommandPolicy>
+  >
+) => {
+  const policy = resourceCommandPolicy(execute);
+
+  return aliases.reduce(
+    (registrations, alias) => Context.add(registrations, alias, policy),
+    Context.make(tag, policy),
+  );
+};
+
+/**
+ * The providerResourceCommandPolicyLayerLive Layer checks the application's
+ * registrations before asking a resolver to load a policy. If neither source
+ * has a policy for the saved type, dispatch returns an unsupported command.
+ *
+ * @see ../../node_modules/effect/src/Effect.ts (serviceOption)
  */
 export const providerResourceCommandPolicyLayerLive = Layer.effect(
   ResourceCommandPolicy,
   Effect.sync(() => {
     /**
-     * execute selects the provider registration identified by the command's
-     * resource metadata. Resource context continues into provider spans and logs
-     * so a read or mutation remains attributable to the same logical resource.
+     * The execute service method accepts the schema on a saved node, including
+     * for deletion after the declaration has gone. Its failure retains the
+     * original command so diagnostics can identify the affected resource.
      */
     const execute = Effect.fn("ProviderResourceCommandPolicy.execute")(
       function* (command: ResourceCommand) {
@@ -76,22 +132,46 @@ export const providerResourceCommandPolicyLayerLive = Layer.effect(
 
         yield* Effect.annotateCurrentSpan(resourceAttributes);
 
-        const tag = Option.match(
-          Option.fromUndefinedOr(node.schema.cloudControl),
-          {
-            onNone: () => providerCommandPolicyTag(node.schema),
-            onSome: () => awsCloudControlCommandPolicyTag,
-          },
+        // A saved Cloud Control identity cannot address a native AWS resource.
+        yield* Effect.fail(
+          new ResourceCommandExecutionFailed({
+            command,
+            cause: new ResourceCommandUnsupported({ command }),
+          }),
+        ).pipe(
+          Effect.when(Effect.succeed(node.schema.cloudControl !== undefined)),
         );
 
-        const policy = yield* Effect.serviceOption(tag).pipe(
-          Effect.flatMap(Effect.fromOption),
-          Effect.mapError(
-            () =>
-              new ResourceCommandExecutionFailed({
-                command,
-                cause: new ResourceCommandUnsupported({ command }),
-              }),
+        const policy = yield* Effect.serviceOption(
+          providerCommandPolicyTag(node.schema),
+        ).pipe(
+          Effect.flatMap((registered) =>
+            Option.match(registered, {
+              onSome: Effect.succeedSome,
+              onNone: () =>
+                Effect.serviceOption(ResourceCommandPolicyResolver).pipe(
+                  Effect.flatMap((resolver) =>
+                    Option.match(resolver, {
+                      onNone: () => Effect.succeedNone,
+                      onSome: ({ resolve }) => resolve(node.schema),
+                    }),
+                  ),
+                  Effect.mapError(
+                    (cause) =>
+                      new ResourceCommandExecutionFailed({ command, cause }),
+                  ),
+                ),
+            }),
+          ),
+          Effect.flatMap((registered) =>
+            Effect.fromOption(
+              registered,
+              () =>
+                new ResourceCommandExecutionFailed({
+                  command,
+                  cause: new ResourceCommandUnsupported({ command }),
+                }),
+            ),
           ),
         );
 

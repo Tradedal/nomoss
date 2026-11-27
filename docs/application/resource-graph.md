@@ -36,7 +36,7 @@ The canonical state schemas preserve applied nodes and lifecycle records. Saved 
 
 ResourceStateStore uses Effect's KeyValueStore schema support to validate reads and encode writes. File storage keeps one JSON document per stack under .nomoss/state. Tests use the same service with an in-memory KeyValueStore. The configured secret store governs protected outputs.
 
-Reconciliation reads each managed object by its saved provider identity. Only values that pass the registered output schema can enter saved state or a dependent request. Cloud Control requires both the resource type and its opaque Identifier.
+Reconciliation reads each managed object by its saved provider identity. Only values that pass the registered output schema can enter saved state or a dependent request.
 
 ## Acceptance
 

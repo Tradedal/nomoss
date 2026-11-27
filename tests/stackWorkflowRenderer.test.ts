@@ -2,9 +2,9 @@ import { assert, layer } from "@effect/vitest";
 import { Array as Arr, Effect } from "effect";
 import { TestConsole } from "effect/testing";
 import {
-  QueueOutputsSchema,
-  QueuePropsSchema,
-} from "nomoss/providers/aws/cloud-control/sqs/queue";
+  AWSQueueOutputsSchema as QueueOutputsSchema,
+  AWSQueuePropsSchema as QueuePropsSchema,
+} from "nomoss/providers/aws/sqs/queue";
 import { PlanAction, ResourceModel } from "../src/core/resource/model.js";
 import {
   StackWorkflowRenderer,

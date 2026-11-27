@@ -1,5 +1,7 @@
 import { Context, Data, Effect, Option } from "effect";
+import type { ResourceStateStore } from "../state/stateStore.js";
 import type { ResourceCommand, ResourceCommandResult } from "./lifecycle.js";
+import type { ResourceNode } from "./model.js";
 
 /**
  * The ResourceCommandStackName reference supplies the stack that owns a provider
@@ -10,6 +12,24 @@ import type { ResourceCommand, ResourceCommandResult } from "./lifecycle.js";
 export const ResourceCommandStackName = Context.Reference<
   Option.Option<string>
 >("nomoss/core/resource/resourceCommandPolicy/stackName", {
+  defaultValue: Option.none,
+});
+
+/**
+ * The ResourceCommandCreation reference lets a provider lifecycle resume a
+ * submitted create during stack apply. The lifecycle can save one-time
+ * outputs before confirmation so the next apply can recover them.
+ *
+ * @see ../../../node_modules/effect/src/Context.ts (Reference)
+ */
+export const ResourceCommandCreation = Context.Reference<
+  Option.Option<{
+    readonly submitted: Option.Option<ResourceNode>;
+    readonly record: (
+      node: ResourceNode,
+    ) => ReturnType<ResourceStateStore["Service"]["recordResourceCreation"]>;
+  }>
+>("nomoss/core/resource/resourceCommandPolicy/creation", {
   defaultValue: Option.none,
 });
 

@@ -5,6 +5,7 @@ import {
   Effect,
   FileSystem,
   Match,
+  Option,
   Path,
   Record,
   Schema,
@@ -70,50 +71,37 @@ export class AwsCloudControlClientGenerator extends Context.Service<AwsCloudCont
             ),
           );
 
-        yield* fs.makeDirectory(
-          path.join(".cache", "nomoss", "smithy", dependencies.version),
-          { recursive: true },
-        );
+        const workspace = yield* fs.makeTempDirectoryScoped({
+          prefix: "nomoss-smithy-",
+        });
 
-        const jars = yield* Effect.forEach(dependencies.artifacts, (artifact) =>
-          Effect.gen(function* () {
-            const jar: string = path.join(
-              ".cache",
-              "nomoss",
-              "smithy",
-              dependencies.version,
-              `${artifact.name}.jar`,
-            );
-
-            const cached = yield* fs.exists(jar);
-
-            const bytes: Uint8Array = yield* Match.value(cached).pipe(
-              Match.when(true, () => fs.stream(jar)),
-              Match.orElse(() =>
+        const jars = yield* Effect.forEach(
+          dependencies.artifacts,
+          (artifact) =>
+            Effect.gen(function* () {
+              const jar = path.join(workspace, `${artifact.name}.jar`);
+              const bytes = yield* Stream.mkUint8Array(
                 HttpClientResponse.stream(
                   http.get(
                     `https://repo.maven.apache.org/maven2/software/amazon/smithy/${artifact.name}/${dependencies.version}/${artifact.name}-${dependencies.version}.jar`,
                   ),
                 ),
-              ),
-              Stream.mkUint8Array,
-            );
+              );
 
-            yield* digest.digestHex(Digest.sha256, bytes).pipe(
-              Effect.filterOrFail(
-                (checksum) => checksum === artifact.sha256,
-                () =>
-                  new AwsCloudControlGenerationError({
-                    message: `Checksum mismatch for ${jar}; remove the cached file before retrying`,
-                  }),
-              ),
-            );
+              yield* digest.digestHex(Digest.sha256, bytes).pipe(
+                Effect.filterOrFail(
+                  (checksum) => checksum === artifact.sha256,
+                  () =>
+                    new AwsCloudControlGenerationError({
+                      message: `Checksum mismatch for ${artifact.name}@${dependencies.version}`,
+                    }),
+                ),
+              );
 
-            yield* fs
-              .writeFile(jar, bytes)
-              .pipe(Effect.when(Effect.succeed(!cached)));
-            return jar;
-          }),
+              yield* fs.writeFile(jar, bytes);
+              return jar;
+            }),
+          { concurrency: 4 },
         );
 
         const separator = Match.value(path.sep).pipe(
@@ -121,13 +109,7 @@ export class AwsCloudControlClientGenerator extends Context.Service<AwsCloudCont
           Match.orElse(() => ":"),
         );
 
-        const classes = path.join(
-          ".cache",
-          "nomoss",
-          "smithy",
-          dependencies.version,
-          "classes",
-        );
+        const classes = path.join(workspace, "classes");
 
         yield* fs.makeDirectory(classes, { recursive: true });
 
@@ -251,17 +233,17 @@ export class AwsCloudControlClientGenerator extends Context.Service<AwsCloudCont
       });
 
       /**
-       * The emitClientModule service method accepts operation documents from
-       * one AWS service so catalog readers and runtime calls use the same
-       * execution definition. An empty collection or conflicting service
-       * metadata fails before schema emission. Callers receive source for
-       * inspection before publication.
+       * The emitClientModule service method requires at least one operation
+       * document. Every document must agree on the rules for one AWS service
+       * because the client uses those rules for all its operations. Callers
+       * can inspect the returned TypeScript before publication.
        */
       const emitClientModule = Effect.fn(
         "AwsCloudControlClientGenerator.emitClientModule",
       )(function* (
         documents: ReadonlyArray<OpenApiSpecification>,
         serviceName: string,
+        unsignedOperations: ReadonlyArray<string> = [],
       ) {
         const providerDocuments = yield* Effect.forEach(documents, (document) =>
           Schema.decodeUnknownEffect(AwsOpenApiDocument)(document),
@@ -314,7 +296,15 @@ export class AwsCloudControlClientGenerator extends Context.Service<AwsCloudCont
           }),
         );
 
-        const operations = yield* openApi.bindClientOperations(discovered);
+        const operations = Arr.map(
+          yield* openApi.bindClientOperations(discovered),
+          (operation) => ({
+            ...operation,
+            unsigned: Option.liftPredicate(true as const, () =>
+              Arr.contains(unsignedOperations, operation.name),
+            ).pipe(Option.getOrUndefined),
+          }),
+        );
 
         const module = typeScript.createModule(serviceDefinition.protocol);
 
@@ -325,15 +315,6 @@ export class AwsCloudControlClientGenerator extends Context.Service<AwsCloudCont
           serviceName,
           serviceDefinition,
           operations,
-        );
-
-        const prefix = Str.camelCase(serviceName);
-
-        yield* catalogs.emitOperationCatalog(
-          module,
-          `${prefix}OperationCatalog`,
-          Arr.flatMap(discovered, (catalog) => catalog.metadata),
-          { "x-aws-service": `${prefix}Service` },
         );
 
         const source: string = module.getFullText();

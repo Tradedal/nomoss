@@ -35,6 +35,7 @@ import {
   resourceInstanceKey,
 } from "../resource/model.js";
 import {
+  ResourceCommandCreation,
   ResourceCommandPolicy,
   ResourceCommandProgress,
   ResourceCommandStackName,
@@ -238,7 +239,8 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
 
           yield* stateStore.markResourceStarted(stackName, action);
 
-          const resources = yield* stateStore.loadResources(stackName);
+          const { resources, states } =
+            yield* stateStore.loadSnapshot(stackName);
 
           const resolvedAction: ResourceOperation = yield* resolveAction(
             graph,
@@ -269,6 +271,35 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
             Match.orElse(() => Option.none<ResourceNode>()),
           );
 
+          const submitted = Arr.findFirst(
+            states,
+            (state) =>
+              state._tag === "Creating" &&
+              state.submitted === true &&
+              resourceInstanceKey(state.node) ===
+                resourceInstanceKey(resolvedAction.node),
+          ).pipe(Option.map(({ node }) => node));
+
+          yield* submitted.pipe(
+            Option.filter(
+              (node) => !model.propsEqual(node, resolvedAction.node),
+            ),
+            Option.map(() =>
+              Effect.fail(
+                new ResourceOperationInProgress({
+                  logicalId: action.node.key.logicalId,
+                }),
+              ),
+            ),
+            Effect.transposeOption,
+          );
+
+          const creation = Option.some({
+            submitted,
+            record: (node: ResourceNode) =>
+              stateStore.recordResourceCreation(stackName, node),
+          });
+
           yield* Effect.annotateCurrentSpan({
             "nomoss.resource.inputs_unchanged": Option.isSome(unchanged),
           });
@@ -283,8 +314,9 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
             Match.exhaustive,
           );
 
-          // The applyAction operation supplies the owning stack so native
-          // resource policies can retain physical names across creation retries.
+          // The applyAction operation keeps the stack's recovery data available
+          // to the provider. A retried create can reuse its physical name or
+          // confirm the provider identity already saved for that generation.
           const result = yield* policy
             .execute(ResourceCommand.Apply({ decision }))
             .pipe(
@@ -292,6 +324,7 @@ export class ResourceStackLifecycle extends Context.Service<ResourceStackLifecyc
                 ResourceCommandStackName,
                 Option.some(stackName),
               ),
+              Effect.provideService(ResourceCommandCreation, creation),
               Effect.interruptible,
               Effect.tapErrorTag(
                 "ResourceCommandExecutionFailed",

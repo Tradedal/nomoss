@@ -53,7 +53,7 @@ Stack "native-queue"
 
 Both commands display the plan before execution. An update lists deletions first. The plan captures its resources and dependencies. A subsequent change to saved state invalidates the plan before any provider mutation. Even a change to an operation's status requires a new plan.
 
-Use `Asset.fromPath` for a file or directory and `Asset.fromBuild` for a source entry point and its build settings. Diff, create, and update prepare each asset and record its SHA-256 digest in the plan. Detailed output shows the source and digest. Apply uses the exact bytes from that plan. To deploy a later edit, prepare a new plan. Dependency inspection, state inspection, reconcile, and delete require no source build or package. [Asset API](../../src/core/asset.ts) · [HTTP echo declaration](../../examples/http-echo/application.ts)
+Use `Asset.fromPath` for a file or directory and `Asset.fromBuild` for a source entry point and its build settings. Diff, create, and update prepare each asset and record its SHA-256 digest in the plan. Detailed output shows the source and digest. Apply uses the exact bytes from that plan. To deploy a later edit, prepare a new plan. Dependency inspection, state inspection, reconcile, and delete require no source build or package. [Asset API](../../src/core/asset.ts)
 
 When a change requires replacement, the plan identifies the resource to replace and shows the order of its creation and removal operations. A resumed plan lists the operations that still need to run. Dependency values are resolved again during execution, and an unchanged request preserves the current resource.
 

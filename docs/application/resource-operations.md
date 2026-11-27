@@ -14,13 +14,15 @@ Stripe treats HTTP 404 as confirmed absence. A Customer hint also permits a dele
 
 ## Update a resource
 
-An update targets the saved object. Its mapping specifies which output supplies each identity parameter, even if the names differ. The complete request passes validation, including any required constant. If a declaration drops a property, the policy defines how to clear the provider value. Without such a rule, the change fails before mutation.
+An update targets the saved object. Its mapping specifies which output supplies each identity parameter, even if the names differ. Nomoss validates the complete request and any required constants. If a declaration drops a property, the policy defines how to clear the provider value. Without such a rule, the change fails before mutation.
 
 Generated Stripe updates currently use the same identity mapping as reads. StripeResourcePolicy returns ResourceCommandUnsupported if the update schema discards a changed field or the declaration drops a saved property. Other identity mappings, constant update values, and provider-specific property resets remain outstanding. A constant that conflicts with the saved identity is invalid.
 
 ## Remove a resource
 
 Removal uses the saved identity. Nomoss releases ownership only after the provider call succeeds. When HTTP DELETE does not express the intended action, a hint selects the operation and any constants its request requires.
+
+A resource that manages part of a shared provider object removes the entries it owns and preserves unrelated entries. Its management definition identifies those entries and defines how to confirm their removal.
 
 Product and BillingPortalConfiguration use a hint to select POST with active: false for removal. Discovery selects HTTP DELETE by default. Support for each additional removal operation requires an identity mapping and request values the shared service can execute when the declaration disappears.
 
@@ -36,4 +38,4 @@ Each owned instance has its own lifecycle record and protected outputs. A comple
 
 Generated configuration preserves the provider operation's input, output, and failure types. Effect infers service dependencies and errors from the application Layer graph. The schema compiler checks mappings and constants, and the runtime validates the completed request.
 
-A generated operation replaces a manual policy once production uses the generated registration and the superseded policy, wrapper, and runtime override are gone. Application integration coverage follows the provider object and its saved identity through each change, checks the values that dependents receive, and exercises recovery and cleanup. Each resource needs executable selections and mappings for its supported operations. [generation specification](generation-architecture.md#provider-directory-organization) · [resource management tracker](../../attempts/dev-attempts_generated-resource-management.md)
+The management definition selects the operations and mappings for each supported change. A provider rule that needs its own decisions or sequence can call a typed operation within the shared lifecycle. An integration case follows the managed object and its saved identity through a change, then checks the outputs that dependents receive and the result of recovery or removal. See the [resource management development guide](../development/effect-native-development.md#develop-resource-management).

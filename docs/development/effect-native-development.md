@@ -34,7 +34,51 @@ Use Layer.buildWithMemoMap when the caller must supply a [Layer](https://github.
 
 Stop the active stream before its replacement starts. Give each stream its own scope and close that scope to stop it, or store the active fiber in service state and interrupt it directly. Apply that cleanup when a change of identity or runtime requires a new stream.
 
+## Develop resource management
+
+### Establish the resource lifecycle
+
+Start with what the stack must be able to create, observe, change, replace, and remove. Read the provider specification and trace each action through the existing lifecycle service and saved state. Establish which provider values identify the owned object, which properties can change, what confirms a mutation, and what a retry needs after partial success. See the [resource lifecycle contract](../application/resource-operations.md).
+
+Use a branded schema for AWS identities and metadata that pass between services. Decode provider replies and saved values through the canonical schema before a service uses an identity. The brand distinguishes values that share a wire type, such as an AWS account ID and an IAM role ID. Use the [AWS environment and ARN contracts](../../providers/aws/README.md) for account, partition, region, and ARN values.
+
+### Combine generation, declarations, and code
+
+Generate schemas and typed client operations from the provider specifications. Use a resource definition to select those operations and map identities, requests, and confirmed results through the shared lifecycle contract. A resource that follows a supported lifecycle should require only its definition and generator inputs. New field names, operation names, and response formats belong in mappings.
+
+If the contract lacks a required behavior, explain the provider rule and what happens if the stack omits it. Extend the shared contract if the rule applies to other resources. Supply a typed Effect operation at the affected lifecycle step if a resource needs its own decision or sequence. The shared lifecycle still validates inputs, checks ownership, confirms changes, and saves state. A new interface, manifest field, or renderer requires a distinct behavior that the existing contract cannot express. See [Generate lifecycle operations](../application/generation-architecture.md#generate-lifecycle-operations).
+
+### Resolve management by resource type
+
+The provider Layer supplies services shared across resource types. A catalog indexed by resource type can tell the runtime where to find each management definition. Resolve the types a stack operation needs from declarations and saved state. Load and initialize those definitions within the existing application scope. The stack must still manage a saved resource after its declaration disappears. If a definition is missing, report the unsupported command before the runtime sends a request for that resource.
+
+A new resource must leave provider runtime composition unchanged. A provider-wide `Layer.mergeAll` of resource command Layers builds every registration at startup. A generated list has the same cost, even if the generator writes one list per service. Keep that pattern out of provider composition. See the [Effect Layer implementation](../../../command-options-fund/refs/effect/packages/effect/src/Layer.ts) for how `mergeAll` builds its inputs.
+
+### Verify the pattern at catalog scale
+
+Show that a new resource can use an existing lifecycle through its definition and generator inputs. Run a fixed stack against a catalog of hundreds of resource types and check which management definitions load and initialize. Record the catalog size, the types the stack uses, and the observed startup work. Use the stack to verify mutation results, recovery after a failure, and removal after a declaration disappears.
+
+### Use a local AWS client from another repository
+
+Run `yarn install` in the Nomoss checkout. In a Yarn 4 app, add `@tradedal/aws-client-iam` and `@tradedal/aws-client-core` to `dependencies` with `"*"` as the version. Then run this from the app directory:
+
+```sh
+NOMOSS=/path/to/nomoss
+yarn link "$NOMOSS/providers/aws/generated/clients/iam" \
+          "$NOMOSS/providers/aws/client-core"
+```
+
+The app imports both packages by name and reads the linked source. If the app uses Yarn's `node-modules` linker, set `NODE_OPTIONS=--preserve-symlinks` when launching it. For an npm app, run `yarn workspace <package-name> pack --out /tmp/<package>.tgz` in Nomoss for each package, then install both archives together with `npm install` from the app. Repack and reinstall to pick up changes.
+
 ## Compose operations and return typed failures
+
+### Let Effect infer channels at the call site
+
+Let Effect's combinators infer success values, failures, and required services. A helper whose sole purpose is forwarding `Effect.Effect<A, E, R>` to a combinator repeats the library's signature, even when TypeScript infers the helper's return type. The same rule applies to generic Layer inputs.
+
+For a retry, the service supplies the schedule and the caller decides which failures to retry with `request.pipe(Effect.retry({ schedule, while: isRetryable }))`. Effect checks the predicate against the request's failure type. Keep a domain type parameter when the signature relates application values, such as a resource observation and its readiness predicate. [Effect retry API and overloads](../../../command-options-fund/refs/effect/packages/effect/src/Effect.ts)
+
+### Keep the complete operation in its Effect
 
 Keep every operation required for a method's result in the Effect returned to its caller. Use explicit Effect sequencing for work that runs after an operation succeeds, such as rendering a plan before returning it. Separate logical steps with blank lines so readers can see where the operation obtains the result, uses it, and returns it. Perform external I/O and process execution through Effect services so the application supplies their implementations and controls their lifetimes. Send program logs through Effect and terminal output through the command renderer that applies the CLI's presentation contract.
 

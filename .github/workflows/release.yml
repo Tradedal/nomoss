@@ -43,9 +43,21 @@ jobs:
           package-manager-cache: false
       - name: Install dependencies
         run: yarn install --immutable
+      - name: Set workspace package versions
+        env:
+          PROJEN_DISABLE_POST: "1"
+        run: yarn projen
       - name: Check
         run: yarn check
+      - name: Pack workspaces
+        run: |
+          mkdir -p "$RUNNER_TEMP/nomoss-release"
+          yarn workspaces foreach --all --no-private pack --out "$RUNNER_TEMP/nomoss-release/%s.tgz"
       - name: Publish
         env:
           NPM_CONFIG_PROVENANCE: "true"
-        run: npm publish --access public
+        run: |
+          yarn workspaces foreach --all --no-private --topological exec sh -eu -c '
+            archive_name=$(printf "%s" "$npm_package_name" | tr "/" "-")
+            npm publish "$RUNNER_TEMP/nomoss-release/$archive_name.tgz" --access public
+          '

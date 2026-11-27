@@ -188,6 +188,7 @@ export class AwsOpenApi extends Context.Service<AwsOpenApi>()(
                 contentType: "application/json",
                 errors: Option.some(request["x-aws-errors"]),
                 bindings: Option.some(request["x-aws-http-bindings"]),
+                memberNames: request["x-aws-member-names"],
                 query: undefined,
               }),
             ),
@@ -199,6 +200,7 @@ export class AwsOpenApi extends Context.Service<AwsOpenApi>()(
                 errors: Option.some(request["x-aws-errors"]),
                 bindings: Option.none(),
                 query: request["x-aws-query"],
+                memberNames: undefined,
               }),
             ),
             Match.tag("Rpc", (request) =>
@@ -219,6 +221,7 @@ export class AwsOpenApi extends Context.Service<AwsOpenApi>()(
                   errors: Option.none(),
                   bindings: Option.none(),
                   query: undefined,
+                  memberNames: undefined,
                 })),
               ),
             ),
@@ -294,7 +297,10 @@ export class AwsOpenApi extends Context.Service<AwsOpenApi>()(
           );
 
           const operation: AwsOpenApiInvocation = {
+            description: declaration.description,
+            memberNames: request.memberNames,
             name: operationContract.operationId,
+            unsigned: undefined,
             method,
             path,
             input: Str.replace("#/components/schemas/", "")(request.input.$ref),
@@ -304,7 +310,6 @@ export class AwsOpenApi extends Context.Service<AwsOpenApi>()(
             query: request.query,
             idempotencyTokens: operationContract["x-aws-idempotency-tokens"],
             pagination: operationContract["x-aws-pagination"],
-            waiters: operationContract["x-aws-waiters"],
             errors: Arr.dedupeWith(
               errors,
               (left, right) => left.name === right.name,

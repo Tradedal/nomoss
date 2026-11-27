@@ -12,6 +12,8 @@ Write relationships in complete sentences with articles, verbs, and prepositions
 
 ## Explain the decisions that schemas validate
 
+Give every regular expression its own named declaration beside the code that uses it. Document what the pattern matches, why the caller needs that distinction, and examples of matching and nonmatching input. For a search or replacement, show what happens to the example text. Apply the same rule to expressions emitted by generators so readers of the generated code can understand them at their declaration.
+
 For a schema, explain what the application decides from a value and why its validation matters to that decision. The declaration already shows the fields and their types, so a field catalogue adds no explanation.
 
 An output reference lets one resource depend on a provider value that another resource has not yet produced. Explain how the reference expresses that dependency and why the eventual value needs validation. The schema already shows how the reference is represented.

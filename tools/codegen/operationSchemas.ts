@@ -90,6 +90,7 @@ export const OperationResponseStatus = Schema.String.check(
  */
 export const ClientOperation = Schema.Struct({
   operationId: Schema.NonEmptyString,
+  description: Schema.optional(Schema.String),
   method: Schema.Literals([
     "GET",
     "PUT",

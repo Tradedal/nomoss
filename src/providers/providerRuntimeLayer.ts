@@ -1,9 +1,10 @@
 import { NodeServices } from "@effect/platform-node";
+import { awsClientConfigurationLayerLive } from "@tradedal/aws-credentials";
 import { Layer } from "effect";
+import { awsServiceResourceCommandLayer } from "../../providers/aws/runtime.js";
 import { resourceStackRuntimeLayer } from "../core/runtime/stackRuntimeLayer.js";
 import { ConfiguredStateSecretServiceLayer } from "../core/state/stateSecretService.js";
 import { resourceStateFileStorageLayer } from "../core/state/stateStore.js";
-import { awsCloudControlResourceCommandLayerLive } from "./aws/cloudControl/runtime.js";
 import { providerResourceCommandPolicyLayerLive } from "./resourceCommandPolicyLayer.js";
 import { stripeResourcesLayer } from "./stripe/management/resources.js";
 import { stripeResourceCommandLayerLive } from "./stripe/runtime.js";
@@ -11,7 +12,9 @@ import { stripeResourceCommandLayerLive } from "./stripe/runtime.js";
 const providerCommandsLayer = providerResourceCommandPolicyLayerLive.pipe(
   Layer.provideMerge([
     stripeResourceCommandLayerLive,
-    awsCloudControlResourceCommandLayerLive,
+    awsServiceResourceCommandLayer.pipe(
+      Layer.provide(awsClientConfigurationLayerLive),
+    ),
   ]),
 );
 

@@ -1,3 +1,4 @@
+import { AwsPagination } from "@tradedal/aws-client-core/model";
 import {
   Array as Arr,
   Context,
@@ -5,8 +6,10 @@ import {
   type JsonSchema,
   Match,
   Option,
+  Predicate,
+  pipe,
   Record,
-  type Schema,
+  Schema,
   type SchemaRepresentation,
   String as Str,
 } from "effect";
@@ -25,6 +28,21 @@ import type {
 } from "./model.js";
 
 const factory = ts.factory;
+
+/**
+ * The descriptionTagPattern expression strips markup from AWS descriptions
+ * before they appear in TypeScript comments. In `<code>RoleId</code>` both
+ * tags match, leaving the field name `RoleId` for the reader.
+ */
+const descriptionTagPattern = /<[^>]+>/g;
+
+/**
+ * The descriptionWhitespacePattern expression keeps a source line break or
+ * indentation from interrupting the generated sentence. It turns the newline
+ * and spaces between “Lists” and “roles” into one space and preserves both words.
+ */
+const descriptionWhitespacePattern = /\s+/g;
+
 const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
 const expressionFile = ts.createSourceFile(
   "expression.ts",
@@ -220,9 +238,12 @@ export class AwsOpenApiTypeScript extends Context.Service<AwsOpenApiTypeScript>(
               },
             ]),
           ),
-          { moduleSpecifier: "../awsClient.js", namedImports: ["AwsClient"] },
           {
-            moduleSpecifier: "../awsClientModel.js",
+            moduleSpecifier: "@tradedal/aws-client-core",
+            namedImports: ["AwsClient"],
+          },
+          {
+            moduleSpecifier: "@tradedal/aws-client-core/model",
             isTypeOnly: true,
             namedImports: modelImports,
           },
@@ -389,7 +410,7 @@ export class AwsOpenApiTypeScript extends Context.Service<AwsOpenApiTypeScript>(
           ).pipe(
             Match.when(true, () => [
               {
-                moduleSpecifier: "../awsHttpOperation.js",
+                moduleSpecifier: "@tradedal/aws-client-core/http-operation",
                 namedImports: ["awsJsonRpcEmptyOutput"],
               },
             ]),
@@ -403,12 +424,12 @@ export class AwsOpenApiTypeScript extends Context.Service<AwsOpenApiTypeScript>(
           ).pipe(
             Match.when(true, () => [
               {
-                moduleSpecifier: "../awsClientModel.js",
+                moduleSpecifier: "@tradedal/aws-client-core/model",
                 isTypeOnly: true,
                 namedImports: ["AwsRestJsonOperation"],
               },
               {
-                moduleSpecifier: "../awsHttpOperation.js",
+                moduleSpecifier: "@tradedal/aws-client-core/http-operation",
                 namedImports: ["awsHttpEndpoint", "optionalRestJsonMember"],
               },
             ]),
@@ -494,11 +515,29 @@ export class AwsOpenApiTypeScript extends Context.Service<AwsOpenApiTypeScript>(
                 );
 
                 const {
+                  description: _description,
                   input,
                   output: outputSchema,
                   errors: _errors,
+                  memberNames,
                   ...metadata
                 } = operation;
+
+                // The emitOperations method retains literal names so Schema.encodeKeys
+                // can check a resource projection against the generated operation.
+                // See ../../../command-options-fund/refs/effect/packages/effect/src/Schema.ts (encodeKeys).
+                Option.fromUndefinedOr(memberNames).pipe(
+                  Option.map((names) =>
+                    emitConstant(
+                      module,
+                      `${methodName}MemberNames`,
+                      factory.createAsExpression(
+                        jsonExpression(names),
+                        factory.createTypeReferenceNode("const"),
+                      ),
+                    ),
+                  ),
+                );
 
                 const output = outputSchema ?? `${operation.name}Output`;
 
@@ -565,7 +604,7 @@ export class AwsOpenApiTypeScript extends Context.Service<AwsOpenApiTypeScript>(
 
                 const declaredMetadata = Record.filter(
                   metadata,
-                  (value) => value !== undefined,
+                  Predicate.isNotUndefined,
                 );
 
                 const properties = Arr.map(
@@ -706,9 +745,9 @@ export class AwsOpenApiTypeScript extends Context.Service<AwsOpenApiTypeScript>(
       );
 
       /**
-       * The emitClient helper connects generated service methods to the shared
-       * AWS client. The generated constructor returns those methods explicitly
-       * and keeps related operation bindings together.
+       * The emitClient method gives SDK users a typed method for each selected
+       * AWS operation. When Smithy describes pagination, callers can choose
+       * between one response and a stream of all response pages.
        */
       const emitClient = (
         module: SourceFile,
@@ -724,8 +763,9 @@ export class AwsOpenApiTypeScript extends Context.Service<AwsOpenApiTypeScript>(
           "AwsServiceDefinition",
         );
 
-        const methods = Arr.map(operations, (operation) =>
-          Str.uncapitalize(operation.name),
+        const decodePagination = Schema.decodeUnknownOption(AwsPagination);
+        const paginated = Arr.filter(operations, ({ pagination }) =>
+          Option.isSome(decodePagination(pagination)),
         );
 
         const clientConstructor = factory.createFunctionExpression(
@@ -745,7 +785,7 @@ export class AwsOpenApiTypeScript extends Context.Service<AwsOpenApiTypeScript>(
         );
 
         declaration.addJsDoc({
-          description: `The make${serviceName}Client constructor supplies callable ${serviceName} operations through the shared AwsClient service. Calls validate inputs and responses with the generated schemas and retain typed request, response, and provider failures.`,
+          description: `The make${serviceName}Client Effect gives callers access to ${serviceName} with the region and credentials configured in their AWS runtime.`,
         });
 
         const block = declaration.getFirstDescendantByKindOrThrow(
@@ -766,56 +806,101 @@ export class AwsOpenApiTypeScript extends Context.Service<AwsOpenApiTypeScript>(
           ],
         });
 
-        block.addVariableStatement({
-          declarationKind: VariableDeclarationKind.Const,
-          declarations: [
-            {
-              name: "bindOperation",
-              initializer: printExpression(
-                call(access("aws", "bindOperation"), [
-                  factory.createIdentifier(serviceIdentifier),
-                ]),
-              ),
-            },
-          ],
+        // All methods use the client already configured for this service.
+        // Add the page binder only when the model supplies pagination.
+        // See AwsClient.bindOperation and AwsClient.bindOperationPages.
+        const serviceArgument = factory.createIdentifier(serviceIdentifier);
+        const binderNames = Arr.match(paginated, {
+          onEmpty: () => ["bindOperation"],
+          onNonEmpty: () => ["bindOperation", "bindOperationPages"],
         });
-
-        // The emitClient service method attaches documentation through
-        // ts-morph's JSDocableNode API so regeneration preserves each method's
-        // validation and execution contract. See node_modules/ts-morph/lib/ts-morph.d.ts,
-        // JSDocableNode.addJsDoc and VariableStatementStructure.docs.
-        Arr.forEach(operations, (operation) => {
-          const name = Str.uncapitalize(operation.name);
-
+        Arr.forEach(binderNames, (name) => {
+          const binding = call(access("aws", name), [serviceArgument]);
           block.addVariableStatement({
             declarationKind: VariableDeclarationKind.Const,
-            docs: [
-              {
-                description: `The ${name} function invokes AWS ${operation.name} through the shared client. Its Effect returns the decoded ${operation.output ?? "void"} result after a successful response; validation and provider failures remain in the error channel.`,
-              },
-            ],
-            declarations: [
-              {
-                name,
-                initializer: printExpression(
-                  call(factory.createIdentifier("bindOperation"), [
-                    factory.createIdentifier(`${name}Operation`),
-                  ]),
-                ),
-              },
-            ],
+            declarations: [{ name, initializer: printExpression(binding) }],
           });
         });
 
         block
-          .getStatements()[2]
-          .prependWhitespace((writer) => writer.newLine());
+          .getVariableDeclarationOrThrow("bindOperation")
+          .getVariableStatementOrThrow()
+          .prependWhitespace("\n");
+
+        // Smithy's OpenApiConverter copies the operation's documentation trait
+        // into its description. Keep the opening paragraph in AWS's own words
+        // so qualifications within the paragraph stay with the operation.
+        // See refs/smithy/smithy-openapi/src/main/java/software/amazon/smithy/openapi/fromsmithy/OpenApiConverter.java (addPaths).
+        const methods = Arr.map(operations, (operation) => {
+          const name = Str.uncapitalize(operation.name);
+          const [paragraph] = Str.split(operation.description ?? "", "</p>");
+          const summary = pipe(
+            paragraph,
+            Str.replace(descriptionTagPattern, ""),
+            Str.replace(descriptionWhitespacePattern, " "),
+            Str.trim,
+            Str.replaceAll("*/", "* /"),
+          );
+
+          const usage = Match.value({
+            paginated: Arr.contains(paginated, operation),
+            emptyResponse: operation.output === null,
+          }).pipe(
+            Match.when(
+              { paginated: true },
+              () =>
+                ` This call returns one page. Use ${name}Pages to read subsequent pages.`,
+            ),
+            Match.when(
+              { emptyResponse: true },
+              () => " Success means AWS accepted the request.",
+            ),
+            Match.orElse(() => ""),
+          );
+
+          const description =
+            summary || `The ${name} function calls AWS ${operation.name}.`;
+
+          const method = factory.createPropertyAssignment(
+            name,
+            call(factory.createIdentifier("bindOperation"), [
+              factory.createIdentifier(`${name}Operation`),
+            ]),
+          );
+
+          return ts.addSyntheticLeadingComment(
+            method,
+            ts.SyntaxKind.MultiLineCommentTrivia,
+            `* ${description}${usage} `,
+            true,
+          );
+        });
+
+        // The Pages method returns the provider's responses as a stream. Put its
+        // documentation on the property that TypeScript resolves at the call site.
+        // See refs/smithy/docs/source-2.0/spec/behavior-traits.rst (Pagination).
+        const pageMethods = Arr.map(paginated, (operation) => {
+          const name = Str.uncapitalize(operation.name);
+          const contract = factory.createIdentifier(`${name}Operation`);
+          const stream = call(factory.createIdentifier("bindOperationPages"), [
+            contract,
+          ]);
+          const method = factory.createPropertyAssignment(
+            `${name}Pages`,
+            stream,
+          );
+
+          return ts.addSyntheticLeadingComment(
+            method,
+            ts.SyntaxKind.MultiLineCommentTrivia,
+            `* The ${name}Pages function streams one AWS response per page. Stop consuming the stream to skip the remaining pages. `,
+            true,
+          );
+        });
 
         const publicApi = factory.createReturnStatement(
           factory.createObjectLiteralExpression(
-            Arr.map(methods, (name) =>
-              factory.createShorthandPropertyAssignment(name),
-            ),
+            Arr.appendAll(methods, pageMethods),
             true,
           ),
         );

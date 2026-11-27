@@ -13,8 +13,10 @@ import {
   readResourceSchemaAnnotation,
   resourceModelLayer,
 } from "../../core/resource/model.js";
-import { ResourceCommandExecutionFailed } from "../../core/resource/resourceCommandPolicy.js";
-import { providerCommandPolicyTag } from "../resourceCommandPolicyLayer.js";
+import {
+  providerCommandPolicyTag,
+  registerResourceCommands,
+} from "../resourceCommandPolicyLayer.js";
 import { JsonFile, jsonFileLayer } from "./jsonFile.js";
 import type { JsonFileResourceDefinition } from "./model.js";
 
@@ -92,6 +94,7 @@ export class JsonFileResourcePolicy extends Context.Service<JsonFileResourcePoli
         node: ResourceNode,
       ) {
         const outputPath = yield* savedPath(definition, node);
+
         const document = yield* files.read(
           outputPath,
           definition.documentSchema,
@@ -101,6 +104,7 @@ export class JsonFileResourcePolicy extends Context.Service<JsonFileResourcePoli
           onNone: () => ResourceObservation.Missing({ node }),
           onSome: (observed) => ResourceObservation.Present({ node, observed }),
         });
+
         const result: ResourceCommandResult = ResourceCommandResult.Observed({
           observation,
         });
@@ -209,9 +213,7 @@ export class JsonFileResourcePolicy extends Context.Service<JsonFileResourcePoli
        * The execute service method lets command dispatch observe a managed file,
        * apply a reviewed change, or tear it down. Direct Diff, Create, Update,
        * and Delete commands fail with ResourceCommandUnsupported because file
-       * mutations require an Apply decision. Each failure is wrapped in
-       * ResourceCommandExecutionFailed with the original command and cause so
-       * the stack can identify the resource and preserve recovery information.
+       * mutations require an Apply decision.
        */
       const execute = Effect.fn("JsonFileResourcePolicy.execute")(function* (
         definition: JsonFileResourceDefinition,
@@ -225,9 +227,6 @@ export class JsonFileResourcePolicy extends Context.Service<JsonFileResourcePoli
             Effect.fail(new ResourceCommandUnsupported({ command })),
           ),
           Match.exhaustive,
-          Effect.mapError(
-            (cause) => new ResourceCommandExecutionFailed({ command, cause }),
-          ),
         );
 
         return result;
@@ -258,13 +257,15 @@ export const jsonFileResourcePolicyLayer = Layer.effect(
 export const jsonFileResourcePolicyRegistration = (
   definition: JsonFileResourceDefinition,
 ) =>
-  Layer.unwrap(
+  Layer.effectContext(
     Effect.gen(function* () {
       const policy = yield* JsonFileResourcePolicy;
+
       const schema = yield* policy.register(definition);
 
-      return Layer.succeed(providerCommandPolicyTag(schema), {
-        execute: (command) => policy.execute(definition, command),
-      });
+      return registerResourceCommands(
+        (command) => policy.execute(definition, command),
+        providerCommandPolicyTag(schema),
+      );
     }),
   ).pipe(Layer.provide(jsonFileResourcePolicyLayer));

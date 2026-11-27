@@ -1,13 +1,13 @@
 import { assert, layer } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import {
-  BucketOutputsSchema,
-  BucketPropsSchema,
-} from "nomoss/providers/aws/cloud-control/s3/bucket";
+  AWSBucketOutputsSchema as BucketOutputsSchema,
+  AWSBucketPropsSchema as BucketPropsSchema,
+} from "nomoss/providers/aws/s3/bucket";
 import {
-  QueueOutputsSchema,
-  QueuePropsSchema,
-} from "nomoss/providers/aws/cloud-control/sqs/queue";
+  AWSQueueOutputsSchema as QueueOutputsSchema,
+  AWSQueuePropsSchema as QueuePropsSchema,
+} from "nomoss/providers/aws/sqs/queue";
 import { ResourceModel, ResourceOutput } from "../src/core/resource/model.js";
 import {
   ResourceOutputResolver,

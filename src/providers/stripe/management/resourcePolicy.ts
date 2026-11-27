@@ -24,12 +24,14 @@ import {
   readResourceSchemaAnnotation,
   resourceModelLayer,
 } from "../../../core/resource/model.js";
-import { ResourceCommandExecutionFailed } from "../../../core/resource/resourceCommandPolicy.js";
 import {
   ResourceRequest,
   resourceRequestLayer,
 } from "../../../core/resource/resourceRequest.js";
-import { providerCommandPolicyTag } from "../../resourceCommandPolicyLayer.js";
+import {
+  providerCommandPolicyTag,
+  registerResourceCommands,
+} from "../../resourceCommandPolicyLayer.js";
 import { StripeClient } from "../client/stripeClient.js";
 import type { StripePayload } from "../client/stripeClientModel.js";
 import type {
@@ -54,8 +56,7 @@ export class StripeResourcePolicy extends Context.Service<StripeResourcePolicy>(
       /**
        * The invoke service method validates resolved inputs against the selected
        * generated request schema before provider I/O. Provider and validation
-       * failures propagate with their original types so execute can attach the
-       * resource command through ResourceCommandExecutionFailed.
+       * failures propagate to the caller with their original types.
        */
       const invoke = Effect.fn("StripeResourcePolicy.invoke")(function* <
         State extends StripePayload,
@@ -113,6 +114,7 @@ export class StripeResourcePolicy extends Context.Service<StripeResourcePolicy>(
             (schema) =>
               Schema.decodeUnknownEffect(Schema.toType(schema))(state),
           );
+
           const values = yield* Effect.forEach(
             Record.toEntries(definition.inputOutputs ?? {}),
             ([output, parameter]) =>
@@ -128,6 +130,7 @@ export class StripeResourcePolicy extends Context.Service<StripeResourcePolicy>(
                 ),
               ),
           );
+
           const projected = definition.projectOutputs(state, previous);
           const identity = Record.fromEntries(Arr.flatten(values));
           const outputs: StripePayload = { ...projected, ...identity };
@@ -178,6 +181,7 @@ export class StripeResourcePolicy extends Context.Service<StripeResourcePolicy>(
                 state,
                 outputs,
               );
+
               const hydrated = yield* model.withObservedOutputs(
                 node,
                 projected,
@@ -230,7 +234,9 @@ export class StripeResourcePolicy extends Context.Service<StripeResourcePolicy>(
           definition.request,
         );
         const input = yield* requests.prepare(properties, definition.request);
+
         const created = yield* invoke(definition.operations.create, input);
+
         const outputs = yield* projectOutputs(definition, node, created);
 
         const applied = yield* model.withOutputs(node, outputs);
@@ -271,6 +277,7 @@ export class StripeResourcePolicy extends Context.Service<StripeResourcePolicy>(
         );
 
         const props = yield* model.decodeProps(node, definition.propsSchema);
+
         const previous = yield* model.decodeOutputs(
           current,
           definition.outputsSchema,
@@ -281,6 +288,7 @@ export class StripeResourcePolicy extends Context.Service<StripeResourcePolicy>(
           definition.request,
         );
         const input = Struct.assign(properties, definition.identify(previous));
+
         const desiredProps = yield* requests.properties(
           node.props,
           definition.request,
@@ -289,6 +297,7 @@ export class StripeResourcePolicy extends Context.Service<StripeResourcePolicy>(
           current.props,
           definition.request,
         );
+
         const equivalent = Schema.toEquivalence(Schema.Json);
         const changes = Record.filter(
           desiredProps,
@@ -296,6 +305,7 @@ export class StripeResourcePolicy extends Context.Service<StripeResourcePolicy>(
             !Record.has<string, Schema.Json>(currentProps, key) ||
             !equivalent(value, currentProps[key]),
         );
+
         const validated = yield* Schema.decodeEffect(operation.input)(
           input,
         ).pipe(
@@ -315,7 +325,9 @@ export class StripeResourcePolicy extends Context.Service<StripeResourcePolicy>(
         );
 
         const prepared = yield* requests.prepare(validated, definition.request);
+
         const changed = yield* invoke(operation, prepared);
+
         const outputs = yield* projectOutputs(
           definition,
           node,
@@ -356,6 +368,7 @@ export class StripeResourcePolicy extends Context.Service<StripeResourcePolicy>(
               }),
           ),
         );
+
         const outputs = yield* model.decodeOutputs(
           node,
           definition.outputsSchema,
@@ -432,9 +445,6 @@ export class StripeResourcePolicy extends Context.Service<StripeResourcePolicy>(
             Effect.fail(new ResourceCommandUnsupported({ command })),
           ),
           Match.exhaustive,
-          Effect.mapError(
-            (cause) => new ResourceCommandExecutionFailed({ command, cause }),
-          ),
         );
 
         return result;
@@ -477,13 +487,14 @@ export const stripeResourcePolicyRegistration = <
 >(
   definition: StripeResourceConfiguration<Props, Outputs, State>,
 ) =>
-  Layer.unwrap(
+  Layer.effectContext(
     Effect.gen(function* () {
       const policy = yield* StripeResourcePolicy;
       const schema = yield* policy.register(definition);
 
-      return Layer.succeed(providerCommandPolicyTag(schema), {
-        execute: (command) => policy.execute(definition, command),
-      });
+      return registerResourceCommands(
+        (command) => policy.execute(definition, command),
+        providerCommandPolicyTag(schema),
+      );
     }),
   ).pipe(Layer.provide(stripeResourcePolicyLayer));
