@@ -61,10 +61,7 @@
     "./node_modules/@tradedal/linteffect/rules/no-return-in-arrow.grit",
     {
       "path": "./node_modules/@tradedal/linteffect/rules/warn-native-collections.grit",
-      "includes": [
-        "**",
-        "!**/generated/**"
-      ]
+      "includes": ["**", "!**/generated/**"]
     },
     "./node_modules/@tradedal/linteffect/rules/no-atom-registry-effect-sync.grit",
     "./node_modules/@tradedal/linteffect/rules/no-inline-runtime-provide.grit",
