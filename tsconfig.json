@@ -47,7 +47,7 @@
           "anyUnknownInErrorContext": "error",
           "layerMergeAllWithDependencies": "error",
           "nodeBuiltinImport": "error",
-          "preferSchemaOverJson": "error",
+          "globalJsonInEffect": "error",
           "cryptoRandomUUID": "warning",
           "cryptoRandomUUIDInEffect": "warning",
           "deterministicKeys": "warning",
@@ -58,12 +58,11 @@
         "overrides": [
           {
             "include": [
-              "src/providers/aws/client/generated/**/*.ts",
-              "src/providers/aws/resources/generated/**/*.ts"
+              "src/providers/stripe/client/generated/resourceBindings/**/*.ts"
             ],
             "options": {
               "diagnosticSeverity": {
-                "schemaNumber": "off"
+                "preferTypedSchemaDecoder": "off"
               }
             }
           }
@@ -85,6 +84,7 @@
   "include": [
     ".projenrc.ts",
     "examples/**/*.ts",
+    "providers/**/*.ts",
     "src/**/*.ts",
     "tests/**/*.ts",
     "tools/**/*.ts",

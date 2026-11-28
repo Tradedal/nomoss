@@ -10,48 +10,13 @@ CloudFormation Registry defines which AWS properties an application controls and
 
 ## AWS resource declarations and operation clients
 
-The generated `AWSQueue` function lets an application declare its desired SQS queue. The SQS client exposes methods such as `createQueue` and `getQueueAttributes` for the API calls that manage that queue.
+CloudFormation Registry defines a resource's properties, identity, and changes that require replacement. Smithy defines the service operations and their errors. Nomoss verifies the revision and checksum of the Registry definitions and service models selected in the manifests. The [native AWS generator procedure](../../tools/awsServiceResources/README.md) explains how to select and regenerate those inputs.
 
-```text
-CloudFormation Queue definition → resource generator → AWSQueue
-Smithy SQS service model        → client generator   → SQS operation client
-```
+The declaration generator uses the Registry schema and imported relationships to produce a function that accepts resource properties. The function registers the resource with its logical ID and returns an entity that other declarations can reference before the provider assigns an ID.
 
-CloudFormation Registry defines the properties and identity of AWS::SQS::Queue and the changes that require replacement. The SQS Smithy model defines the API contract, including service errors. The resource manifest pins Registry definitions by revision and checksum. The SQS manifest selects the service model. Before generation, `AwsServiceResourceSources` verifies the selected source contents. [Smithy model for Amazon SQS](../../refs/aws-api-models/models/sqs/service/2012-11-05/sqs-2012-11-05.json) · [resource source manifest](../../tools/awsServiceResources/sources/resources.json) · [SQS source manifest](../../tools/awsServiceResources/sources/sqs.json)
+Each resolved relationship identifies which output supplies a dependent property. Core records the dependency, waits for the source to apply, and supplies the validated output to the dependent request. The Registry still governs the resolved property value. The [resource graph contract](resource-graph.md) explains how references work across resources and providers.
 
-The AwsServiceResourceDeclarations service generates `AWSQueue` from the Queue definition. When an application calls that function, it registers the desired queue with the core `ResourceGraphBuilder` service and returns its entity. [resource-generation service, AwsServiceResourceDeclarations](../../tools/awsServiceResources/resourceDeclarations.ts)
-
-```ts
-const queue = yield* AWSQueue({
-  logicalId: "Events",
-  props: { VisibilityTimeout: 45 },
-});
-```
-
-The logical ID `"Events"` gives core a stable identity within the stack. The `VisibilityTimeout` property specifies the desired queue setting. The Queue resource entity lets another resource declaration depend on the queue before AWS assigns the queue's URL and ARN.
-
-The generated `AWSBucket` function accepts the Queue entity as a notification destination. The bucket declaration below selects that queue for S3 object creation events.
-
-```ts
-const bucket = yield* AWSBucket({
-  logicalId: "Uploads",
-  props: {
-    NotificationConfiguration: {
-      QueueConfigurations: [
-        { Event: "s3:ObjectCreated:*", Queue: queue },
-      ],
-    },
-  },
-});
-```
-
-The [resource metadata importer, AwsResourceMetadataImporter](../../tools/awsResources/awsResourceMetadata.ts), obtains the S3-to-SQS relationship from the selected definitions and relationship records. The relationship identifies the SQS Queue's `Arn` output as the value accepted by the S3 Bucket's notification `Queue` property. The resource-generation service uses the relationship to produce a declaration schema that accepts the Queue resource entity at that property.
-
-```text
-Queue entity in Bucket properties → recorded dependency → ARN in resolved Bucket request
-```
-
-Core uses the recorded dependency to plan resource changes. The `ResourceOutputResolver` service substitutes the saved queue ARN when it prepares the bucket request. The generated request schema validates the resolved bucket properties against the original CloudFormation Registry constraints. Native notification delivery and the permissions it requires are tracked in the [AWS resource tracker](../../attempts/dev-attempts_aws-smithy-resource-generation.md).
+The client generator uses Smithy to produce typed operations. A resource can have a declaration and client operations before Nomoss supports its lifecycle. See the [AWS coverage reference](aws-resource-coverage.md) for current support.
 
 ## Provider contracts and resource metadata
 
@@ -171,13 +136,13 @@ flowchart TB
 
 ### Resource identity and lifecycle support
 
-Registry defines AWS resource identity and property classifications. Smithy supplies operation contracts for native policies and Cloud Control. A subsequent Cloud Control request needs the opaque Identifier returned with the resource model, so Nomoss retains it separately from the model's identity fields. A declaration can execute only when the runtime supplies a policy for its type.
+Registry defines AWS resource identity and property classifications. Smithy supplies operation contracts for native policies. A declaration can execute only when the runtime supplies a policy for its type.
 
 Local declarations compile the selected fields directly from their canonical Effect schemas to preserve application validation. A local file resource saves its output path as its identity for later reads.
 
 ## Discovery through the schema graph
 
-The catalog retains the source schema graph, including array items, alternatives, and expansion targets. Recursive references point to their original definitions. Each operation binding and relationship records where its request parameters and response fields came from. [OpenApiResourceGraph type](../../tools/codegen/resourceDiscoverySchemas.ts)
+The catalog retains array items, alternatives, and expansion targets from the source schema graph. Recursive references point to their original definitions. Each operation binding and relationship records where its request parameters and response fields came from. [OpenApiResourceGraph type](../../tools/codegen/resourceDiscoverySchemas.ts)
 
 ```mermaid
 ---
@@ -235,11 +200,11 @@ A declaration can contain local lifecycle properties alongside its provider requ
 
 ## Provider directory organization
 
-A provider keeps its API client and generated contracts in client/. Shared policies in management/ execute generated registrations. Each resource owns its declarations, schemas, and native operations in `resources/<resource>/`. The provider's runtime.ts assembles Layers and index.ts exports the public API. A handwritten operation documents which behavior the generator lacks.
+AWS publishes one client package per service from [providers/aws/generated/clients](../../providers/aws/generated/clients/). Nomoss uses those packages to make AWS calls during stack operations. The [AWS provider guide](../../providers/aws/README.md) shows where to change a service's client, resource declarations, or lifecycle. See the [resource management development guide](../development/effect-native-development.md#develop-resource-management) for the requirements for definitions and type-based resolution.
 
 A change to the provider directory layout preserves public imports, saved command identities, and output names. Generator imports and native schema registrations use the new locations, as do examples and fixtures. Regeneration and application execution thus use the same contracts.
 
-A generated policy takes over once production registrations use its configuration and the shared service handles the same requests, responses, and failures. At that point the superseded policy and its runtime overrides and wrappers can be removed.
+A generated definition can replace handwritten code once the shared lifecycle handles the same requests, results, and failures. Keep provider decisions that still need code with the operation that owns them.
 
 An integration case follows the managed object through its provider result, saved identity, and dependent outputs. It exercises recovery after failure and confirms removal at teardown. Review identifies which handwritten policies and overrides the generated operation replaces.
 
@@ -295,7 +260,7 @@ flowchart TB
 
 Core prepares each declared asset when it constructs the plan. The Assets service builds or packages the source, records its SHA-256 digest in the resource properties, and retains the bytes for apply in the same runtime. A later edit requires a new plan to deploy the changed source. State inspection and deletion require no local build. [Assets service](../../src/core/asset.ts)
 
-The dispatcher selects the resource policy from its registered metadata. Native AWS policies call generated service clients. The Cloud Control runtime executes Cloud Control operations. Stripe policies call generated clients or native local resource operations. Each policy translates the declaration and determines when the provider operation has completed. [provider dispatcher](../../src/providers/resourceCommandPolicyLayer.ts)
+The dispatcher selects the resource policy from its registered metadata. AWS policies call generated service clients. Stripe policies call generated clients or native local resource operations. Each policy translates the declaration and determines when the provider operation has completed. [provider dispatcher](../../src/providers/resourceCommandPolicyLayer.ts)
 
 The live renderer counts actual outcomes. If a dependent request resolves to its saved inputs, the resource counts as unchanged. After the application evaluates its outputs, the renderer writes the final events and totals. The timer starts after the plan and builds are complete and stops after the last progress write. [live renderer](../../src/core/stack/stackWorkflowRenderer.ts) · [CLI workflow](cli-workflow.md)
 
@@ -313,7 +278,7 @@ The published catalog has one entry per resource type. Source references identif
 
 ## Current limits and acceptance
 
-Stripe uses the provider directory organization described above. Its generated declarations register canonical schemas internally and accept typed resource entities at resolved relationship paths. Core execution checks the source type, obtains its current applied values, and validates the completed request before mutation.
+Generated Stripe declarations register canonical schemas internally and accept typed resource entities at resolved relationship paths. Core checks the source type, obtains its current applied values, and validates the completed request before mutation.
 
 Discovery leaves a relationship unresolved if its target is unknown. Native AWS declarations accept entities where imported metadata identifies an unambiguous relationship. For Stripe, generated updates currently share the read identity mapping. A Customer hint defines how to recognize a deleted object, and the local file resource still needs a handwritten policy. During replacement, the reviewed plan orders ordinary lifecycle operations under generated rules. If a command fails, ResourceCommandExecutionFailed retains the underlying provider or validation error. [resource lifecycle requirements](resource-operations.md) · [unified tracker](../../attempts/dev-attempts_unified-resource-generation.md)
 

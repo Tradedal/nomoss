@@ -100,10 +100,10 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
         );
 
       /**
-       * The ownedResources service method supplies removal targets for every
-       * provider instance still owned, including the previous instance of an
-       * unfinished update. Creating and Deleted records are excluded because
-       * they represent creation intent and completed removal.
+       * The ownedResources service method includes instances that teardown can
+       * locate from saved state. An accepted creation qualifies once its
+       * provider identity is saved, even if confirmation has yet to finish.
+       * An unfinished update still uses the last applied identity.
        */
       const ownedResources = (
         states: ReadonlyArray<ResourceState>,
@@ -112,7 +112,11 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
           Match.value(state).pipe(
             Match.tag("Created", "Updated", "Deleting", ({ node }) => [node]),
             Match.tag("Updating", ({ previous }) => [previous]),
-            Match.tag("Creating", "Deleted", () => []),
+            Match.when({ _tag: "Creating", submitted: true }, ({ node }) => [
+              node,
+            ]),
+            Match.tag("Creating", () => []),
+            Match.tag("Deleted", () => []),
             Match.exhaustive,
           ),
         );
@@ -300,10 +304,10 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
       );
 
       /**
-       * The markResourceStarted service method requires the action's node to
-       * identify the intended provider generation. Other generations remain
-       * recorded so an interrupted composition retains every owned object and
-       * the last applied value needed for recovery.
+       * The markResourceStarted service method identifies work by resource
+       * generation. Starting the same creation again preserves any provider
+       * identity already recorded for that generation. A replacement keeps
+       * the previous generation available for teardown.
        */
       const markResourceStarted = Effect.fn(
         "ResourceStateStore.markResourceStarted",
@@ -316,7 +320,17 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
 
         const resourceState: ResourceState = Match.value(action).pipe(
           Match.tag("Create", ({ node }) =>
-            ResourceStateSchema.make({ _tag: "Creating", node, startedAt }),
+            Arr.findFirst(
+              states,
+              (state) =>
+                state._tag === "Creating" &&
+                state.submitted === true &&
+                resourceInstanceKey(state.node) === resourceInstanceKey(node),
+            ).pipe(
+              Option.getOrElse(() =>
+                ResourceStateSchema.make({ _tag: "Creating", node, startedAt }),
+              ),
+            ),
           ),
           Match.tag("Update", ({ node, current }) =>
             ResourceStateSchema.make({
@@ -343,6 +357,38 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
         );
 
         yield* persistResourceStates(stack, resourceStates);
+      }, changes.withPermits(1));
+
+      /**
+       * The recordResourceCreation service method requires an active creation
+       * for the supplied generation. The saved identity is available to
+       * teardown, and dependent resources must wait for confirmation before
+       * they can use the outputs.
+       *
+       * @see ../../../node_modules/effect/src/Semaphore.ts (withPermits)
+       */
+      const recordResourceCreation = Effect.fn(
+        "ResourceStateStore.recordResourceCreation",
+      )(function* (stack: string, node: ResourceNode) {
+        const states = yield* restoreResourceStates(stack);
+        const active = yield* Arr.findFirst(
+          states,
+          (state): state is Extract<ResourceState, { _tag: "Creating" }> =>
+            state._tag === "Creating" &&
+            resourceInstanceKey(state.node) === resourceInstanceKey(node),
+        ).pipe(Effect.fromOption);
+
+        yield* persistResourceStates(
+          stack,
+          Arr.map(states, (state) =>
+            Match.value(state === active).pipe(
+              Match.when(true, () =>
+                ResourceStateSchema.make({ ...active, node, submitted: true }),
+              ),
+              Match.orElse(() => state),
+            ),
+          ),
+        );
       }, changes.withPermits(1));
 
       /**
@@ -529,6 +575,7 @@ export class ResourceStateStore extends Context.Service<ResourceStateStore>()(
         saveResourceStates,
         saveResources,
         markResourceStarted,
+        recordResourceCreation,
         markResourceApplied,
         deleteResourceState,
         completeResourceActions,

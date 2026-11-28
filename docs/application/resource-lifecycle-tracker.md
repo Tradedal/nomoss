@@ -28,7 +28,7 @@ The login Keychain is for local development. CI and shared deployments require t
 
 Reconciliation refreshes desired resources and any saved resources that still need a read. Provider services read in dependency order and report whether the object exists, is unreadable, or shows unmanaged drift. Their observations retain the evidence the resource policy needs for its decision.
 
-A read requires the identity defined by the provider. Cloud Control uses the saved resource type and provider identifier. Import uses the external identifier supplied for adoption. Provider services execute resource-specific reads through generated contracts.
+A read requires the identity defined by the provider. Import uses the external identifier supplied for adoption. Provider services execute resource-specific reads through generated contracts.
 
 The planner proposes creation for an absent desired resource, even if that object previously existed. For a property difference, lifecycle metadata determines whether to update or repair it. Removal from the declaration produces a delete decision for the saved object. Explicit teardown produces destroy decisions. Dependencies determine when an action can run and supply outputs. [command policy contract](resource-command-policy-stage.md)
 
@@ -41,11 +41,3 @@ During replacement, a logical resource can own several provider instances. Each 
 Each provider defines which values recovery needs and how long to retain them. For example, AWS may omit a generated name or an identifier for an unfinished replacement on subsequent reads.
 
 CLI and embedded applications execute the selected plan against its captured graph and state snapshot. A change to a lifecycle record produces ResourcePlanInvalidated before any provider mutation. Application configuration selects the environment and provider context. [CLI contract](cli-workflow.md)
-
-## S3-to-SQS event delivery
-
-The application declares the bucket and queue, authorizes delivery through a queue policy, and configures a bucket notification. The policy uses the bucket identity and the destination uses the queue ARN. Other resources can read the queue's typed ARN and URL.
-
-Nomoss authorizes S3 delivery before it configures the notification. Destroy removes the stack's notification before it revokes the authorization. Changes preserve policy entries owned outside this integration.
-
-Resource-specific operations use generated AWS contracts. The acceptance workflow uploads an object, receives its event from SQS, and confirms that teardown removes the managed resources and configuration.

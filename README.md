@@ -2,15 +2,9 @@
 
 ## Declarative TypeScript resources from OpenAPI
 
-Nomoss (as in “don’t let your infra grow moss”) is an infrastructure management tool. Unlike IaC tools with handwritten resource definitions, Nomoss generates TypeScript SDKs and resource definitions from provider specifications.
+Nomoss is an infrastructure management tool. It generates TypeScript resource declarations and clients from provider specifications so applications use the provider's types and validation rules.
 
-Nomoss has distinct advantages over traditional IaC:
-
-- Resource authors reuse the provider's validation rules. They write custom code only for rules the specification leaves out.
-- When a provider changes a field, resource authors can update the source specification and regenerate the affected TypeScript types and validators together.
-- New resources take only a few hours for an agent to add with tokens usage minimized
-
-Nomoss uses [Effect](https://effect.website/) to compile OpenAPI specifications into typed clients with runtime validation. Its core calls those clients to bring deployed resources into line with their declarations.
+The stack uses shared lifecycle services to apply the declarations. A resource definition selects the provider operations and supplies the mappings those operations need. A provider rule that requires its own decisions or sequence can use a typed [Effect](https://effect.website/) operation. When the provider specification changes, contributors can regenerate the corresponding types and validators together.
 
 ```mermaid
 ---
@@ -44,7 +38,7 @@ flowchart LR
 
 Experimental version.
 
-Goal: beta version with full AWS and Stipe resources coverage and 0 AWS SDK dependencies. SDK generated packages separate publish.
+The beta goal is full AWS and Stripe resource coverage, with no AWS SDK dependencies. Nomoss plans to publish the generated clients as separate packages.
 
 ## Demo
 
@@ -55,14 +49,10 @@ Goal: beta version with full AWS and Stipe resources coverage and 0 AWS SDK depe
 Run `yarn nomoss --help` to list the example stacks. Pass the stack name before the command.
 
 ```sh
-yarn nomoss queue diff       # Preview the proposed changes
-yarn nomoss queue create     # Deploy a new stack
-yarn nomoss queue update     # Apply changes to a deployed stack
-yarn nomoss queue reconcile  # Refresh saved state from AWS
-yarn nomoss queue delete     # Remove the stack's managed resources
+yarn nomoss queue diff
 ```
 
-The [CLI guide](docs/application/cli-workflow.md) covers detailed diffs, live progress, and saved state.
+For stacks that support deployment, use `create` to deploy, `update` to apply changes, `reconcile` to refresh saved state, and `delete` to remove managed resources. The [example guide](examples/README.md) lists the commands each example supports. The [CLI guide](docs/application/cli-workflow.md) explains plan review, progress, and saved state.
 
 ## Documentation
 

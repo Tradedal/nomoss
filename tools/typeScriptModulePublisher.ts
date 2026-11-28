@@ -9,6 +9,9 @@ import {
   Schema,
 } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
+import { Project } from "ts-morph";
+
+const candidateDirectory = "tools/generated";
 
 /**
  * The TypeScriptModuleValidationFailed error class reports the candidate
@@ -28,6 +31,13 @@ export class TypeScriptModulesValidationFailed extends Data.TaggedError(
   "TypeScriptModulesValidationFailed",
 )<{ readonly outputDirectory: string; readonly exitCode: number }> {}
 
+/** The TypeScriptModuleTypeError reports compiler diagnostics for candidate modules before publication. */
+export class TypeScriptModuleTypeError extends Data.TaggedError(
+  "TypeScriptModuleTypeError",
+)<{
+  readonly message: string;
+}> {}
+
 /**
  * The TypeScriptModuleSource schema pairs candidate source with its intended
  * destination so validation can finish before an existing module is replaced.
@@ -40,8 +50,8 @@ export type TypeScriptModuleSource = typeof TypeScriptModuleSource.Type;
 
 /**
  * The TypeScriptModulePublisher service lets generators validate candidate
- * modules before replacing files that applications import. It applies the
- * repository's Biome configuration to temporary files, and validation failures
+ * modules before replacing files that applications import. It checks temporary
+ * files using the repository's rules for generated source, and validation failures
  * leave existing destinations intact. Batch publication validates every
  * candidate before the first write. Filesystem failures during publication
  * can leave a partially written batch.
@@ -55,11 +65,33 @@ export class TypeScriptModulePublisher extends Context.Service<TypeScriptModuleP
       const processes = yield* ChildProcessSpawner.ChildProcessSpawner;
 
       /**
+       * The prepareWorkspace operation lets Biome check unpublished modules
+       * outside the checkout. The generated directory makes Biome apply the
+       * same plugin file filters as it does to published generated modules.
+       *
+       * @see ../../command-options-fund/refs/effect/packages/effect/src/FileSystem.ts (makeTempDirectoryScoped)
+       */
+      const prepareWorkspace = Effect.fn(
+        "TypeScriptModulePublisher.prepareWorkspace",
+      )(function* () {
+        const workspace = yield* fs.makeTempDirectoryScoped();
+
+        yield* Effect.forEach(
+          ["biome.jsonc", ".gitignore", "node_modules"],
+          (name) => fs.symlink(path.resolve(name), path.join(workspace, name)),
+        );
+        yield* fs.makeDirectory(path.join(workspace, candidateDirectory), {
+          recursive: true,
+        });
+
+        return workspace;
+      });
+
+      /**
        * The formatModules service method prepares candidate sources for review
        * or subsequent lint validation. Biome parses, formats, and organizes
-       * imports in temporary files under the repository's tools directory so
-       * its configured rules apply. Destination paths are retained in the
-       * returned candidates, and a parse failure preserves existing files.
+       * imports with the repository's Biome configuration. Each result retains
+       * its destination, and a parse failure preserves existing files.
        */
       const formatModules = Effect.fn(
         "TypeScriptModulePublisher.formatModules",
@@ -71,34 +103,32 @@ export class TypeScriptModulePublisher extends Context.Service<TypeScriptModuleP
           "codegen.module_count": modules.length,
         });
 
-        const directory = yield* fs.makeTempDirectoryScoped({
-          directory: path.resolve("tools"),
-          prefix: ".codegen-",
-        });
+        const workspace = yield* prepareWorkspace();
+        const directory = path.join(workspace, candidateDirectory);
 
-        const candidates = yield* Effect.forEach(modules, (module) =>
-          Effect.gen(function* () {
-            const candidate = path.join(
-              directory,
-              path.relative(outputDirectory, module.outputPath),
-            );
+        const candidates = yield* Effect.forEach(
+          modules,
+          Effect.fnUntraced(function* (module) {
+            // Preserve the candidate's path relative to the output directory.
+            // Biome then visits nested modules under the same directory layout.
+            const relative = path.relative(outputDirectory, module.outputPath);
+            const candidate = path.join(directory, relative);
 
             yield* fs.makeDirectory(path.dirname(candidate), {
               recursive: true,
             });
             yield* fs.writeFileString(candidate, module.source);
 
-            const prepared = { outputPath: module.outputPath, candidate };
-
-            return prepared;
+            return { outputPath: module.outputPath, candidate };
           }),
         );
 
         const preparation = yield* processes.spawn(
           ChildProcess.make(
-            "yarn",
-            ["biome", "check", "--write", "--linter-enabled=false", directory],
+            path.resolve("node_modules/.bin/biome"),
+            ["check", "--write", "--linter-enabled=false", candidateDirectory],
             {
+              cwd: workspace,
               stdout: "inherit",
               stderr: "inherit",
             },
@@ -114,7 +144,7 @@ export class TypeScriptModulePublisher extends Context.Service<TypeScriptModuleP
                 exitCode,
               }),
           ),
-          Effect.withSpan("TypeScriptModulePublisher.prepareModules"),
+          Effect.withSpan("codegen.biome.format"),
         );
 
         const formatted: ReadonlyArray<TypeScriptModuleSource> =
@@ -129,7 +159,7 @@ export class TypeScriptModulePublisher extends Context.Service<TypeScriptModuleP
 
       /**
        * The validateModules service method checks formatted candidates against
-       * the repository's Biome rules before a generator publishes them. It
+       * the repository's rules for generated source before publication. It
        * returns the accepted candidates unchanged. A parser, formatting, or
        * lint diagnostic fails the complete batch with
        * TypeScriptModulesValidationFailed and leaves destinations intact.
@@ -144,10 +174,8 @@ export class TypeScriptModulePublisher extends Context.Service<TypeScriptModuleP
           "codegen.module_count": modules.length,
         });
 
-        const directory = yield* fs.makeTempDirectoryScoped({
-          directory: path.resolve("tools"),
-          prefix: ".codegen-",
-        });
+        const workspace = yield* prepareWorkspace();
+        const directory = path.join(workspace, candidateDirectory);
 
         yield* Effect.forEach(modules, (module) =>
           Effect.gen(function* () {
@@ -165,9 +193,9 @@ export class TypeScriptModulePublisher extends Context.Service<TypeScriptModuleP
 
         const validation = yield* processes.spawn(
           ChildProcess.make(
-            "yarn",
-            ["biome", "check", "--error-on-warnings", directory],
-            { stdout: "inherit", stderr: "inherit" },
+            path.resolve("node_modules/.bin/biome"),
+            ["check", "--error-on-warnings", candidateDirectory],
+            { cwd: workspace, stdout: "inherit", stderr: "inherit" },
           ),
         );
 
@@ -180,6 +208,7 @@ export class TypeScriptModulePublisher extends Context.Service<TypeScriptModuleP
                 exitCode,
               }),
           ),
+          Effect.withSpan("codegen.biome.validate"),
         );
 
         const validated: ReadonlyArray<TypeScriptModuleSource> = modules;
@@ -195,12 +224,11 @@ export class TypeScriptModulePublisher extends Context.Service<TypeScriptModuleP
       const formatModule = Effect.fn("TypeScriptModulePublisher.formatModule")(
         function* (outputPath: string, source: string) {
           yield* Effect.annotateCurrentSpan({ "codegen.module": outputPath });
-          const formatted = yield* formatModules(path.dirname(outputPath), [
-            { outputPath, source },
-          ]).pipe(
-            Effect.flatMap((modules) =>
-              validateModules(path.dirname(outputPath), modules),
-            ),
+          const directory = path.dirname(outputPath);
+          const candidate = { outputPath, source };
+
+          const formatted = yield* formatModules(directory, [candidate]).pipe(
+            Effect.flatMap((modules) => validateModules(directory, modules)),
             Effect.catchTag(
               "TypeScriptModulesValidationFailed",
               ({ exitCode }) =>
@@ -232,7 +260,9 @@ export class TypeScriptModulePublisher extends Context.Service<TypeScriptModuleP
         const module = yield* formatModule(outputPath, source);
 
         yield* fs.makeDirectory(path.dirname(outputPath), { recursive: true });
-        yield* fs.writeFileString(outputPath, module);
+        yield* fs
+          .writeFileString(outputPath, module)
+          .pipe(Effect.withSpan("codegen.write"));
 
         const publishedPath: string = outputPath;
 
@@ -265,12 +295,47 @@ export class TypeScriptModulePublisher extends Context.Service<TypeScriptModuleP
 
             return module.outputPath;
           }),
-        );
+        ).pipe(Effect.withSpan("codegen.write"));
 
         return published;
       });
 
+      /**
+       * The checkModuleTypes service method checks imports and inferred types
+       * with all candidate files present at their publication paths in memory.
+       * Project.createSourceFile overlays the candidates before TypeScript checks
+       * them. See node_modules/ts-morph/lib/ts-morph.d.ts (Project and SourceFile.getPreEmitDiagnostics).
+       */
+      const checkModuleTypes = Effect.fn(
+        "TypeScriptModulePublisher.checkModuleTypes",
+      )((modules: ReadonlyArray<TypeScriptModuleSource>) =>
+        Effect.try(() => {
+          const project = new Project({
+            tsConfigFilePath: "tsconfig.json",
+            skipAddingFilesFromTsConfig: true,
+          });
+
+          const candidates = Arr.map(modules, ({ outputPath, source }) =>
+            project.createSourceFile(outputPath, source, { overwrite: true }),
+          );
+          // Register the whole batch before resolving imports. A generated
+          // command can then import another candidate that has never been written.
+          const diagnostics = Arr.flatMap(candidates, (candidate) =>
+            candidate.getPreEmitDiagnostics(),
+          );
+
+          return project.formatDiagnosticsWithColorAndContext(diagnostics);
+        }).pipe(
+          Effect.filterOrFail(
+            (message) => message.length === 0,
+            (message) => new TypeScriptModuleTypeError({ message }),
+          ),
+          Effect.withSpan("codegen.typescript.check"),
+        ),
+      );
+
       return {
+        checkModuleTypes,
         formatModules,
         validateModules,
         formatModule,

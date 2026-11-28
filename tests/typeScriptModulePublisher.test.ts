@@ -10,7 +10,7 @@ layer(
   typeScriptModulePublisherLayer.pipe(Layer.provideMerge(NodeServices.layer)),
 )("TypeScriptModulePublisher", (it) => {
   it.effect(
-    "A lint rejection preserves every existing destination in a publication batch",
+    "A built-in lint rejection preserves every existing destination in a publication batch",
     () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
@@ -33,8 +33,7 @@ layer(
             },
             {
               outputPath,
-              source:
-                "export const choose = (value: boolean) => { if (value) { return 1; } return 0; };",
+              source: "export const choose = () => { debugger; return 1; };",
             },
           ])
           .pipe(Effect.flip);

@@ -1,3 +1,4 @@
+import { AwsQueryWire } from "@tradedal/aws-client-core/model";
 import { Schema } from "effect";
 
 const JsonObject = Schema.Record(Schema.String, Schema.Json);
@@ -6,9 +7,8 @@ const Identifier = Schema.String.check(
 );
 
 /**
- * SmithyDependencies identifies the pinned converter artifacts and checksums
- * accepted by generation. A mismatched artifact cannot be used to compile or
- * execute the OpenAPI converter.
+ * The SmithyDependencies schema lets generation check the version and
+ * checksum of every artifact before it compiles or runs the converter.
  */
 export const SmithyDependencies = Schema.Struct({
   version: Schema.NonEmptyString,
@@ -21,23 +21,37 @@ export const SmithyDependencies = Schema.Struct({
 });
 
 /**
- * AwsOpenApiService retains the service identity and execution rules emitted
- * by the Smithy extension. The internal client uses this metadata to address
- * and sign generated operations for the selected region.
+ * The AwsOpenApiService schema requires the rules the client uses to sign
+ * requests in the region selected by AWS. Global IAM routes can specify a
+ * signing region different from the region configured by the application.
+ *
+ * @see ../../refs/smithy/docs/source-2.0/additional-specs/rules-engine/specification.rst (Rule set and parameter objects)
  */
 export const AwsOpenApiService = Schema.Struct({
   service: Schema.NonEmptyString,
   version: Schema.NonEmptyString,
   protocol: Schema.Literals(["awsJson1_0", "restJson1", "awsQuery"]),
   signingName: Schema.NonEmptyString,
-  endpointRules: JsonObject,
+  endpointRules: Schema.Struct({
+    version: Schema.NonEmptyString,
+    parameters: Schema.Record(
+      Schema.String,
+      Schema.Struct({
+        type: Schema.Literals(["String", "string", "Boolean", "boolean"]),
+        required: Schema.optionalKey(Schema.Boolean),
+        default: Schema.optionalKey(
+          Schema.Union([Schema.String, Schema.Boolean]),
+        ),
+      }),
+    ),
+    rules: Schema.Array(JsonObject),
+  }),
   xmlNamespace: Schema.optionalKey(Schema.NonEmptyString),
 });
 
 /**
- * AwsOpenApiError preserves modeled failure identity and retry traits beside
- * the error's schema. Generated error decoding and retry decisions can
- * then interpret the same provider failure consistently.
+ * The AwsOpenApiError schema preserves the AWS error name, status, and retry
+ * traits so the client can decode the failure before applying a retry policy.
  */
 export const AwsOpenApiError = Schema.Struct({
   name: Identifier,
@@ -103,9 +117,19 @@ export const AwsRpcRequest = Schema.TaggedStruct("Rpc", {
 
 /**
  * The AwsRestRequest schema validates the complete input reference and HTTP
- * field bindings that the REST JSON extension adds beside the OpenAPI body.
+ * bindings that the REST JSON extension adds beside the OpenAPI body. The
+ * member-name mapping lets resource codecs use modeled names when the wire
+ * uses different names, such as `RouteKey` in Nomoss and `routeKey` on AWS.
+ *
+ * @see ../../refs/smithy/docs/source-2.0/spec/protocol-traits.rst (jsonName)
  */
 export const AwsRestRequest = Schema.TaggedStruct("Rest", {
+  "x-aws-member-names": Schema.optionalKey(
+    Schema.Struct({
+      input: Schema.Record(Schema.String, Schema.String),
+      output: Schema.Record(Schema.String, Schema.String),
+    }),
+  ),
   "x-aws-input": OpenApiComponentReference,
   "x-aws-errors": Schema.Array(OpenApiComponentReference),
   "x-aws-http-bindings": Schema.Record(
@@ -125,22 +149,19 @@ export const AwsRestRequest = Schema.TaggedStruct("Rest", {
 export const AwsQueryRequest = Schema.TaggedStruct("Query", {
   "x-aws-input": OpenApiComponentReference,
   "x-aws-errors": Schema.Array(OpenApiComponentReference),
-  "x-aws-query": Schema.Struct({
-    input: Schema.Json,
-    output: Schema.Json,
-  }),
+  "x-aws-query": AwsQueryWire,
 });
 
 /**
- * The AwsOpenApiOperation schema validates responses and the metadata needed
- * to preserve tokens, pagination, and waiters in the generated operation.
+ * The AwsOpenApiOperation schema requires the response contracts used to
+ * compile operation decoders. It also carries the token metadata the client
+ * needs to reuse a request on retry or request the next response page.
  */
 export const AwsOpenApiOperation = Schema.Struct({
   operationId: Identifier,
   responses: Schema.Record(Schema.String, Response),
   "x-aws-idempotency-tokens": Schema.Array(Identifier),
   "x-aws-pagination": JsonObject,
-  "x-aws-waiters": JsonObject,
 });
 
 /**
@@ -167,7 +188,13 @@ export const AwsOpenApiDocument = Schema.Struct({
   info: Schema.Struct({ title: Schema.String, version: Schema.String }),
   paths: Schema.Record(
     Schema.TemplateLiteral(["/", Schema.String]),
-    Schema.Record(Schema.String, Schema.Struct({ operationId: Identifier })),
+    Schema.Record(
+      Schema.String,
+      Schema.Struct({
+        operationId: Identifier,
+        description: Schema.optionalKey(Schema.String),
+      }),
+    ),
   ),
   components: Schema.Struct({ schemas: Schema.Record(Identifier, JsonObject) }),
   "x-aws-service": AwsOpenApiService,
@@ -181,7 +208,10 @@ export type AwsOpenApiDocument = typeof AwsOpenApiDocument.Type;
  * bind invocation and validation to the same OpenAPI definition.
  */
 export interface AwsOpenApiInvocation {
+  readonly description: string | undefined;
+  readonly memberNames: (typeof AwsRestRequest.Type)["x-aws-member-names"];
   readonly name: string;
+  readonly unsigned: true | undefined;
   readonly method: typeof AwsOpenApiMethod.Type;
   readonly path: `/${string}`;
   readonly query: (typeof AwsQueryRequest.Type)["x-aws-query"] | undefined;
@@ -197,6 +227,5 @@ export interface AwsOpenApiInvocation {
     | undefined;
   readonly idempotencyTokens: ReadonlyArray<string>;
   readonly pagination: Readonly<Record<string, Schema.Json>>;
-  readonly waiters: Readonly<Record<string, Schema.Json>>;
   readonly errors: ReadonlyArray<typeof AwsOpenApiError.Type>;
 }

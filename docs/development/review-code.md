@@ -2,23 +2,31 @@
 
 ## Prepare or commit the review batch
 
-Review the implementation you just completed. Use the checklist below to find defects and finish the cleanup, then stage or commit the changes as a coherent batch for review.
+Read the active task before changing code. Choose one required result that a caller can observe. For a generator change, identify the source rule, the declaration it produces, and the caller that uses that declaration. Apply the checks below as soon as that operation is complete and correct it before extending the pattern to another resource.
 
 Organize the batch around changes that must work together. Keep a changed interface with the callers migrated to it, because reviewing either part requires the other. Keep changed tests with the implementation they exercise.
 
 Make batches easy to review and size them so review can advance without breaking related work into disconnected files or producing one large dump.
 
-Apply the checklist to the staged batch while reading the complete operations it changes. Fix the defects identified by the checklist and keep the corrections staged with the batch. Keep validation focused and reuse passing results for unchanged work.
+When the user has staged selected work, compare the index with HEAD and the working tree with the index. Inspect both versions of a partially staged file and check whether its imports require untracked files. Preserve the user's staging choices. When preparing a batch for integration, validate the proposed staged contents independently so that local files cannot conceal a missing dependency.
 
-For a batch of mechanical changes of low risk, commit without waiting for the user and start working on the next batch.
+Keep the batch in the working tree until the user requests staging or a commit.
+
+## Check for clamped code
+
+Clamping means statements from different logical steps are stacked together without a blank line between them. Keep the statements for one step together. Insert a blank line where the next step begins. For example, keep the statements that recover a queue name from its URL together, then leave a blank line before collecting tags.
+
+- [ ] Read every changed function and test for missing logical breaks after formatting. Apply the same check to generated code and fix missing breaks in the generator. When spacing is the issue, inserting the blank line completes the fix.
 
 ## Required behavior and public APIs
 
 - [ ] Compare the completed implementation with the accepted requirements through the public API the application is supposed to use. Follow the call to the result its consumer receives. Restore missing behavior within the assignment. Report a conflict that needs a user decision before changing the required API or narrowing what counts as complete.
 
+- [ ] Read the resource test beside the application declaration. Exercise the declaration form the application uses, since a property on a parent and a separate resource can have different lifecycles. Verify which provider values change and which state the stack preserves.
+
 - [ ] Trace successful returns to the work they claim to complete. Replace placeholder results, unexecuted Effects, or successful defaults that skip required work with calls to the responsible production services. Verify the actual result and saved state; a method name or return type does not establish that the operation happened.
 
-- [ ] Check application callers for engine procedures introduced during cleanup or type repair. Keep registration, declaration isolation, preparation, and output resolution inside the engine where the accepted design assigns them. Correct the service composition that exposes the problem. Renaming an internal operation or adding a forwarding wrapper does not supply the required application API.
+- [ ] Check whether callers must perform engine procedures after a cleanup or type repair. Keep registration, declaration isolation, preparation, and output resolution inside the engine where the accepted design assigns them. Fix the service composition if a caller must invoke an internal procedure to use the public API.
 
 - [ ] Compare resource-specific branches with the general capability required by the assignment. Move behavior implemented only for an example into the responsible core service or generator. Verify that other supported resources use the same implementation. Keep examples as consumers of that capability.
 
@@ -40,7 +48,13 @@ For a batch of mechanical changes of low risk, commit without waiting for the us
 
 - [ ] Inspect lint fixes for deeply nested callbacks, unrelated inputs collected into an object, or helpers added only to silence a diagnostic. Rewrite the affected operation through readable native Effect composition. Preserve execution order and keep local parsing and decisions beside the work that uses them.
 
-- [ ] Read the layout of each changed operation, including generated functions. Separate logical groups with blank lines. Give nested AST operations and repeated field selections meaningful local names before constructing the value that uses them. Construct common metadata once, then keep each decision beside the complete value it selects. Read the code after formatting to verify these conditions; a successful formatter run establishes only the checks configured in that tool.
+- [ ] Read each changed operation and its generated result from top to bottom. Give a condition a name that states the resource rule, then keep the value or failure it selects beside it. Use a local name when a nested expression makes the reader reconstruct a schema or request before they can see what it does.
+
+- [ ] Read each rejection condition as a rule a caller must satisfy. For example, a configured value prefix requires a string property with a relationship at that exact path. Express the conditions in those terms and keep the typed failure beside the decision. Check that a reader can identify invalid input without reversing several nested tests.
+
+- [ ] Trace how the runtime finds each resource's management definition. A new type that uses an existing lifecycle must leave provider Layer composition unchanged. Check that the stack loads definitions by type and can manage a resource it knows only from saved state. Use the [resource management development guide](effect-native-development.md#develop-resource-management) to assess the design at catalog scale.
+
+- [ ] Read the generator beside one emitted module. Check the source comment where the generator makes a domain decision and the emitted documentation where the application author uses the result. For a generated import, follow the imported symbol to the expression that needs it and document the reason for that dependency beside the owning block. Cite the checked-in library guide or API that supports the operation. Apply the [code documentation requirements](code-documentation.md) to both files.
 
 - [ ] Check validation against the canonical schema for the domain. Replace copied contracts and local validators that make a business decision with that schema and the responsible service operation. Preserve the typed failures promised to callers instead of hiding them through fallback values.
 
@@ -48,7 +62,9 @@ For a batch of mechanical changes of low risk, commit without waiting for the us
 
 ## Evidence and completion
 
-- [ ] Read each behavior test through the production operation it exercises. Replace test-local implementations or fake service interfaces that bypass the operation with the shared domain fixture and real consumer. Keep recorded responses when the fixture contract requires them. Verify outcomes the consumer receives, including reads after writes and failures followed by retries where the assigned behavior requires them.
+- [ ] For each resource management case, identify the requirement, the action taken through the public stack API, and the observation that would distinguish correct behavior from a regression. Apply the [resource test structure](testing.md#structure-resource-management-tests) before accepting the case. Move declaration details out of the workflow and remove assertions that only confirm fixture inputs. A new case must cover a specific outcome the existing cases leave open.
+
+- [ ] Follow each behavior test through the production operation. Use the shared fixture and real consumer so the test exercises that operation. Keep the provider responses the fixture needs. Verify the results the consumer receives after a write or a retry when the requirement covers those outcomes.
 
 - [ ] Compare changed assertions, snapshots, and examples with the accepted behavior before accepting them. Correct evidence that merely follows the new implementation or uses an available internal API in place of the required public API. Add coverage only for a specific behavior gap under the [testing contract](testing.md).
 

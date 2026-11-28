@@ -14,18 +14,14 @@ Use Service.operation as the span name. For AWS, the service signing name and AP
 
 Downstream spans and events identify the resource by stack, logical id, and provider-qualified type. The service and lifecycle operation stay in scope through reads and persistence. Record the AWS API operation separately so a single resource creation distinguishes CreateResource from each GetResourceRequestStatus poll and the final GetResource.
 
-Planned action counts on the stack span show the scale of the change. Each client span retains the AWS service and operation, from the first request preparation step until the client decodes the response. A request span reports region, HTTP status, and provider request identifier when available. An AWS CLI span identifies the service operation and region and reports the process exit status.
+Planned action counts on the stack span show the scale of the change. Each client span retains the AWS service and operation, from the first request preparation step until the client decodes the response. A request span reports region, HTTP status, and provider request identifier when available.
 
 Application annotations exclude resource properties, command arguments, credentials, and uploaded object contents. An optional AWS attribute appears only if the request supplies it.
 
 ## Provider waits and retries
 
-Cloud Control events report the provider status and requested retry time. Each poll wait records its actual delay in milliseconds. Nomoss uses the five-second AWS CLI waiter interval so it can detect completion before a later retry timestamp. [AWS CLI waiter interval](https://docs.aws.amazon.com/cli/latest/reference/cloudcontrol/wait/resource-request-success.html)
-
 Each request retry records its attempt, cause, and backoff delay. An operator can compare those events with HTTP spans and provider progress to distinguish transport latency from retry delays and resource stabilization.
 
 ## Integration evidence
 
-The S3-to-SQS integration uses the application tracing Layer. Its root span identifies the unique stack and AWS region and stays open through cleanup on success or failure. The trace covers declaration, all three apply passes, reconciliation, notification delivery, teardown, and confirmation of absence.
-
-Instrumentation changes preserve the integration inputs and assertions. The existing provider and lifecycle tests exercise the workflow. A completed Jaeger trace shows whether the expected spans reached the collector with their parent relationships, resource context, and elapsed times. [observability procedure](../operations/observability-sop.md)
+Instrumentation changes preserve the workflow's inputs and assertions. A completed Jaeger trace shows whether the expected spans reached the collector with their parent relationships, resource context, and elapsed times. [observability procedure](../operations/observability-sop.md)

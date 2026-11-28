@@ -12,7 +12,7 @@ Translate feedback into ordinary English before you add it to a specification. P
 
 ## Explain what the software does
 
-Begin with the operation the reader needs and explain its outcome. Introduce a resource, request, or saved record before a requirement refers to it. When one operation depends on another, explain which result it needs and why that result affects its behavior.
+Open each section of a specification or README at the point where the reader needs it. For example, a contributor who must choose a field mapping needs to know how AWS uses that field on create and update before instructions for choosing the mapping will make sense. Introduce a resource, request, or saved record before a requirement refers to it. When one operation depends on another, explain which result it needs and why that result affects its behavior.
 
 A paragraph must develop an explanation through related sentences. Explain what the consumer can accomplish and how the relevant conditions determine the result. A service name, a paraphrase of its code, or the word must cannot replace that explanation.
 

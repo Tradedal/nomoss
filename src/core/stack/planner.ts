@@ -272,16 +272,19 @@ export class ResourcePlanner extends Context.Service<ResourcePlanner>()(id, {
         onSome: (state) => resourceGeneration(state.node),
       });
       const target: ResourceNode = { ...node, generation };
+
       const rule = Option.match(pending, {
         onNone: () => node.schema.replacement,
         onSome: (state) => state.node.schema.replacement,
       });
       const create = PlanAction.Create({ node: target });
       const remove = PlanAction.Destroy({ node: current });
+      //CLEANUP_Q [DERAIL] The planner groups both steps before dependent updates. An IAM role with a managed inline policy must keep its previous instance until the policy has moved.
       const ordered = Match.value(rule?.order).pipe(
         Match.when("createBeforeDestroy", () => [create, remove]),
         Match.orElse(() => [remove, create]),
       );
+
       const operations = Arr.filter(
         ordered,
         Predicate.not((operation: typeof create | typeof remove) =>
@@ -311,6 +314,7 @@ export class ResourcePlanner extends Context.Service<ResourcePlanner>()(id, {
 
       return PlanAction.Replace({ node: target, current, operations });
     };
+
     /**
      * The selectCreateOrUpdateActions helper keeps a dependent resource in the
      * plan when an earlier action may change its request values. Execution must
@@ -325,6 +329,7 @@ export class ResourcePlanner extends Context.Service<ResourcePlanner>()(id, {
     ): ReadonlyArray<SelectedAction> => {
       const currentByKey = currentResourcesByKey(current);
       const ordered = Arr.fromIterable(Graph.topo(desired));
+
       const selected = Arr.reduce(
         ordered,
         HashMap.empty<Graph.NodeIndex, SelectedAction>(),
@@ -346,6 +351,7 @@ export class ResourcePlanner extends Context.Service<ResourcePlanner>()(id, {
                 ),
               ),
           );
+
           return Option.match(HashMap.get(currentByKey, node.key.logicalId), {
             onNone: () =>
               HashMap.set(selected, index, {
@@ -385,6 +391,7 @@ export class ResourcePlanner extends Context.Service<ResourcePlanner>()(id, {
                           resourceGeneration(candidate),
                       ),
                     );
+
                     const action = Match.value(
                       Predicate.or(
                         () => Option.isSome(pending),
@@ -414,10 +421,12 @@ export class ResourcePlanner extends Context.Service<ResourcePlanner>()(id, {
           });
         },
       );
+
       const actions: ReadonlyArray<SelectedAction> = Arr.flatMap(
         ordered,
         ([index]) => HashMap.get(selected, index).pipe(Option.toArray),
       );
+
       return actions;
     };
 

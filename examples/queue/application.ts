@@ -8,13 +8,17 @@ import {
 } from "nomoss/providers/aws";
 import { AWSQueue } from "nomoss/providers/aws/sqs/queue";
 
-const awsRegion = Layer.succeed(AwsRegion, Option.some("us-east-1"));
+const awsRegion = Layer.succeed(
+  AwsRegion,
+  Option.some(AwsRegionName.make("us-east-1")),
+);
+
 const awsConfig = awsClientConfigLayer.pipe(Layer.provide(awsRegion));
 
 export const queueStack = {
   name: "native-queue",
   providers: AwsProviderLive.pipe(
-    Layer.provide([awsConfig, FetchHttpClient.layer]),
+    Layer.provide(Layer.provideMerge(awsConfig, FetchHttpClient.layer)),
   ),
   state: localState(),
   resources: Effect.gen(function* () {
@@ -29,3 +33,5 @@ export const queueStack = {
     return () => ({ queueUrl: queue.QueueUrl });
   }),
 };
+
+import { AwsRegionName } from "@tradedal/aws-client-core/model";

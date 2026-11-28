@@ -20,6 +20,20 @@ When a complete generated artifact establishes the required result, capture it t
 
 For a failed stack, resource, or provider operation, CLI tests must check the diagnostics the operator receives and how the process exits. They must also check how it exits after interruption. To test progress reports, run the executable workflow, observe elapsed time and terminal output, and verify that the display stops when its scope ends.
 
+## Structure resource management tests
+
+Group integration tests by provider and application workflow. Native AWS suites live under `tests/aws/native/`. Place a case with the workflow that establishes the required behavior.
+
+Give each independent outcome its own case. Keep successive actions together when a later action needs the identity saved by an earlier one. Each case owns its stack name, provider objects, and cleanup so Vitest can run resource files in parallel.
+
+Exercise the resource relationships the application relies on. If an update or removal affects one part of the workflow, read the provider state to check the intended change and confirm that unrelated state survives. Use a provider authorization check when the requirement concerns effective permissions.
+
+For the AWS suites, select the integration account and region as described in [Test AWS workflows](#test-aws-workflows). Run `yarn exec vitest run --config vitest.integration.config.ts tests/aws/native/ --pool forks`. Use the path of a suite or service directory to limit the run.
+
+Put the application declaration in a named fixture when its properties would obscure the workflow. Supply stable configuration there and let the case specify the change an application author makes.
+
+Write the body in the order the application experiences the change. Establish the starting condition, call the public stack operation, then inspect the promised outcome. Separate these steps with blank lines. For an update that must preserve identity, retain the identity from the first apply and use it to read the changed resource. For an unsuccessful update, check what remains active and which operation the stack permits next.
+
 ## Check generated metadata
 
 Run the AWS operation metadata tests in the ordinary test suite. They verify metadata from versioned documents converted from Smithy models after the declared source corrections are applied.
@@ -40,7 +54,7 @@ Run the catalog and resource input tests to check contracts generated from small
 yarn exec vitest run tests/resourceCatalogs.test.ts tests/stripe/stripeClientGenerator.test.ts --pool forks
 ```
 
-To check AWS Queue output metadata against the CloudFormation Registry document, first prepare the local checkout under the [AWS resource generation instructions](../../tools/awsResources/README.md). Then run the following test with the integration configuration, which includes files excluded from the default configuration. This test reads the local reference and requires no provider credentials.
+To check AWS Queue output metadata against the CloudFormation Registry document, prepare the local reference checkout described in the [native AWS generation guide](../../tools/awsServiceResources/README.md). This test reads the local reference and requires no provider credentials.
 
 ```sh
 yarn exec vitest run --config vitest.integration.config.ts tests/resourceCatalogs.integration.test.ts --pool forks
@@ -66,19 +80,19 @@ Run integration files with vitest.integration.config.ts because vitest.config.ts
 
 ## Test AWS workflows
 
+Give each native AWS case a name, a declaration that uses a unique name where AWS requires one, and the values AWS should report after creation. Use the saved identity to verify the resource in AWS. Teardown must remove both the AWS resource and its saved record. Use Vitest's `-t` option with the case name to select one resource.
+
+For an in-place change, add the revised declaration and the expected provider values to the same case. Each phase reads the resource from saved state and verifies that its identity stayed the same. A rejection phase specifies the diagnostic and the provider values that must remain after the failed apply.
+
+Set `NOMOSS_AWS_INTEGRATION_PROFILE` to your local AWS profile. Set `NOMOSS_AWS_INTEGRATION_REGION` to select a region; it defaults to `us-east-1`.
+
+```sh
+NOMOSS_AWS_INTEGRATION_PROFILE=your-integration-profile yarn exec vitest run --config vitest.integration.config.ts tests/aws/native/ --pool forks --reporter=verbose
+```
+
 Before you request credentials on a workstation already configured for integration tests, check `~/.codex/memories/nomoss-integration.md` for the selected AWS profile and Stripe secret reference.
 
 To validate resources in AWS, supply live provider Layers and verify the resources through provider reads. Effect Vitest's it.live selects live test services, such as the clock. The Layers supplied to the test determine which provider it calls.
-
-The S3-to-SQS workflow in awsUploadEvents.integration.test.ts must establish event delivery through generated Cloud Control declarations. Create the bucket and queue and apply delivery permission before you enable bucket notifications, because S3 validates the destination. Use the installed AWS CLI with the selected profile to upload an object and receive its SQS notification.
-
-Use unique stack and resource names for the live suite and save state through production file storage. At cleanup, remove the uploaded object before you destroy the managed stack. Verify through final Cloud Control reads that the bucket and queue are absent.
-
-Select the integration account with AWS_PROFILE and the region with AWS_REGION. The default region is us-east-1. Run the AWS workflow suite with the following command. To run all integration files for operating-system services and live providers, use `yarn test:integration`.
-
-```sh
-AWS_PROFILE=your-integration-profile AWS_REGION=us-east-1 yarn test:integration:aws
-```
 
 ## Test Stripe workflows
 

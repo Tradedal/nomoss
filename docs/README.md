@@ -10,7 +10,7 @@ For provider generation, read the [generation architecture](application/generati
 
 Create and maintain development trackers with the [tracker template](../attempts/tracker-template.md). It defines how to capture scope, direction, delivered outcomes, and the work that remains.
 
-Use the [Effect development guide](development/effect-native-development.md) when implementing services. Follow the [code documentation contract](development/code-documentation.md) for source comments and the [specification guide](development/spec-writing.md) for requirements. Review documentation with the [remediation checklist](development/review-docs.md) and [writing guidance](development/unslop.md).
+Follow the [resource management development guide](development/effect-native-development.md#develop-resource-management) to define a lifecycle and decide which parts come from provider specifications. The [native AWS generator procedure](../tools/awsServiceResources/README.md) explains how to produce the declarations and client operations. Follow the [code documentation contract](development/code-documentation.md) for source comments and the [specification guide](development/spec-writing.md) for requirements. Review documentation with the [remediation checklist](development/review-docs.md) and [writing guidance](development/unslop.md).
 
 Use the [test contract](development/testing.md) to select behavior coverage and the [graph test approach](development/resource-graph-testing-approach.md) when testing resource dependencies. Run checks according to the [lint workflow](development/linting.md). Complete changes under the [review contract](development/review-remediation-spec.md) and write commits under the [commit message specification](development/commit-message-spec.md).
 

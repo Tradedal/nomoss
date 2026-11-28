@@ -1,12 +1,56 @@
 {
   "region": "us-east-1",
-  "services": ["tools/awsServiceResources/sources/sqs.json"],
   "relationships": {
     "specification": "refs/aws-cdk-service-spec/sources/OobRelationships/relationships.json",
     "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
     "sha256": "6c650d20b4487e56cd5e8423376d8af0cfa2ff42e1b9dcb02eb7f2edd9935c0e"
   },
   "resources": [
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-iam-accesskey.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "b1f36ca9cad383e463115003fbc6ad85be054f18ae72685a5fdf3c86ae4001c9",
+      "stateSecretOutputKeys": [
+        "SecretAccessKey"
+      ]
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-iam-oidcprovider.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "8bbe1ab71bea79117e5f80075e5e4ee1207f58e64f325ad64f0e5fa3ab5ea7df"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-iam-samlprovider.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "ef8a4721a2c4e0cededbd0bb9cc69ad954ba28c35f428f899b6186374f935d73"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-iam-servercertificate.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "59e47909b0bf47797db0d6ceb7c8e5f899cd6d405587a2e11c35609f0ef0895a"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-iam-servicelinkedrole.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "4e804cc450dc474c560693f1149235ff0e8833586a6ab0c24e52d1a5b1930857"
+    },
+    {
+      "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-iam-virtualmfadevice.json",
+      "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
+      "sha256": "99d68c10161bfcc60e7c7a13fed715ae80fcbd37234c21c2474d26c1271b2c07",
+      "corrections": [
+        {
+          "id": "remove-undeclared-seed-from-replacement",
+          "reason": "The Registry exposes SerialNumber and declares no Base32StringSeed input.",
+          "op": "remove",
+          "path": [
+            "createOnlyProperties",
+            1
+          ],
+          "expected": "/properties/Base32StringSeed"
+        }
+      ]
+    },
     {
       "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-iam-role.json",
       "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
@@ -19,6 +63,14 @@
     },
     {
       "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-iam-rolepolicy.json",
+      "corrections": [{
+        "id": "require-inline-policy-document",
+        "reason": "The Registry create handler uses PutRolePolicy, whose Smithy request requires PolicyDocument.",
+        "op": "replace",
+        "path": ["required"],
+        "expected": ["PolicyName", "RoleName"],
+        "value": ["PolicyName", "RoleName", "PolicyDocument"]
+      }],
       "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
       "sha256": "1d002b01bf0266927d83036737a8a70e860279d46012523b20bb171c603f9222"
     },
@@ -29,6 +81,14 @@
     },
     {
       "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-iam-userpolicy.json",
+      "corrections": [{
+        "id": "require-inline-policy-document",
+        "reason": "The Registry create handler uses PutUserPolicy, whose Smithy request requires PolicyDocument.",
+        "op": "replace",
+        "path": ["required"],
+        "expected": ["PolicyName", "UserName"],
+        "value": ["PolicyName", "UserName", "PolicyDocument"]
+      }],
       "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
       "sha256": "c59a805ff31baf3d75eb3bd751797d9e4931e76acdb731af02520f9466145fb8"
     },
@@ -39,6 +99,14 @@
     },
     {
       "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-iam-grouppolicy.json",
+      "corrections": [{
+        "id": "require-inline-policy-document",
+        "reason": "The Registry create handler uses PutGroupPolicy, whose Smithy request requires PolicyDocument.",
+        "op": "replace",
+        "path": ["required"],
+        "expected": ["PolicyName", "GroupName"],
+        "value": ["PolicyName", "GroupName", "PolicyDocument"]
+      }],
       "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
       "sha256": "962513dc9345dff7fac23ad65d18caaffaa2c42a95d8cb9a7fadbabb93de4487"
     },
@@ -104,6 +172,7 @@
     },
     {
       "specification": "refs/aws-cdk-service-spec/sources/CloudFormationSchema/us-east-1/aws-apigatewayv2-route.json",
+      "relationshipValuePrefixes": { "Target": "integrations/" },
       "revision": "43c6b9e2fc6ef24d010a9bafbd024b71bd22971f",
       "sha256": "c6c9119fb6aec601c0f8b675bcf8ce7298f270fb7fe7e237284fd206c3647c05"
     },

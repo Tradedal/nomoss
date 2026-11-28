@@ -1,6 +1,5 @@
 import { expect, layer } from "@effect/vitest";
 import { Effect, FileSystem, Schema } from "effect";
-import { QueueOutputCatalog } from "nomoss/providers/aws/cloud-control/sqs/queue";
 import { ResourceCatalogs } from "../tools/codegen/resourceCatalogs.js";
 import { ResourceDefinition } from "../tools/codegen/resourceSchemas.js";
 import { resourceSchemaTestLayer } from "./support/resourceCatalogFixture.js";
@@ -34,7 +33,6 @@ layer(resourceSchemaTestLayer)("Resource output catalogs", (it) => {
         );
 
         expect(catalog).toMatchSnapshot();
-        expect(QueueOutputCatalog).toEqual([catalog]);
       }),
   );
 });

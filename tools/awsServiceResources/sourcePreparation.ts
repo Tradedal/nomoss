@@ -99,6 +99,7 @@ export class AwsServiceResourceSources extends Context.Service<AwsServiceResourc
             onSome: (source) => sources.readJson(".", source),
           },
         );
+
         const relationships = yield* Schema.decodeUnknownEffect(
           CloudFormationRelationshipsSchema,
         )(relationshipsDocument);
@@ -107,7 +108,9 @@ export class AwsServiceResourceSources extends Context.Service<AwsServiceResourc
           region: source.cloudFormation.region,
           documents: [cloudFormation],
           relationships,
-          reportDirectory: `.cache/nomoss/aws-resource-metadata/${definition.typeName.replaceAll("::", "-")}`,
+          reportDirectory: yield* fs.makeTempDirectory({
+            prefix: "nomoss-resource-metadata-",
+          }),
         });
 
         // The output catalog uses the verified Registry definition so imported
@@ -160,7 +163,16 @@ export class AwsServiceResourceSources extends Context.Service<AwsServiceResourc
           );
 
         const documents = yield* Effect.forEach(source.resources, (resource) =>
-          sources.readJson(".", resource),
+          sources
+            .readJson(".", resource)
+            .pipe(
+              Effect.flatMap((document) =>
+                corrections.applyCorrections(
+                  document,
+                  resource.corrections ?? [],
+                ),
+              ),
+            ),
         );
 
         const relationshipsDocument = yield* sources.readJson(
@@ -190,7 +202,9 @@ export class AwsServiceResourceSources extends Context.Service<AwsServiceResourc
           region: source.region,
           documents,
           relationships,
-          reportDirectory: `.cache/nomoss/aws-resource-metadata/${source.region}`,
+          reportDirectory: yield* fs.makeTempDirectory({
+            prefix: "nomoss-resource-metadata-",
+          }),
         });
 
         // Metadata import preserves input order. Associate each catalog with
@@ -200,11 +214,12 @@ export class AwsServiceResourceSources extends Context.Service<AwsServiceResourc
           metadata.resources,
           (resource, index) => {
             const definition = resource.definition;
+            const selected = source.resources[index];
 
             const catalogSource: ResourceSource = {
               provider: "AWS",
               service: "CloudFormation",
-              name: source.resources[index].specification,
+              name: selected.specification,
               format: "CloudFormation",
             };
 
@@ -224,6 +239,9 @@ export class AwsServiceResourceSources extends Context.Service<AwsServiceResourc
                   definition,
                   outputCatalog,
                   metadata,
+                  stateSecretOutputKeys: selected.stateSecretOutputKeys ?? [],
+                  relationshipValuePrefixes:
+                    selected.relationshipValuePrefixes ?? {},
                 })),
               );
           },

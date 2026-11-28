@@ -1,6 +1,15 @@
 import { NodeCrypto, NodeRuntime, NodeServices } from "@effect/platform-node";
-import { Effect, Layer } from "effect";
+import {
+  Array as Arr,
+  Data,
+  Effect,
+  Layer,
+  Option,
+  String as Str,
+} from "effect";
 import { FetchHttpClient } from "effect/http";
+import { NomossTracingLive } from "../src/core/runtime/tracing.js";
+import { awsClientPackages } from "./awsClientPackages.js";
 import { awsServiceResourceGenerationLayer } from "./awsServiceResources/generationLayer.js";
 import { AwsServiceOperationGeneration } from "./awsServiceResources/operationGeneration.js";
 import { AwsServiceResourceSources } from "./awsServiceResources/sourcePreparation.js";
@@ -22,6 +31,10 @@ const generationLayer = Layer.merge(
   ]),
 );
 
+class AwsClientPackageNotFound extends Data.TaggedError(
+  "AwsClientPackageNotFound",
+)<{ readonly serviceId: string }> {}
+
 Effect.gen(function* () {
   const sources = yield* AwsServiceResourceSources;
   const operations = yield* AwsServiceOperationGeneration;
@@ -29,16 +42,35 @@ Effect.gen(function* () {
 
   // Verify pinned sources before rendering the operation contracts. The module
   // publisher validates the rendered source before replacing the client file.
-  const prepared = yield* sources.prepare(
-    process.argv[2] ?? "tools/awsServiceResources/sources/sqs.json",
+  const prepared = yield* sources
+    .prepare(process.argv[2] ?? "tools/awsServiceResources/sources/sqs.json")
+    .pipe(Effect.withSpan("codegen.sources.prepare"));
+  yield* Effect.annotateCurrentSpan({
+    "codegen.aws.service": prepared.source.smithy.serviceId,
+  });
+  const outputPath = yield* Effect.fromOption(
+    Option.fromUndefinedOr(process.argv[3]).pipe(
+      Option.orElse(() =>
+        Arr.findFirst(
+          awsClientPackages,
+          ({ serviceId }) => serviceId === prepared.source.smithy.serviceId,
+        ).pipe(Option.map(({ directory }) => `${directory}/index.ts`)),
+      ),
+    ),
+    () =>
+      new AwsClientPackageNotFound({
+        serviceId: prepared.source.smithy.serviceId,
+      }),
   );
-  const source = yield* operations.renderClient(prepared);
-  const published = yield* publisher.publishModule(
-    process.argv[3] ?? "src/providers/aws/client/generated/sqs.ts",
-    source,
-  );
+  const serviceName = Str.split(prepared.definition.typeName, "::")[1];
+  const source = yield* operations.renderClient(prepared, serviceName);
+  const published = yield* publisher.publishModule(outputPath, source);
 
   yield* Effect.logInfo("Generated native AWS operation contracts", {
     published,
   });
-}).pipe(Effect.provide(generationLayer), NodeRuntime.runMain);
+}).pipe(
+  Effect.withSpan("codegen.aws.client"),
+  Effect.provide([generationLayer, NomossTracingLive]),
+  NodeRuntime.runMain,
+);

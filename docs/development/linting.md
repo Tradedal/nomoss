@@ -20,7 +20,7 @@ Compiler and editor diagnostics must use the [Effect TypeScript 7 integration](h
 
 The project uses Effect's CLI, Graph, HTTP, and persistence APIs, which Effect classifies as unstable. The unstableApiUsage diagnostic is disabled so those required APIs do not produce diagnostics. Composition, schema, runtime, and TypeScript diagnostics remain enforced.
 
-The schemaNumber suggestion must remain enabled for handwritten schemas. Generated AWS schemas apply finite or integer checks after annotations, so Projen disables this suggestion only in the generated client and resource paths. That exception must preserve generated validation.
+Effect tsgo recognizes annotated integer and finite checks, so `schemaNumber` applies to handwritten and generated schemas. Projen suppresses `preferTypedSchemaDecoder` only in generated Stripe resource bindings. Those bindings still validate declaration properties against their provider request schemas before execution. [Effect tsgo fix](https://github.com/Effect-TS/tsgo/pull/986)
 
 ## Validate the assigned change
 

@@ -106,6 +106,8 @@ Validate input with canonical schemas, implement domain behavior in composable s
 
 Keep each Effect operation in one continuous pipeline or expression. Let TypeScript infer Effect and Layer channels from the service composition, and resolve dependency errors in that graph. Run services and their reactive consumers through the same Layer graph and runtime.
 
+Follow the [resource management development guide](docs/development/effect-native-development.md#develop-resource-management) before you add or change a resource lifecycle. If a design requires a new provider-wide command entry or a separate implementation of shared lifecycle behavior, fix the design before you extend it.
+
 ## Effect primitives
 
 Locate and use the full set of Effect constructs applicable to the service being implemented. Read the relevant Effect source in `node_modules/effect/src`. Use the Effect patterns established in this repository. Treat code that reimplements an Effect capability as a foundation defect and replace it with the corresponding Effect construct.
@@ -140,7 +142,7 @@ Write every development task as a Markdown checklist item.
 
 Stage only the requested files. Push only at the user's explicit request.
 
-Name branches for their work and inspect status before and after changing history. Move branches at agreed points to integrate or recover work. Name the source and target before merging a release. Keep validation fixes on their assigned branch until you integrate it.
+Name branches for their work. Inspect status before and after you change history. Move branches at agreed points to integrate or recover work. Name the source and target before you merge a release. Keep validation fixes on their assigned branch until you integrate it.
 
 ### Recovery and revert safety
 

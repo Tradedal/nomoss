@@ -13,14 +13,16 @@ export const ResourceFailureSchema = Schema.Struct({
 });
 
 /**
- * The ResourceStateSchema schema retains a completed removal until its
- * containing operation commits, allowing recovery to skip that provider call.
- * An unfinished update keeps the last applied node available for comparison
- * with the requested configuration.
+ * The ResourceStateSchema schema lets the stack resume a submitted creation
+ * with the identity the provider already returned. Until confirmation, the
+ * stack can remove that instance and keeps its outputs unavailable to
+ * dependents. An unfinished update retains the previous applied node, and a
+ * completed removal remains recorded until the containing operation commits.
  */
 export const ResourceStateSchema = Schema.Union([
   Schema.TaggedStruct("Creating", {
     node: ResourceNodeSchema,
+    submitted: Schema.optionalKey(Schema.Literal(true)),
     startedAt: Schema.NonEmptyString,
     lastFailure: Schema.optional(ResourceFailureSchema),
   }),

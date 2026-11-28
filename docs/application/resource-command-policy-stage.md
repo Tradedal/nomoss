@@ -4,7 +4,7 @@ The stack lifecycle sends each resource command to its registered provider polic
 
 ## Requests and outcomes
 
-A stable resource key and schema metadata identify the policy for a command. If the policy is absent or lacks the requested operation, the caller receives a tagged failure.
+The resource key identifies the instance, and the provider and type in its schema metadata identify the management definition. A command can use that metadata from saved state after the declaration disappears. If the definition is absent or lacks the requested operation, the caller receives a tagged failure.
 
 ResourceObservation describes what a provider read found. PlanDecision records the action the planner selects from desired, saved, and observed state. ResourceCommandResult gives core one result to reconcile, persist, and expose as outputs. [resource model](../../src/core/resource/model.ts) · [lifecycle model](../../src/core/resource/lifecycle.ts)
 
@@ -18,7 +18,7 @@ A provider policy declares an explicit prerequisite when an operation depends on
 
 ## Provider behavior
 
-Cloud Control and generated resource metadata supply the generic AWS lifecycle. A resource policy owns any additional AWS operations and invokes their generated contracts through the internal client. [AWS resource contract](aws-resource-lifecycle-management.md)
+The management definition selects provider operations, identifies the owned object, and defines what confirms a change. Shared lifecycle services execute those rules through the provider client. Where a provider requires a decision or sequence specific to a resource, the shared lifecycle calls a typed operation at that step. See the [resource management development guide](../development/effect-native-development.md#develop-resource-management).
 
 A named public service method exposes each provider capability. It accepts domain inputs, owns the decisions that affect the call, and returns a result other services can use. [Effect development contract](../development/effect-native-development.md)
 

@@ -6,7 +6,7 @@ When the pinned specification needs a correction, declare it under its specifica
 
 After generation, inspect a resource's catalog entry when its creation operation has no executable binding. An encoding that the generator cannot bind appears in bindingIssues with the reason creation could not be prepared.
 
-When changing schema compilation, keep OpenApiResourceSchemas normalizing child schemas before their enclosing schemas. That order preserves the provider's allowed null values in references, alternatives, enums, and dictionary values when Effect imports them for validation.
+Preserve the order in which `OpenApiResourceSchemas` normalizes schemas: child schemas precede the schemas that contain them. Effect then retains the provider's allowed null values in references, alternatives, enums, and dictionary values.
 
 ## Configure resource relationships
 
@@ -77,9 +77,9 @@ Call buildOpenApiCatalog when you have explicitly selected an OpenAPI resource a
 
 For a native Effect resource, call buildEffectCatalog with its registered Struct and output selection. It returns the validated metadata in catalog and the selected native schema in outputSchema. Use both values from that result when compiling the resource so its output names and validation come from the same selection.
 
-Use [OpenApiResourceSchemas](../codegen/openApiResourceSchemas.ts) to inspect provider definitions before choosing a catalog mapping. Call readOperationSchemas to obtain an operation's input location, successful response schemas, and named resource models. Follow its property, identity, and relationship queries when you need the source location that justifies a mapping or explains why discovery left it unresolved.
+Use [OpenApiResourceSchemas](../codegen/openApiResourceSchemas.ts) to find the source for a catalog mapping. Call `readOperationSchemas` for an operation's input location, successful response schemas, and named resource models. The property, identity, and relationship queries show which definition supports the mapping or which detail discovery could not establish.
 
-Use [OpenApiResourceBindings](../codegen/openApiResourceBindings.ts) when choosing which operations belong to a resource and which outputs supply their requests. Its discovery, output selection, relationship resolution, and binding validation methods can be composed through the exported service Layer. Call readIdentityParameters to identify required path and query parameters whose values must survive creation for later reads.
+Use [OpenApiResourceBindings](../codegen/openApiResourceBindings.ts) to select a resource's operations and the outputs each request needs. Its Layer provides the methods that discover operations, resolve relationships, and validate mappings. Call `readIdentityParameters` to find the required path and query parameters a read needs after creation.
 
 ## Regenerate the clients
 
@@ -98,15 +98,15 @@ After regeneration, check that generated clients follow the discovered resource 
 
 ### Review generated contracts
 
-When reviewing shared models and operation contracts, expect their type and schema value to share a name. Both expressions come from Effect's CodeDocument, including typed Schema.suspend callbacks for recursive references. Preserve the provider's descriptions and constraints when changing normalization or compilation so public types and runtime validation continue to derive from the reviewed definitions.
+Check that a shared model or operation contract uses the same name for its type and schema. Effect's `CodeDocument` supplies both expressions and the `Schema.suspend` callbacks for recursive references. If you change normalization or compilation, preserve the provider's descriptions and constraints in both outputs.
 
 Configure modelModules and defaultModelModule in the source manifest to choose which module under generated/models owns each shared schema. For example, paymentMethods.ts groups wallet schemas with the other payment method models. Use clientNames to override a client name for a discovered operation path. These naming and module options apply to the complete discovery result, so review their effect across all generated consumers. Operations sharing a client belong to that client's module. Creation and update keep separate input contracts because they can accept different requests even when their responses use the same model.
 
 Preserve Schema.suspend when a shared model imports another model module or refers to a later declaration in the same file. JavaScript may otherwise evaluate a schema before its declaration has initialized. StripeModuleEmitter and StripeSchemaEmitter defer those shared-model initializers while retaining Effect's compiled schema and public type. Declaration input modules keep their own initialization rules, and schemas used to construct output references retain the concrete Struct fields that those references require.
 
-Keep generated names compatible with their consumers when changing emission. The Stripe prefix identifies provider models, and StripeResourceInput identifies schemas that accept unresolved resource references. Catalog props and output schemas retain their Schema suffix and corresponding payload type names because resource registration and lifecycle code already import those contracts.
+Preserve the generated names that callers import. The `Stripe` prefix identifies provider models, and `StripeResourceInput` identifies schemas that accept unresolved resource references. Resource registration and lifecycle code import the catalog property and output schemas by their `Schema` names and use the corresponding payload types.
 
-Check both declaration inputs and provider request inputs when changing relationship compilation in StripeResourceInputs. A declaration can contain a compatible resource entity inside an object or array before the provider has created its identity. Its saved reference must retain the source identity and request mapping so execution can resolve the provider value later. Both forms of the props schema must keep the same StripeAnnotations command registration so they address the same resource during execution.
+If `StripeResourceInputs` changes, check the declaration and request schemas together. A declaration can contain a compatible resource entity inside an object or array before the provider assigns an ID. Its saved reference must retain the source identity and request mapping so execution can resolve the provider value later. Both schema forms must retain the same `StripeAnnotations` so execution addresses the same resource.
 
 Check output selection alongside those request mappings. Resource bindings must save the provider identity needed for later reads and retain any output whose value the provider returns only at creation. Typed output references let applications declare dependencies on those values before creation. Resolution must obtain the applied value before the dependent request runs.
 
@@ -114,7 +114,7 @@ Keep Biome's regex-literal conversion disabled in generated schema modules. Effe
 
 ### Inspect generated candidates
 
-To inspect a declaration schema before publishing it, run the input compiler below with a resource type from the published catalog. It uses the pinned provider document and production schema compiler, resolves imports, and writes candidates under .nomoss/stripe-entity-feedback/Stripe/Billing followed by the resource name. It leaves src unchanged and skips formatting. Use NOMOSS_RESOURCE_TYPE='*' to compile all declaration input schemas into .nomoss/stripe-entity-feedback/all. Keep separately compiled candidates in separate directories because each compilation assigns its own shared schema names.
+To inspect a declaration schema before publication, run the input compiler below with a resource type from the published catalog. The compiler uses the pinned provider document, resolves imports, and writes candidates under `.nomoss/stripe-entity-feedback/Stripe/Billing` in a directory named for the resource. It leaves `src` unchanged and skips formatting. Use `NOMOSS_RESOURCE_TYPE='*'` to compile all declaration inputs into `.nomoss/stripe-entity-feedback/all`. Use a separate directory for each compilation because each run assigns its own shared schema names.
 
 ```sh
 timeout -k 1s 15s nice -n 10 env NODE_OPTIONS='--max-old-space-size=512 --v8-pool-size=1' UV_THREADPOOL_SIZE=1 GOMAXPROCS=1 NOMOSS_RESOURCE_TYPE='Stripe::Billing::Price' node --import tsx tools/compileStripeResourceInputs.ts
@@ -134,7 +134,7 @@ yarn exec tsx tools/compileStripeResourceDeclarations.ts
 
 ### Validate the generated output
 
-Run the iteration compiler, generated-output lint check, and generator tests below after changing emission. The iteration configuration uses the project compiler options and production imports. Run full project compilation as well when you need to check application consumers and their service graph, and lint the changed generator source under the [linting workflow](../../docs/development/linting.md).
+After you change emission, run the compiler, lint check, and tests below. The iteration configuration uses the project compiler options and production imports. Compile the full project if the change affects application callers or their service graph. Check the generator source under the [lint procedure](../../docs/development/linting.md).
 
 ```sh
 yarn exec effect-tsgo tsc --project tools/stripe/tsconfig.iteration.json --pretty false
@@ -146,15 +146,15 @@ Review the generated client and catalogs, then test provider behavior separately
 
 Review catalog.ts for operation metadata in source order and resourceCatalog.ts for discovered and local resources. Look resources up by their full type names so v1 and v2 resources with the same short name remain distinct. Inspect each entry's unresolved issues before expecting it to provide a callable declaration.
 
-Keep TypeScript emission based on Effect's CodeDocument and ts-morph when changing the generator. Combine imports into one declaration per module and preserve the concrete constructors and request Struct fields needed by resource declarations. Publish into a directory reserved for replaceable artifacts. The generator formats candidates before removing the existing directory, then writes the generated modules and copies Stripe's license. A formatting failure preserves the existing output. A filesystem failure after replacement begins can leave an incomplete client.
+Use Effect's `CodeDocument` and ts-morph to emit TypeScript. Combine imports into one declaration per module and preserve the constructors and request `Struct` fields that resource declarations need. Publish to a directory reserved for replaceable artifacts. The generator formats candidates before it removes the existing directory. It then writes the generated modules and copies Stripe's license. If the formatter fails, the existing output stays in place. A filesystem failure after replacement begins can leave an incomplete client.
 
 ## Execute resource commands
 
-Before relying on a generated registration, check which lifecycle operations its catalog entry supplies. Creation and reads can remain callable while an update or removal is unresolved. Calling an operation that the registration omits fails with ResourceCommandUnsupported before a provider request and preserves saved state. stripeStackLayer uses the generated registrations for provider resources and the billing configuration file.
+Check the catalog entry for the lifecycle operations the resource supports. Creation and reads can be available while update or removal remains unresolved. If the stack requests an operation without a definition, it returns `ResourceCommandUnsupported` before it calls Stripe and preserves saved state. The [resource management development guide](../../docs/development/effect-native-development.md#develop-resource-management) defines how to extend the lifecycle.
 
-For a generated update, select an operation that accepts the same saved identity mapping as reads and can express the requested property changes. StripeResourcePolicy returns ResourceCommandUnsupported if the update schema would discard a changed property or if the new declaration omits a saved property whose removal has no declared provider meaning. Changing a Coupon's name therefore updates its existing CouponId, while changing percent_off fails before mutation and preserves its applied state.
+The current generated update path uses the read identity mapping. `StripeResourcePolicy` returns `ResourceCommandUnsupported` if the update schema would discard a changed property or if the declaration drops a saved property without a reset rule. A supported Coupon name change retains its `CouponId`. If the declaration changes `percent_off`, the update fails before mutation and preserves applied state.
 
-To remove a resource through POST, set removeOperation and removeValues in its hints in [openapi-source.json](openapi-source.json), then run yarn generate:stripe-client. For Product, choose PostProductsId with active: false to deactivate the saved product. BillingPortalConfiguration uses PostBillingPortalConfigurationsConfiguration with the same value. StripeResourcePolicy.destroy validates those values together with the saved identity before sending the request. A successful removal clears saved ownership. A rejected request retains it for retry.
+To remove a resource through POST, set `removeOperation` and `removeValues` in [openapi-source.json](openapi-source.json), then run `yarn generate:stripe-client`. For Product, `PostProductsId` with `active: false` deactivates the saved product. `StripeResourcePolicy.destroy` validates the configured values and saved identity before it sends the request. A successful removal clears saved ownership. A rejected request retains it for retry.
 
 Use removeValues only for constants accepted by the chosen removal request. Generated registrations include a TypeScript satisfies check against the operation's input type, and generation rejects values that would override a saved identity parameter. Discovery selects DELETE automatically, so choose a POST operation explicitly when removal means deactivation.
 
@@ -164,9 +164,9 @@ Resource commands report ResourceCommandExecutionFailed with the failed command 
 
 ### Plan replacement and recover failures
 
-Choose replacement.order according to the resource's creation and removal constraints. Price uses destroyBeforeCreate because retirement must release its lookup key before the new price can claim it. Its removal values set active: false and clear lookup_key. WebhookEndpoint uses createBeforeDestroy when rotationKey changes so Nomoss can save the new webhook ID and signing secret before removing the old webhook.
+Set `replacement.order` from the resource's creation and removal rules. Price uses `destroyBeforeCreate` because the old price must release its lookup key before its successor can claim it. Its removal values set `active: false` and clear `lookup_key`. WebhookEndpoint uses `createBeforeDestroy` when `rotationKey` changes. Nomoss saves the new webhook ID and secret before it removes the old webhook.
 
-Set replacement.properties to the declaration paths that require that sequence, such as [["rotationKey"]] for webhook rotation. Omitting those paths applies replacement to every change in the resolved declaration. Regenerate the client after changing the hints, then inspect the plan's Replace action and its ordered creation and removal operations before applying it.
+Set `replacement.properties` to the declaration paths that require that sequence, such as `[["rotationKey"]]` for webhook rotation. If the hint has no paths, any change to the resolved declaration requires replacement. After you change the hints, regenerate the client and inspect the order of operations in the plan's `Replace` action before you apply it.
 
 Use ResourceStackLifecycle.applyPlan for an application command that must execute the complete reviewed plan. It validates the captured state before mutation, resolves dependency values as resources apply, and publishes the final applied outputs.
 
@@ -174,7 +174,7 @@ When authoring a lifecycle composition, pass the reviewed action's operations to
 
 If a replacement fails, retry with the same desired properties so the next plan can finish its remaining operations. For example, when webhook creation succeeds and old-object removal fails, saved state retains the new ID and signing secret for retry. Each provider generation has an ordinary lifecycle record, and completed removals remain recorded until the composition finishes. Recovery can therefore skip completed provider work while application outputs retain the last applied instance until its successor is committed.
 
-Request teardown when you want to remove the objects owned by an unfinished composition. The teardown plan includes normal removal operations for every instance still owned and can resume after a removal fails. Changing the desired properties during an unfinished composition, or trying to reconcile several saved instances as one applied resource, returns ResourceOperationInProgress. Complete the apply or teardown before requesting either action again.
+Use teardown to remove the objects that an unfinished operation still owns. The plan can resume if a removal fails. If you change desired properties before an operation finishes, or ask to reconcile several saved instances as one applied resource, the stack returns `ResourceOperationInProgress`. Complete apply or teardown before you retry.
 
 ### Declare resources and supply provider services
 
@@ -182,14 +182,14 @@ Pass resource entities directly into generated relationship properties when decl
 
 Provider hints configure request preparation and lifecycle choices. Webhook URL credentials and rotation, Price replacement, and Customer's deleted-response rule use generated configuration. Shared services execute those rules from metadata.
 
-The billing export's document contract is declared in the [local source configuration](local-resource-source.json). To change the file's contents, define the properties and their constraints under input, then select the properties to publish under document. The output path belongs to the resource properties and stays outside the document selection. Each references entry identifies a document field that accepts another resource's entity and the applied output that will supply its value. Run yarn generate:stripe-client after changing this contract so declarations, command execution, and file observations receive matching validators.
+The [local source configuration](local-resource-source.json) defines the export's document contract. To change the file's contents, define the properties and their constraints under `input`, then select the properties to publish under `document`. The resource uses the output path to locate the file. That path stays outside the document selection. Each `references` entry identifies a document field that accepts another resource's entity and the applied output that supplies its value. After you change the contract, run `yarn generate:stripe-client` so the declarations, commands, and file reads use the same validators.
 
-Call the generated BillingConfigurationExport method with logicalId and props, passing related resource entities in props as shown in [the billing export test fixture](../../tests/support/stripeBillingFixture.ts). Apply resolves those dependencies before the file service validates and publishes the application data. The resulting OutputPath identifies the file that the stack owns. Reconciliation validates its contents against the document contract; an absent file permits recreation, while invalid or unreadable contents stop reconciliation and preserve saved ownership. Teardown removes the saved path. Changing outputPath requests replacement, which removes the previous file before publishing at the new destination.
+Call `BillingConfigurationExport` with `logicalId` and `props`. Pass any related resource entities in `props`, as in the [billing export test fixture](../../tests/support/stripeBillingFixture.ts). Apply resolves those dependencies before the file service validates and publishes the data. `OutputPath` identifies the file that the stack owns. Reconcile checks its contents against the document contract. The stack can recreate an absent file. If the contents are invalid or unreadable, reconcile stops and retains ownership. Teardown removes the file at the saved path. If `outputPath` changes, replacement removes the previous file before the stack publishes at the new path.
 
 To manage a resource in a stack, declare it through StripeResources and let the shared lifecycle services execute its generated configuration. Resource-specific behavior belongs in that generated configuration. Shared execution must interpret its rules through generic operations.
 
 For direct provider calls, supply StripeClient through the application's Layer graph. Generated resource clients provide creation, saved-identity reads, and selected updates. Generated operation clients expose the other provider requests, including PostV2CoreAccountsIdClose for Account closure. Each operation uses the API version associated with its generated schemas. Supply the redacted API key and optional service address through StripeClientConfig and transport through HttpClient. The live configuration reads STRIPE_API_KEY.
 
-When reviewing a changed client binding, check that StripeClient validates its input before serialization and that the generated response and default-error schemas match the selected provider operation. V1 requests use forms with bracket paths, and v2 requests use JSON bodies. Path identifiers remain separate from body and query properties. Use the shared Stripe fixture to exercise these production calls with captured native requests and queued native responses. Inspect StripeApiError's operation, HTTP status, request id, message, and decoded provider details when a call fails.
+Check that `StripeClient` validates input before it serializes the request. Confirm that the response and default error schemas match the selected operation. V1 requests use forms with bracket paths, and v2 requests use JSON bodies. Path identifiers remain separate from body and query properties. Use the shared Stripe fixture to exercise production calls with native request capture and queued responses. If a call fails, inspect the operation, HTTP status, request ID, message, and decoded provider details in `StripeApiError`.
 
 Call reconcile with a prepared stack to refresh saved provider observations. A deleted-customer response or HTTP 404 reports absence. Other read failures retain saved state for retry. When Stripe omits WebhookSigningSecret from a read, Nomoss retains its saved value so the application can continue verifying signatures. The filesystem lifecycle validates configuration exports through their canonical document schema during the same workflow. The sandbox integration coverage verifies present resources and a customer deleted directly in Stripe.

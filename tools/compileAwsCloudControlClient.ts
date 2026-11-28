@@ -1,5 +1,5 @@
 import { NodeCrypto, NodeRuntime, NodeServices } from "@effect/platform-node";
-import { Effect, Layer } from "effect";
+import { Effect, FileSystem, Layer, Path } from "effect";
 import { FetchHttpClient } from "effect/http";
 import { AwsCloudControlClientGenerator } from "./awsCloudControl/AwsCloudControlClientGenerator.js";
 import { AwsOpenApi } from "./awsCloudControl/openApi.js";
@@ -9,7 +9,12 @@ import { schemaCompilationLayer } from "./codegen/schemaCompilation.js";
 import { TypeScriptModulePublisher } from "./typeScriptModulePublisher.js";
 
 Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
   const generator = yield* AwsCloudControlClientGenerator;
+  const directory = yield* fs.makeTempDirectoryScoped({
+    prefix: "nomoss-cloudcontrol-",
+  });
   const classpath = yield* generator.prepareSmithyConverter(
     "tools/awsCloudControl",
   );
@@ -18,7 +23,7 @@ Effect.gen(function* () {
       process.argv[2] ??
       "refs/aws-api-models/models/cloudcontrol/service/2021-09-30/cloudcontrol-2021-09-30.json",
     serviceId: "com.amazonaws.cloudcontrol#CloudApiService",
-    documentsDirectory: "src/providers/aws/client/openapi/cloudControl",
+    documentsDirectory: path.join(directory, "openapi"),
     classpath,
   });
 
@@ -26,10 +31,12 @@ Effect.gen(function* () {
 
   yield* generator.publishClientModule({
     outputPath:
-      process.argv[3] ?? "src/providers/aws/client/generated/cloudControl.ts",
+      process.argv[3] ??
+      "providers/aws/generated/clients/cloudcontrol/index.ts",
     source,
   });
 }).pipe(
+  Effect.scoped,
   Effect.provide(
     Layer.effect(
       AwsCloudControlClientGenerator,
@@ -48,13 +55,8 @@ Effect.gen(function* () {
           operationCatalogsLayer,
         ),
       ),
-      Layer.provide(
-        Layer.mergeAll(
-          NodeServices.layer,
-          FetchHttpClient.layer,
-          NodeCrypto.layerDigest,
-        ),
-      ),
+      Layer.provide(Layer.merge(FetchHttpClient.layer, NodeCrypto.layerDigest)),
+      Layer.provideMerge(NodeServices.layer),
     ),
   ),
   NodeRuntime.runMain,

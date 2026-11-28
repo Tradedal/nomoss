@@ -1,0 +1,36 @@
+{
+  "name": "@tradedal/aws-client-core",
+  "description": "Shared request execution for Nomoss AWS clients.",
+  "version": "0.0.3",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Tradedal/nomoss.git",
+    "directory": "providers/aws/client-core"
+  },
+  "files": [
+    "/*.ts",
+    "/generated/*.ts"
+  ],
+  "exports": {
+    ".": "./awsClient.ts",
+    "./config": "./awsClientConfig.ts",
+    "./model": "./awsClientModel.ts",
+    "./signer": "./awsRequestSigner.ts",
+    "./decoder": "./awsResponseDecoder.ts",
+    "./retry": "./awsRetryPolicy.ts",
+    "./http-operation": "./awsHttpOperation.ts"
+  },
+  "dependencies": {
+    "@effect/platform-node-shared": "4.1.4",
+    "fast-xml-parser": "5.10.1",
+    "effect": "4.1.4"
+  }
+}

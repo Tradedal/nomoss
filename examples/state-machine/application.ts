@@ -15,7 +15,9 @@ import { AWSStateMachine } from "nomoss/providers/aws/stepfunctions/statemachine
 export const stateMachineStack = {
   name: "state-machine",
   providers: AwsProviderLive.pipe(
-    Layer.provide([awsClientConfigLayer, FetchHttpClient.layer]),
+    Layer.provide(
+      Layer.provideMerge(awsClientConfigLayer, FetchHttpClient.layer),
+    ),
   ),
   state: localState(),
   resources: Effect.gen(function* () {

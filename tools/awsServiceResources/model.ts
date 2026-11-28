@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { AwsAttributeResourceMapping } from "../../src/providers/aws/management/resourceConfiguration.js";
+import { AwsAttributeResourceMapping } from "../../providers/aws/management/resourceConfiguration.js";
 import {
   CloudFormationRelationshipsSchema,
   type RegistryResourceSchema,
@@ -51,6 +51,25 @@ export const AwsServiceResourceManifest = Schema.Struct({
 export type AwsServiceResourceManifest = typeof AwsServiceResourceManifest.Type;
 
 /**
+ * The manifestIdentifierPattern expression checks names the generator uses in
+ * TypeScript imports. Names such as `roleCommands` and `apiGatewayV2` can name
+ * an export or form part of a client identifier. A hyphen in `role-commands`
+ * would make the generated identifier invalid.
+ */
+const manifestIdentifierPattern = /^[A-Za-z]\w*$/;
+
+const memberName = Schema.String.check(
+  Schema.isPattern(manifestIdentifierPattern),
+);
+
+/**
+ * The operationModulePathPattern expression identifies a service directory
+ * and an exported resource definition. A path such as `iam/roleOperations`
+ * selects the IAM client and the `roleOperations` export.
+ */
+const operationModulePathPattern = /^[A-Za-z]\w*\/[A-Za-z]\w*$/;
+
+/**
  * The AwsResourceDeclarationsManifest schema selects one region's definitions
  * and the relationship source reviewed with them. A local relationship
  * override supplies the target definitions for a property when generation
@@ -58,8 +77,29 @@ export type AwsServiceResourceManifest = typeof AwsServiceResourceManifest.Type;
  */
 export const AwsResourceDeclarationsManifest = Schema.Struct({
   region: Schema.NonEmptyString,
-  resources: Schema.NonEmptyArray(SpecificationFile),
+  resources: Schema.NonEmptyArray(
+    SpecificationFile.pipe(
+      Schema.fieldsAssign({
+        operations: Schema.optionalKey(
+          Schema.String.check(Schema.isPattern(operationModulePathPattern)),
+        ),
+        stateSecretOutputKeys: Schema.optionalKey(Schema.Array(memberName)),
+        corrections: Schema.optionalKey(Schema.Array(SourceCorrection)),
+        relationshipValuePrefixes: Schema.optionalKey(
+          Schema.Record(Schema.String, Schema.NonEmptyString),
+        ),
+      }),
+    ),
+  ),
   relationships: SpecificationFile,
+  operationServices: Schema.optionalKey(
+    Schema.Record(
+      Schema.String.check(Schema.isPattern(manifestIdentifierPattern)),
+      Schema.Struct({
+        missingErrors: Schema.NonEmptyArray(Schema.NonEmptyString),
+      }),
+    ),
+  ),
   relationshipOverrides: Schema.optionalKey(CloudFormationRelationshipsSchema),
   services: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
 });

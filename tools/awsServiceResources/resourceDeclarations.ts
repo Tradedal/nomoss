@@ -23,7 +23,6 @@ import {
 } from "../../src/core/resource/model.js";
 import type { CloudFormationResourceDefinition } from "../awsResources/awsResourceDefinition.js";
 import { AwsResourceTypeScript } from "../awsResources/awsResourceTypeScript.js";
-import { ResourceCatalogs } from "../codegen/resourceCatalogs.js";
 import { ResourceDeclarations } from "../codegen/resourceDeclarations.js";
 import { ResourceSourceInvalid } from "../codegen/resourceErrors.js";
 import {
@@ -38,6 +37,7 @@ import {
   constant,
   effectFunction,
   identifier,
+  literal,
   print,
   printer,
   property,
@@ -59,7 +59,6 @@ export class AwsServiceResourceDeclarations extends Context.Service<AwsServiceRe
     make: Effect.gen(function* () {
       const schemas = yield* AwsResourceTypeScript;
       const entities = yield* ResourceDeclarations;
-      const catalogs = yield* ResourceCatalogs;
 
       /**
        * The emitRegistration service method adds a declaration function that
@@ -164,7 +163,7 @@ export class AwsServiceResourceDeclarations extends Context.Service<AwsServiceRe
             declarationKind: VariableDeclarationKind.Const,
             docs: [
               {
-                description: `The ${name} resource factory validates properties and registers the resource in the shared graph. Provider values become available after apply saves the resource.`,
+                description: `The ${name} resource factory registers a validated declaration in the\nstack graph. Its outputs become available after apply saves the resource.`,
               },
             ],
             declarations: [{ name, initializer: print(method) }],
@@ -204,8 +203,12 @@ export class AwsServiceResourceDeclarations extends Context.Service<AwsServiceRe
         prepared: Pick<
           AwsServiceResourcePreparation,
           "definition" | "outputCatalog" | "metadata"
-        >,
+        > & {
+          readonly relationshipValuePrefixes: Readonly<Record<string, string>>;
+          readonly stateSecretOutputKeys?: ReadonlyArray<string>;
+        },
         outputBindingModule: string,
+        resourceOperationModule: string,
       ) {
         const registry = prepared.definition;
         const typeName = registry.typeName;
@@ -293,7 +296,7 @@ export class AwsServiceResourceDeclarations extends Context.Service<AwsServiceRe
           service: serviceId,
           resource: resourceId,
           operation: "create",
-          stateSecretOutputKeys: [],
+          stateSecretOutputKeys: prepared.stateSecretOutputKeys ?? [],
           primaryIdentifier: registry.primaryIdentifier,
         };
 
@@ -322,33 +325,38 @@ export class AwsServiceResourceDeclarations extends Context.Service<AwsServiceRe
           "ResourceReferenceSchema",
         ]);
 
-        // Entity inputs must select a specific output from each source type.
-        // Multiple permitted outputs require a reviewed choice; export those
-        // positions for review while retaining ordinary provider values there.
-        const relationshipIssues = Arr.flatMap(
+        // A resource reference names a source type and one output to read.
+        // When AWS suggests several outputs for the same type, publish the
+        // choices for review and retain the ordinary provider input.
+        const targetsByProperty = Arr.map(
           resourceMetadata.relationships,
-          (relationship) =>
-            Arr.map(
-              Arr.filter(
-                Record.toEntries(
-                  Arr.groupBy(
-                    relationship.targets,
-                    (target) => target.typeName,
-                  ),
-                ),
-                ([, targets]) => targets.length > 1,
-              ),
-              ([sourceType, targets]) => ({
-                propertyPath: relationship.propertyPath,
-                sourceType,
-                sourceProperties: Arr.map(
-                  targets,
-                  (target) => target.propertyPath,
-                ),
-                message:
-                  "Several source properties are permitted; an entity mapping requires a reviewed selection",
-              }),
+          (relationship) => ({
+            propertyPath: relationship.propertyPath,
+            byType: Arr.groupBy(
+              relationship.targets,
+              (target) => target.typeName,
             ),
+          }),
+        );
+
+        const relationshipIssues = Arr.flatMap(
+          targetsByProperty,
+          ({ propertyPath, byType }) => {
+            const ambiguous = Arr.filter(
+              Record.toEntries(byType),
+              ([, targets]) => targets.length > 1,
+            );
+            return Arr.map(ambiguous, ([sourceType, targets]) => ({
+              propertyPath,
+              sourceType,
+              sourceProperties: Arr.map(
+                targets,
+                (target) => target.propertyPath,
+              ),
+              message:
+                "Choose one of the permitted source properties before using a resource reference",
+            }));
+          },
         );
 
         // Each unambiguous source type becomes an entity codec with an output
@@ -356,40 +364,32 @@ export class AwsServiceResourceDeclarations extends Context.Service<AwsServiceRe
         // selected output at this input position when preparing the request.
         // Different source types remain alternatives at the same position.
         const relationships = Arr.flatMap(
-          resourceMetadata.relationships,
-          (relationship) => {
-            const references = Arr.map(
-              Arr.filter(
-                Record.values(
-                  Arr.groupBy(
-                    relationship.targets,
-                    (target) => target.typeName,
-                  ),
-                ),
-                (targets) => targets.length === 1,
-              ),
-              (targets) => {
-                const target = targets[0];
-                const [, service, resource] = Str.split(target.typeName, "::");
-                const identity = Schema.Struct({
-                  provider: Schema.Literal("aws"),
-                  service: Schema.Literal(Str.toLowerCase(service)),
-                  resource: Schema.Literal(Str.toLowerCase(resource)),
-                });
-                const reference = referenceSchema(identity, {
-                  value: null,
-                  outputs: [{ source: target.propertyPath, target: [] }],
-                });
-
-                return reference.ast;
-              },
+          targetsByProperty,
+          ({ propertyPath, byType }) => {
+            const unambiguous = Arr.filter(
+              Record.values(byType),
+              (targets) => targets.length === 1,
             );
+            const references = Arr.map(unambiguous, ([target]) => {
+              const [, service, resource] = Str.split(target.typeName, "::");
+              const identity = Schema.Struct({
+                provider: Schema.Literal("aws"),
+                service: Schema.Literal(Str.toLowerCase(service)),
+                resource: Schema.Literal(Str.toLowerCase(resource)),
+              });
+              const reference = referenceSchema(identity, {
+                value: null,
+                outputs: [{ source: target.propertyPath, target: [] }],
+              });
+
+              return reference.ast;
+            });
 
             return Arr.match(references, {
               onEmpty: () => [],
               onNonEmpty: (references) => [
                 {
-                  propertyPath: relationship.propertyPath,
+                  propertyPath,
                   reference: Schema.Union(
                     Arr.map(references, (ast) => Schema.make(ast)),
                   ).ast,
@@ -404,11 +404,13 @@ export class AwsServiceResourceDeclarations extends Context.Service<AwsServiceRe
         // an entity cannot weaken validation of the eventual provider value.
         // Compile all three views together to keep shared definition names valid.
         const imported = schemas.importSchemas(definition);
+
         const propsAst = applyResourceRelationships(
           imported[0].ast,
           relationships,
           true,
         );
+
         const code = SchemaRepresentation.toCodeDocument(
           SchemaRepresentation.toRepresentations([
             propsAst,
@@ -422,9 +424,87 @@ export class AwsServiceResourceDeclarations extends Context.Service<AwsServiceRe
           .emitSchema(module, `${name}RequestSchema`, code.codes[2], true)
           .setIsExported(true);
 
+        // A prefix translates a resolved resource ID for an AWS operation.
+        // Check the Registry shape and the selected relationship before exposing
+        // the codec to that operation. See refs/cloudformation-resource-schema/README.md,
+        // "Resource Shape", and tools/awsServiceResources/sources/resources.json.
+        const codecProperties = yield* Effect.forEach(
+          Record.toEntries(prepared.relationshipValuePrefixes),
+          Effect.fnUntraced(function* ([field, prefix]) {
+            const definition = registry.properties[field];
+            const stringProperty =
+              typeof definition === "object" && definition?.type === "string";
+
+            const hasRelationship = Arr.some(
+              relationships,
+              ({ propertyPath }) =>
+                Arr.length(propertyPath) === 1 && propertyPath[0] === field,
+            );
+
+            const acceptsPrefix = stringProperty && hasRelationship;
+            yield* Effect.fail(
+              new ResourceSourceInvalid({
+                typeName,
+                message: `Value prefix for ${field} requires a top-level string property with a resource relationship`,
+              }),
+            ).pipe(Effect.when(Effect.succeed(!acceptsPrefix)));
+
+            // An object literal treats __proto__ as a prototype setter.
+            // A computed name keeps that Registry field as an ordinary property.
+            const key = Match.value(field).pipe(
+              Match.when("__proto__", () =>
+                factory.createComputedPropertyName(literal(field)),
+              ),
+              Match.orElse(literal),
+            );
+
+            const codec = call(identifier("relationshipValueCodec"), [
+              literal(prefix),
+            ]);
+
+            return factory.createPropertyAssignment(key, codec);
+          }),
+        );
+
+        Arr.match(codecProperties, {
+          onEmpty: () => undefined,
+          onNonEmpty: (properties) => {
+            module.addImportDeclaration({
+              moduleSpecifier: resourceOperationModule,
+              namedImports: ["relationshipValueCodec"],
+            });
+
+            const codecs = factory.createObjectLiteralExpression(
+              properties,
+              true,
+            );
+
+            module.addVariableStatement({
+              isExported: true,
+              declarationKind: VariableDeclarationKind.Const,
+              leadingTrivia: "\n",
+              docs: [
+                {
+                  description: `The ${name}RelationshipValueCodecs object lets an operation accept bare\nIDs and AWS-prefixed IDs. Reads return the bare ID for comparison with the\ndeclared relationship.`,
+                },
+              ],
+              declarations: [
+                {
+                  name: `${name}RelationshipValueCodecs`,
+                  initializer: print(codecs),
+                },
+              ],
+            });
+          },
+        });
+
         module.addVariableStatement({
           isExported: true,
           declarationKind: VariableDeclarationKind.Const,
+          leadingTrivia: "\n",
+          docs: [
+            `The ${name}RelationshipIssues array lists inputs that can use several outputs\nfrom one source type. Each input retains its provider value until a reviewed\nmapping chooses an output.`,
+          ],
           declarations: [
             {
               name: `${name}RelationshipIssues`,
@@ -440,6 +520,7 @@ export class AwsServiceResourceDeclarations extends Context.Service<AwsServiceRe
           `${name}PropsSchema`,
         );
         const propsStatement = props.getVariableStatementOrThrow();
+
         const metadataFactory = access(
           identifier("ResourceSchemaAnnotationSchema"),
           "make",
@@ -460,6 +541,7 @@ export class AwsServiceResourceDeclarations extends Context.Service<AwsServiceRe
         });
 
         const propsSchema = props.getInitializerOrThrow().compilerNode;
+
         const annotatedProps = call(identifier("annotateResourceSchema"), [
           propsSchema,
           identifier(`${name}ResourceSchema`),
@@ -472,10 +554,10 @@ export class AwsServiceResourceDeclarations extends Context.Service<AwsServiceRe
             module.compilerNode,
           ),
         );
+        propsStatement.prependWhitespace("\n");
 
-        // Entity getters and the declaration function use the shared emitter
-        // contract. The catalog records which saved values those getters read;
-        // rendering returns source for the caller's publication checks.
+        // The resource declaration's getters use Registry output mappings to
+        // find values that become available after the stack saves the resource.
         yield* entities.emitResourceDeclaration(
           module,
           catalog,
@@ -486,7 +568,10 @@ export class AwsServiceResourceDeclarations extends Context.Service<AwsServiceRe
 
         yield* emitRegistration(module, name);
 
-        yield* catalogs.emitCatalog(module, `${name}OutputCatalog`, [catalog]);
+        module
+          .getVariableDeclarationOrThrow(`${name}ResourceTypeSchema`)
+          .getVariableStatementOrThrow()
+          .prependWhitespace("\n");
 
         module.organizeImports();
 

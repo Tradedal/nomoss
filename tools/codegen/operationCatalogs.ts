@@ -349,15 +349,20 @@ export class OperationCatalogs extends Context.Service<OperationCatalogs>()(
                 Effect.transposeOption,
               );
 
+              // Preserve the provider description for the generated client's
+              // editor documentation. Vendor extensions describe invocation.
+              const extensions = Record.filter(value, (_, key) =>
+                Str.startsWith("x-")(key),
+              );
+
               const declaration = {
                 operationId,
+                description: value.description,
                 method,
                 path,
                 parameters,
                 responses: Record.fromEntries(responses),
-                extensions: Record.filter(value, (_, key) =>
-                  Str.startsWith("x-")(key),
-                ),
+                extensions,
               };
 
               const operation: ClientOperation =
@@ -558,6 +563,7 @@ export class OperationCatalogs extends Context.Service<OperationCatalogs>()(
         const required = yield* Schema.decodeUnknownEffect(
           Schema.Array(Schema.String),
         )(body.required ?? []);
+
         const parameters = yield* Effect.forEach(
           operation.parameters,
           (parameter) =>
@@ -566,6 +572,7 @@ export class OperationCatalogs extends Context.Service<OperationCatalogs>()(
               Effect.map((schema) => Tuple.make(parameter.name, schema)),
             ),
         );
+
         const input: Schema.JsonObject = {
           ...body,
           type: "object",
