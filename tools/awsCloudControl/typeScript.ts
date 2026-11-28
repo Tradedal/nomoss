@@ -1,4 +1,4 @@
-import { AwsPagination } from "@tradedal/aws-client-core/model";
+import { AwsPagination } from "@nomoss/aws/model";
 import {
   Array as Arr,
   Context,
@@ -239,11 +239,11 @@ export class AwsOpenApiTypeScript extends Context.Service<AwsOpenApiTypeScript>(
             ]),
           ),
           {
-            moduleSpecifier: "@tradedal/aws-client-core",
+            moduleSpecifier: "@nomoss/aws",
             namedImports: ["AwsClient"],
           },
           {
-            moduleSpecifier: "@tradedal/aws-client-core/model",
+            moduleSpecifier: "@nomoss/aws/model",
             isTypeOnly: true,
             namedImports: modelImports,
           },
@@ -410,7 +410,7 @@ export class AwsOpenApiTypeScript extends Context.Service<AwsOpenApiTypeScript>(
           ).pipe(
             Match.when(true, () => [
               {
-                moduleSpecifier: "@tradedal/aws-client-core/http-operation",
+                moduleSpecifier: "@nomoss/aws/http-operation",
                 namedImports: ["awsJsonRpcEmptyOutput"],
               },
             ]),
@@ -424,12 +424,12 @@ export class AwsOpenApiTypeScript extends Context.Service<AwsOpenApiTypeScript>(
           ).pipe(
             Match.when(true, () => [
               {
-                moduleSpecifier: "@tradedal/aws-client-core/model",
+                moduleSpecifier: "@nomoss/aws/model",
                 isTypeOnly: true,
                 namedImports: ["AwsRestJsonOperation"],
               },
               {
-                moduleSpecifier: "@tradedal/aws-client-core/http-operation",
+                moduleSpecifier: "@nomoss/aws/http-operation",
                 namedImports: ["awsHttpEndpoint", "optionalRestJsonMember"],
               },
             ]),

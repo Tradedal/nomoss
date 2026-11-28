@@ -1,4 +1,4 @@
-import { Group, iamOperations } from "@tradedal/aws-client-iam";
+import { Group, iamOperations } from "@nomoss/aws/iam";
 import { Schema } from "effect";
 import {
   AWSGroupOutputsSchema,

@@ -1,9 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
-import { awsClientLayer } from "@tradedal/aws-client-core";
-import {
-  type GetQueueAttributesResult,
-  makeSQSClient,
-} from "@tradedal/aws-client-sqs";
+import { awsClientLayer } from "@nomoss/aws";
+import { type GetQueueAttributesResult, makeSQSClient } from "@nomoss/aws/sqs";
 import { Effect, Layer, Match, Option, Schedule } from "effect";
 import { SecureRandom } from "effect/crypto";
 import { FetchHttpClient } from "effect/http";

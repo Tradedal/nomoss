@@ -2,7 +2,7 @@ import {
   iamOperations,
   ServerCertificateMetadata,
   UploadServerCertificateRequest,
-} from "@tradedal/aws-client-iam";
+} from "@nomoss/aws/iam";
 import { Schema } from "effect";
 import {
   AWSServerCertificateOutputsSchema,

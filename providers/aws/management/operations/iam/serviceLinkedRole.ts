@@ -1,11 +1,11 @@
-import { AwsClient } from "@tradedal/aws-client-core";
-import { AwsServiceError } from "@tradedal/aws-client-core/model";
+import { AwsClient } from "@nomoss/aws";
 import {
   CreateServiceLinkedRoleRequest,
   iamOperations,
   iamService,
   Role,
-} from "@tradedal/aws-client-iam";
+} from "@nomoss/aws/iam";
+import { AwsServiceError } from "@nomoss/aws/model";
 import { Context, Data, Effect, Option, Schema } from "effect";
 import {
   AWSServiceLinkedRoleOutputsSchema,

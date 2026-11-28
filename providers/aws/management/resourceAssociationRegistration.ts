@@ -1,5 +1,5 @@
-import { AwsClient } from "@tradedal/aws-client-core";
-import { AwsServiceError } from "@tradedal/aws-client-core/model";
+import { AwsClient } from "@nomoss/aws";
+import { AwsServiceError } from "@nomoss/aws/model";
 import {
   Array as Arr,
   Context,

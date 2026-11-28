@@ -1,8 +1,8 @@
 import { NodeServices } from "@effect/platform-node";
 import { layer } from "@effect/vitest";
-import { AwsProfile, AwsRegion } from "@tradedal/aws-client-core/config";
-import { AwsRegionName } from "@tradedal/aws-client-core/model";
-import { awsClientConfigLayer } from "@tradedal/aws-credentials";
+import { AwsProfile, AwsRegion } from "@nomoss/aws/config";
+import { awsClientConfigLayer } from "@nomoss/aws/credentials";
+import { AwsRegionName } from "@nomoss/aws/model";
 import { Config, Effect, Layer, Option, Schema } from "effect";
 import { SecureRandom } from "effect/crypto";
 import { FetchHttpClient } from "effect/http";

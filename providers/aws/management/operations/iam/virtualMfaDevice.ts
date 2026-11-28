@@ -1,4 +1,3 @@
-import { AwsServiceError } from "@tradedal/aws-client-core/model";
 import {
   iamOperations,
   iamService,
@@ -6,7 +5,8 @@ import {
   TagMFADeviceRequest,
   UntagMFADeviceRequest,
   VirtualMFADevice,
-} from "@tradedal/aws-client-iam";
+} from "@nomoss/aws/iam";
+import { AwsServiceError } from "@nomoss/aws/model";
 import {
   Array as Arr,
   Context,

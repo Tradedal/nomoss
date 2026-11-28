@@ -9,7 +9,7 @@ import {
 } from "effect";
 import { FetchHttpClient } from "effect/http";
 import { NomossTracingLive } from "../src/core/runtime/tracing.js";
-import { awsClientPackages } from "./awsClientPackages.js";
+import { awsClientDirectory, awsServiceClients } from "./awsClientPackages.js";
 import { awsServiceResourceGenerationLayer } from "./awsServiceResources/generationLayer.js";
 import { AwsServiceOperationGeneration } from "./awsServiceResources/operationGeneration.js";
 import { AwsServiceResourceSources } from "./awsServiceResources/sourcePreparation.js";
@@ -31,8 +31,8 @@ const generationLayer = Layer.merge(
   ]),
 );
 
-class AwsClientPackageNotFound extends Data.TaggedError(
-  "AwsClientPackageNotFound",
+class AwsServiceClientNotFound extends Data.TaggedError(
+  "AwsServiceClientNotFound",
 )<{ readonly serviceId: string }> {}
 
 Effect.gen(function* () {
@@ -52,13 +52,17 @@ Effect.gen(function* () {
     Option.fromUndefinedOr(process.argv[3]).pipe(
       Option.orElse(() =>
         Arr.findFirst(
-          awsClientPackages,
+          awsServiceClients,
           ({ serviceId }) => serviceId === prepared.source.smithy.serviceId,
-        ).pipe(Option.map(({ directory }) => `${directory}/index.ts`)),
+        ).pipe(
+          Option.map(
+            ({ service }) => `${awsClientDirectory}/${service}/index.ts`,
+          ),
+        ),
       ),
     ),
     () =>
-      new AwsClientPackageNotFound({
+      new AwsServiceClientNotFound({
         serviceId: prepared.source.smithy.serviceId,
       }),
   );

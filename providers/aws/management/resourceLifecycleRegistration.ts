@@ -1,10 +1,10 @@
-import { AwsClient } from "@tradedal/aws-client-core";
+import { AwsClient } from "@nomoss/aws";
 import {
   type AwsJsonRpcPayload,
   type AwsOperation,
   type AwsServiceDefinition,
   AwsServiceError,
-} from "@tradedal/aws-client-core/model";
+} from "@nomoss/aws/model";
 import {
   Array as Arr,
   Context,

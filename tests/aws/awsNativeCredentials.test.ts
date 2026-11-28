@@ -1,7 +1,7 @@
 import { NodeFileSystem, NodePath } from "@effect/platform-node";
 import { expect, layer } from "@effect/vitest";
-import { AwsClientConfig } from "@tradedal/aws-client-core/config";
-import { awsClientConfigLayer } from "@tradedal/aws-credentials";
+import { AwsClientConfig } from "@nomoss/aws/config";
+import { awsClientConfigLayer } from "@nomoss/aws/credentials";
 import {
   ConfigProvider,
   DateTime,

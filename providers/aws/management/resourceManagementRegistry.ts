@@ -1,4 +1,4 @@
-import { AwsRetryProgress } from "@tradedal/aws-client-core";
+import { AwsRetryProgress } from "@nomoss/aws";
 import { Cache, Effect, Layer, Match, Option, Record, Unify } from "effect";
 import { ResourceCommandProgress } from "../../../src/core/resource/resourceCommandPolicy.js";
 import {

@@ -1,14 +1,14 @@
 import { expect, layer } from "@effect/vitest";
-import { makeCloudControlClient } from "@tradedal/aws-client-cloudcontrol";
-import { awsClientLayer } from "@tradedal/aws-client-core";
+import { awsClientLayer } from "@nomoss/aws";
+import { makeCloudControlClient } from "@nomoss/aws/cloudcontrol";
 import {
   AwsCredentials,
   AwsRegion,
   awsClientConfigLayerFromProvider,
   awsCredentialProviderLayer,
-} from "@tradedal/aws-client-core/config";
-import { AwsRegionName } from "@tradedal/aws-client-core/model";
-import { awsAssumeRoleCredentialsLayer } from "@tradedal/aws-credentials";
+} from "@nomoss/aws/config";
+import { awsAssumeRoleCredentialsLayer } from "@nomoss/aws/credentials";
+import { AwsRegionName } from "@nomoss/aws/model";
 import { DateTime, Effect, Layer, Match, Option, Ref, Schema } from "effect";
 import { HttpClient, HttpClientResponse } from "effect/http";
 

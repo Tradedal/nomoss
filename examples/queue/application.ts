@@ -34,4 +34,4 @@ export const queueStack = {
   }),
 };
 
-import { AwsRegionName } from "@tradedal/aws-client-core/model";
+import { AwsRegionName } from "@nomoss/aws/model";

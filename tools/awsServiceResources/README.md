@@ -24,7 +24,7 @@ When a property accepts a reference to another resource, Nomoss needs to know wh
 
 ## Select the AWS operations
 
-Select the operation in the service manifest and regenerate the client from its pinned Smithy model. The command writes the package's TypeScript entry point. For example, to regenerate `@tradedal/aws-client-iam` from the repository root, run:
+Select the operation in the service manifest and regenerate the client from its pinned Smithy model. The command writes the TypeScript entry point for that service. For example, to regenerate `@nomoss/aws/iam` from the repository root, run:
 
 ```sh
 yarn exec tsx tools/compileAwsServiceResources.ts tools/awsServiceResources/sources/iam.json
@@ -36,4 +36,4 @@ Use the Registry schema for declared properties and the Smithy operation for req
 
 ## Generate credential exchange operations
 
-Run `yarn generate:aws-credential-clients` from the repository root after changing the [pinned credential models](sources/credentials.json). The command writes the STS, SSO, and SSO OIDC packages in [generated/clients](../../providers/aws/generated/clients/) and the [partition lookup used to resolve AWS addresses](../../providers/aws/client-core/generated/partitions.ts). The [credential package](../../providers/aws/credentials/) calls the generated operations to obtain or renew credentials.
+Run `yarn generate:aws-credential-clients` from the repository root after changing the [pinned credential models](sources/credentials.json). The command writes the STS, SSO, and SSO OIDC clients in [sdk/generated/clients](../../providers/aws/sdk/generated/clients/) and the [partition lookup used to resolve AWS addresses](../../providers/aws/sdk/client-core/generated/partitions.ts). The [SDK credentials code](../../providers/aws/sdk/credentials/) calls the generated operations to obtain or renew credentials.

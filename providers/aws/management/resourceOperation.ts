@@ -1,7 +1,4 @@
-import type {
-  AwsJsonRpcPayload,
-  AwsOperation,
-} from "@tradedal/aws-client-core/model";
+import type { AwsJsonRpcPayload, AwsOperation } from "@nomoss/aws/model";
 import {
   Effect,
   RegExp as Regex,

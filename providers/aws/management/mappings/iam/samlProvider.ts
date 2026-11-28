@@ -3,7 +3,7 @@ import {
   GetSAMLProviderResponse,
   iamOperations,
   UpdateSAMLProviderRequest,
-} from "@tradedal/aws-client-iam";
+} from "@nomoss/aws/iam";
 import { Schema } from "effect";
 import {
   AWSSAMLProviderOutputsSchema,
@@ -95,4 +95,4 @@ export const makeSAMLProviderManagement = AwsResourceLifecycleRegistration.make(
   samlProviderLifecycleMapping,
 );
 
-import { AwsArn } from "@tradedal/aws-client-core/model";
+import { AwsArn } from "@nomoss/aws/model";

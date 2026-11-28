@@ -4,7 +4,7 @@ import {
   GetOpenIDConnectProviderResponse,
   iamOperations,
   UpdateOpenIDConnectProviderThumbprintRequest,
-} from "@tradedal/aws-client-iam";
+} from "@nomoss/aws/iam";
 import { Schema, SchemaTransformation, String as Str } from "effect";
 import {
   AWSOIDCProviderOutputsSchema,
@@ -91,4 +91,4 @@ export const makeOIDCProviderManagement = AwsResourceLifecycleRegistration.make(
   oidcProviderLifecycleMapping,
 );
 
-import { AwsArn } from "@tradedal/aws-client-core/model";
+import { AwsArn } from "@nomoss/aws/model";

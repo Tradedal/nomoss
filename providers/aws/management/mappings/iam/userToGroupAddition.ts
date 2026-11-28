@@ -1,9 +1,4 @@
-import {
-  GetGroupRequest,
-  Group,
-  iamOperations,
-  User,
-} from "@tradedal/aws-client-iam";
+import { GetGroupRequest, Group, iamOperations, User } from "@nomoss/aws/iam";
 import { Array as Arr, Schema, Struct } from "effect";
 import {
   AWSUserToGroupAdditionOutputsSchema,

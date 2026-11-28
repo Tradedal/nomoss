@@ -1,5 +1,5 @@
-import { AwsClient } from "@tradedal/aws-client-core";
-import type { AwsServiceDefinition } from "@tradedal/aws-client-core/model";
+import { AwsClient } from "@nomoss/aws";
+import type { AwsServiceDefinition } from "@nomoss/aws/model";
 import { Array as Arr, Context, Effect, Option, Schema } from "effect";
 import { associationChanges } from "./resourceAssociations.js";
 import type { ResourceOperation } from "./resourceLifecycleRegistration.js";

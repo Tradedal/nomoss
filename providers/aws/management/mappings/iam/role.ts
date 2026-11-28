@@ -3,7 +3,7 @@ import {
   iamOperations,
   Role,
   UpdateRoleRequest,
-} from "@tradedal/aws-client-iam";
+} from "@nomoss/aws/iam";
 import { Schema } from "effect";
 import {
   AWSRoleOutputsSchema,

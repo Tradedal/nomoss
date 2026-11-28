@@ -1,11 +1,11 @@
-import { AwsClient } from "@tradedal/aws-client-core";
-import { AwsServiceError } from "@tradedal/aws-client-core/model";
+import { AwsClient } from "@nomoss/aws";
 import {
   type AccessKeyMetadata,
   iamOperations,
   iamService,
   StatusType,
-} from "@tradedal/aws-client-iam";
+} from "@nomoss/aws/iam";
+import { AwsServiceError } from "@nomoss/aws/model";
 import { Array as Arr, Context, Effect, Option, Schema, Stream } from "effect";
 import {
   AWSAccessKeyOutputsSchema,
@@ -203,4 +203,4 @@ export class AccessKeyManagement extends Context.Service<AccessKeyManagement>()(
   },
 ) {}
 
-import { AwsCredentials } from "@tradedal/aws-client-core/config";
+import { AwsCredentials } from "@nomoss/aws/config";

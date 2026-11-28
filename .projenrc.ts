@@ -19,32 +19,23 @@ import {
 } from "projen";
 import packageManifest from "./package.json" with { type: "json" };
 import {
-  awsClientCore,
-  awsClientCoreDirectory,
-  awsClientCoreExports,
-  awsClientDirectory,
-  awsClientPackages,
-  awsCredentialClientPackages,
-  awsCredentials,
-  awsCredentialsDirectory,
+  awsSdkDirectory,
+  awsSdkPackage,
+  awsServiceClients,
 } from "./tools/awsClientPackages.js";
 import packageExports from "./tools/package-exports.json" with { type: "json" };
 
 const currentPackageVersion: string = packageManifest.version;
+const awsSdkVersion = Match.value(process.env.NOMOSS_RELEASE).pipe(
+  Match.when("1", () => currentPackageVersion),
+  Match.orElse(() => "0.0.1-dev"),
+);
 const effectVersion = "4.1.4";
-const awsClientCoreDependencies = {
-  "@effect/platform-node-shared": effectVersion,
-  "fast-xml-parser": "5.10.1",
-};
-
 const project = new javascript.NodeProject({
   defaultReleaseBranch: "main",
   description: "Effect-native infrastructure automation for TypeScript.",
   deps: [
-    `${awsClientCore}@workspace:^`,
-    `${awsCredentials}@workspace:^`,
-    "@tradedal/aws-client-iam@workspace:^",
-    "@tradedal/aws-client-sts@workspace:^",
+    `${awsSdkPackage}@workspace:^`,
 
     // Effect runs stack operations on Node.js. Redis satisfies the Node platform package's peer dependency.
     "@effect/platform-node@4.1.4",
@@ -64,8 +55,6 @@ const project = new javascript.NodeProject({
     // The AWS resource generator imports Registry metadata through the CDK service specification.
     "@aws-cdk/service-spec-importers@0.0.145",
     "@aws-cdk/service-spec-types@0.0.289",
-    "@tradedal/aws-client-sqs@workspace:^",
-    "@tradedal/aws-client-cloudcontrol@workspace:^",
 
     // Biome checks repository code with the shared Effect lint rules.
     "@biomejs/biome@2.6.9",
@@ -130,76 +119,51 @@ project.package.addField("type", "module");
 project.package.addField("engines", { node: ">=24" });
 // NodePackage.addField publishes the import paths applications use, such as nomoss/core.
 project.package.addField("exports", packageExports);
-project.package.addField("workspaces", [
-  `${awsClientDirectory}/*`,
-  awsClientCoreDirectory,
-  awsCredentialsDirectory,
-]);
+project.package.addField("workspaces", [awsSdkDirectory]);
 
-const awsPackageFields = {
-  version: currentPackageVersion,
-  type: "module",
-  license: "MIT",
-  engines: { node: ">=24" },
-  publishConfig: { access: "public" },
-};
-const awsPackageRepository = (directory: string) => ({
-  type: "git",
-  url: "git+https://github.com/Tradedal/nomoss.git",
-  directory,
-});
-
-new JsonFile(project, `${awsClientCoreDirectory}/package.json`, {
+new JsonFile(project, `${awsSdkDirectory}/package.json`, {
   marker: false,
   readonly: false,
   obj: {
-    name: awsClientCore,
-    description: "Shared request execution for Nomoss AWS clients.",
-    ...awsPackageFields,
-    repository: awsPackageRepository(awsClientCoreDirectory),
-    files: ["/*.ts", "/generated/*.ts"],
-    exports: Record.map(awsClientCoreExports, (module) => `./${module}.ts`),
-    dependencies: { ...awsClientCoreDependencies, effect: effectVersion },
-  },
-});
-
-new JsonFile(project, `${awsCredentialsDirectory}/package.json`, {
-  marker: false,
-  readonly: false,
-  obj: {
-    name: awsCredentials,
-    description:
-      "Credential acquisition and session renewal for Nomoss AWS clients.",
-    ...awsPackageFields,
-    repository: awsPackageRepository(awsCredentialsDirectory),
-    files: ["/*.ts"],
-    exports: "./index.ts",
-    dependencies: Record.fromEntries([
-      [awsClientCore, "workspace:^"],
-      ...Arr.map(
-        awsCredentialClientPackages,
-        ({ name }) => [name, "workspace:^"] as const,
-      ),
-      ["@effect/platform-node-shared", effectVersion],
-      ["effect", effectVersion],
-    ]),
-  },
-});
-
-Arr.forEach(awsClientPackages, ({ directory, name }) => {
-  new JsonFile(project, `${directory}/package.json`, {
-    marker: false,
-    readonly: false,
-    obj: {
-      name,
-      description: "Effect client for an AWS service, generated from Smithy.",
-      ...awsPackageFields,
-      repository: awsPackageRepository(directory),
-      files: ["index.ts"],
-      exports: "./index.ts",
-      dependencies: { [awsClientCore]: "workspace:^", effect: effectVersion },
+    name: awsSdkPackage,
+    version: awsSdkVersion,
+    description: "Effect AWS SDK generated from Smithy models.",
+    keywords: ["aws", "aws-sdk", "effect", "smithy", "typescript", "nomoss"],
+    type: "module",
+    license: "MIT",
+    engines: { node: ">=24" },
+    repository: {
+      type: "git",
+      url: "git+https://github.com/Tradedal/nomoss.git",
+      directory: awsSdkDirectory,
     },
-  });
+    files: [
+      "client-core/**/*.ts",
+      "credentials/*.ts",
+      "generated/clients/*/index.ts",
+    ],
+    exports: Record.fromEntries([
+      [".", "./client-core/awsClient.ts"],
+      ["./config", "./client-core/awsClientConfig.ts"],
+      ["./credentials", "./credentials/index.ts"],
+      ["./decoder", "./client-core/awsResponseDecoder.ts"],
+      ["./http-operation", "./client-core/awsHttpOperation.ts"],
+      ["./model", "./client-core/awsClientModel.ts"],
+      ["./retry", "./client-core/awsRetryPolicy.ts"],
+      ["./signer", "./client-core/awsRequestSigner.ts"],
+      ...Arr.map(
+        awsServiceClients,
+        ({ service }) =>
+          [`./${service}`, `./generated/clients/${service}/index.ts`] as const,
+      ),
+    ]),
+    dependencies: {
+      "@effect/platform-node-shared": effectVersion,
+      effect: effectVersion,
+      "fast-xml-parser": "5.10.1",
+    },
+    publishConfig: { access: "public" },
+  },
 });
 
 project.package.addField("files", [
@@ -454,17 +418,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      - name: Install Yarn
-        run: corepack enable && corepack prepare yarn@4.17.1 --activate
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
           node-version: 24.11.1
           package-manager-cache: false
+      - name: Install release tools
+        run: |
+          corepack enable && corepack prepare yarn@4.17.1 --activate
+          npm install --global npm@11.21.3
       - name: Install dependencies
         run: yarn install --immutable
       - name: Set workspace package versions
         env:
+          NOMOSS_RELEASE: "1"
           PROJEN_DISABLE_POST: "1"
         run: yarn projen
       - name: Check
@@ -473,13 +440,13 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/nomoss-release"
           yarn workspaces foreach --all --no-private pack --out "$RUNNER_TEMP/nomoss-release/%s.tgz"
-      - name: Publish
+      - name: Stage npm packages
         env:
           NPM_CONFIG_PROVENANCE: "true"
         run: |
           yarn workspaces foreach --all --no-private --topological exec sh -eu -c '
             archive_name=$(printf "%s" "$npm_package_name" | tr "/" "-")
-            npm publish "$RUNNER_TEMP/nomoss-release/$archive_name.tgz" --access public
+            npm stage publish "$RUNNER_TEMP/nomoss-release/$archive_name.tgz" --access public
           '
 `;
 

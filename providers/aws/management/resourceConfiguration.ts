@@ -2,7 +2,7 @@ import type {
   AwsJsonRpcOperation,
   AwsJsonRpcPayload,
   AwsServiceDefinition,
-} from "@tradedal/aws-client-core/model";
+} from "@nomoss/aws/model";
 import { Schema } from "effect";
 import type { ResourceSchemaAnnotation } from "../../../src/core/resource/model.js";
 
