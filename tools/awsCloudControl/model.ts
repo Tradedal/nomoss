@@ -1,4 +1,4 @@
-import { AwsQueryWire } from "@tradedal/aws-client-core/model";
+import { AwsQueryWire } from "@nomoss/aws/model";
 import { Schema } from "effect";
 
 const JsonObject = Schema.Record(Schema.String, Schema.Json);

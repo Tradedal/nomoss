@@ -1,4 +1,3 @@
-import { AwsArn, AwsServiceError } from "@tradedal/aws-client-core/model";
 import {
   AttachGroupPolicyRequest,
   AttachRolePolicyRequest,
@@ -10,7 +9,8 @@ import {
   PolicyRole,
   PolicyUser,
   PolicyVersion,
-} from "@tradedal/aws-client-iam";
+} from "@nomoss/aws/iam";
+import { AwsArn, AwsServiceError } from "@nomoss/aws/model";
 import {
   Array as Arr,
   Context,

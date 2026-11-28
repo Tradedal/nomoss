@@ -11,7 +11,8 @@ import { FetchHttpClient } from "effect/http";
 import { ts } from "ts-morph";
 import {
   awsClientCoreDirectory,
-  awsCredentialClientPackages,
+  awsClientDirectory,
+  awsCredentialClients,
 } from "./awsClientPackages.js";
 import { awsServiceResourceGenerationLayer } from "./awsServiceResources/generationLayer.js";
 import { AwsServiceOperationGeneration } from "./awsServiceResources/operationGeneration.js";
@@ -159,11 +160,11 @@ Effect.gen(function* () {
     (client) =>
       Effect.fromOption(
         Arr.findFirst(
-          awsCredentialClientPackages,
+          awsCredentialClients,
           ({ serviceId }) => serviceId === client.serviceId,
         ),
       ).pipe(
-        Effect.flatMap(({ directory }) =>
+        Effect.flatMap(({ service }) =>
           sources.readJson(".", client).pipe(
             Effect.flatMap((smithy) =>
               generator.renderClient(
@@ -172,7 +173,10 @@ Effect.gen(function* () {
               ),
             ),
             Effect.flatMap((source) =>
-              publisher.publishModule(`${directory}/index.ts`, source),
+              publisher.publishModule(
+                `${awsClientDirectory}/${service}/index.ts`,
+                source,
+              ),
             ),
             Effect.tap((published) =>
               Effect.logInfo("Generated AWS credential operation contracts", {

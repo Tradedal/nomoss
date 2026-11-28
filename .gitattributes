@@ -23,17 +23,7 @@
 /biome.jsonc linguist-generated linguist-language=JSON-with-Comments
 /LICENSE linguist-generated
 /package.json linguist-generated
-/providers/aws/client-core/package.json linguist-generated
-/providers/aws/credentials/package.json linguist-generated
-/providers/aws/generated/clients/apigatewayv2/package.json linguist-generated
-/providers/aws/generated/clients/cloudcontrol/package.json linguist-generated
-/providers/aws/generated/clients/iam/package.json linguist-generated
-/providers/aws/generated/clients/lambda/package.json linguist-generated
-/providers/aws/generated/clients/sfn/package.json linguist-generated
-/providers/aws/generated/clients/sqs/package.json linguist-generated
-/providers/aws/generated/clients/sso-oidc/package.json linguist-generated
-/providers/aws/generated/clients/sso/package.json linguist-generated
-/providers/aws/generated/clients/sts/package.json linguist-generated
+/providers/aws/sdk/package.json linguist-generated
 /release-please-config.json linguist-generated
 /tsconfig.json linguist-generated
 /yarn.lock linguist-generated

@@ -1,6 +1,7 @@
 import { NodeCrypto, NodeRuntime, NodeServices } from "@effect/platform-node";
 import { Effect, FileSystem, Layer, Path } from "effect";
 import { FetchHttpClient } from "effect/http";
+import { awsClientDirectory } from "./awsClientPackages.js";
 import { AwsCloudControlClientGenerator } from "./awsCloudControl/AwsCloudControlClientGenerator.js";
 import { AwsOpenApi } from "./awsCloudControl/openApi.js";
 import { AwsOpenApiTypeScript } from "./awsCloudControl/typeScript.js";
@@ -31,8 +32,7 @@ Effect.gen(function* () {
 
   yield* generator.publishClientModule({
     outputPath:
-      process.argv[3] ??
-      "providers/aws/generated/clients/cloudcontrol/index.ts",
+      process.argv[3] ?? `${awsClientDirectory}/cloudcontrol/index.ts`,
     source,
   });
 }).pipe(

@@ -1,5 +1,5 @@
 import { NodeServices } from "@effect/platform-node";
-import { awsClientConfigurationLayerLive } from "@tradedal/aws-credentials";
+import { awsClientConfigurationLayerLive } from "@nomoss/aws/credentials";
 import { Layer } from "effect";
 import { awsServiceResourceCommandLayer } from "../../providers/aws/runtime.js";
 import { resourceStackRuntimeLayer } from "../core/runtime/stackRuntimeLayer.js";

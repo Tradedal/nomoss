@@ -1,4 +1,4 @@
-import { iamService } from "@tradedal/aws-client-iam";
+import { iamService } from "@nomoss/aws/iam";
 import { resourceTiming } from "../../resourceTiming.js";
 
 export const iamLifecycleSettings = {

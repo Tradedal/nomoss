@@ -1,4 +1,4 @@
-import { InstanceProfile, iamOperations, Role } from "@tradedal/aws-client-iam";
+import { InstanceProfile, iamOperations, Role } from "@nomoss/aws/iam";
 import { Array as Arr, Schema } from "effect";
 import {
   AWSInstanceProfileOutputsSchema,

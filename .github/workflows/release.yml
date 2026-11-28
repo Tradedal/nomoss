@@ -34,17 +34,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      - name: Install Yarn
-        run: corepack enable && corepack prepare yarn@4.17.1 --activate
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
           node-version: 24.11.1
           package-manager-cache: false
+      - name: Install release tools
+        run: |
+          corepack enable && corepack prepare yarn@4.17.1 --activate
+          npm install --global npm@11.21.3
       - name: Install dependencies
         run: yarn install --immutable
       - name: Set workspace package versions
         env:
+          NOMOSS_RELEASE: "1"
           PROJEN_DISABLE_POST: "1"
         run: yarn projen
       - name: Check
@@ -53,11 +56,11 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/nomoss-release"
           yarn workspaces foreach --all --no-private pack --out "$RUNNER_TEMP/nomoss-release/%s.tgz"
-      - name: Publish
+      - name: Stage npm packages
         env:
           NPM_CONFIG_PROVENANCE: "true"
         run: |
           yarn workspaces foreach --all --no-private --topological exec sh -eu -c '
             archive_name=$(printf "%s" "$npm_package_name" | tr "/" "-")
-            npm publish "$RUNNER_TEMP/nomoss-release/$archive_name.tgz" --access public
+            npm stage publish "$RUNNER_TEMP/nomoss-release/$archive_name.tgz" --access public
           '

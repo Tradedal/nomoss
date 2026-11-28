@@ -5,7 +5,7 @@ import {
   Role,
   ServerCertificateMetadata,
   User,
-} from "@tradedal/aws-client-iam";
+} from "@nomoss/aws/iam";
 import { Schema } from "effect";
 
 /** The IamGroupId schema identifies the original IAM group even if AWS reuses its name. */

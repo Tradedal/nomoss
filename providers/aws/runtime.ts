@@ -1,5 +1,5 @@
-import { awsClientLayer } from "@tradedal/aws-client-core";
-import { awsClientConfigurationLayerLive } from "@tradedal/aws-credentials";
+import { awsClientLayer } from "@nomoss/aws";
+import { awsClientConfigurationLayerLive } from "@nomoss/aws/credentials";
 import { Layer } from "effect";
 import { Digest } from "effect/crypto";
 import { resourceModelLayer } from "../../src/core/resource/model.js";
@@ -10,8 +10,8 @@ import { AwsEnvironment } from "./awsEnvironment.js";
 import { awsResourceManagementRegistryLayer } from "./management/resourceManagementRegistry.js";
 import { awsResourceMappingLayer } from "./management/resourceMapping.js";
 
-export { AwsClientConfig, AwsRegion } from "@tradedal/aws-client-core/config";
-export { awsClientConfigLayer } from "@tradedal/aws-credentials";
+export { AwsClientConfig, AwsRegion } from "@nomoss/aws/config";
+export { awsClientConfigLayer } from "@nomoss/aws/credentials";
 export {
   AwsEnvironment,
   type AwsResolvedEnvironment,

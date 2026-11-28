@@ -1,8 +1,4 @@
-import {
-  CreateUserRequest,
-  iamOperations,
-  User,
-} from "@tradedal/aws-client-iam";
+import { CreateUserRequest, iamOperations, User } from "@nomoss/aws/iam";
 import { Schema } from "effect";
 import {
   AWSUserOutputsSchema,

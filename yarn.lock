@@ -792,6 +792,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@nomoss/aws@workspace:^, @nomoss/aws@workspace:providers/aws/sdk":
+  version: 0.0.0-use.local
+  resolution: "@nomoss/aws@workspace:providers/aws/sdk"
+  dependencies:
+    "@effect/platform-node-shared": "npm:4.1.4"
+    effect: "npm:4.1.4"
+    fast-xml-parser: "npm:5.10.1"
+  languageName: unknown
+  linkType: soft
+
 "@oozcitak/dom@npm:^2.0.2":
   version: 2.0.2
   resolution: "@oozcitak/dom@npm:2.0.2"
@@ -1002,110 +1012,6 @@ __metadata:
   checksum: 10c0/99d9b06d90196823e4d8c841f258db7a16e5dbba5824a2962b05d907b79f1ba929d56f22dd744fd530936e568c865ee56a719dc31e57e13bc0a8eb4764a8d8dd
   languageName: node
   linkType: hard
-
-"@tradedal/aws-client-apigatewayv2@workspace:providers/aws/generated/clients/apigatewayv2":
-  version: 0.0.0-use.local
-  resolution: "@tradedal/aws-client-apigatewayv2@workspace:providers/aws/generated/clients/apigatewayv2"
-  dependencies:
-    "@tradedal/aws-client-core": "workspace:^"
-    effect: "npm:4.1.4"
-  languageName: unknown
-  linkType: soft
-
-"@tradedal/aws-client-cloudcontrol@workspace:^, @tradedal/aws-client-cloudcontrol@workspace:providers/aws/generated/clients/cloudcontrol":
-  version: 0.0.0-use.local
-  resolution: "@tradedal/aws-client-cloudcontrol@workspace:providers/aws/generated/clients/cloudcontrol"
-  dependencies:
-    "@tradedal/aws-client-core": "workspace:^"
-    effect: "npm:4.1.4"
-  languageName: unknown
-  linkType: soft
-
-"@tradedal/aws-client-core@workspace:^, @tradedal/aws-client-core@workspace:providers/aws/client-core":
-  version: 0.0.0-use.local
-  resolution: "@tradedal/aws-client-core@workspace:providers/aws/client-core"
-  dependencies:
-    "@effect/platform-node-shared": "npm:4.1.4"
-    effect: "npm:4.1.4"
-    fast-xml-parser: "npm:5.10.1"
-  languageName: unknown
-  linkType: soft
-
-"@tradedal/aws-client-iam@workspace:^, @tradedal/aws-client-iam@workspace:providers/aws/generated/clients/iam":
-  version: 0.0.0-use.local
-  resolution: "@tradedal/aws-client-iam@workspace:providers/aws/generated/clients/iam"
-  dependencies:
-    "@tradedal/aws-client-core": "workspace:^"
-    effect: "npm:4.1.4"
-  languageName: unknown
-  linkType: soft
-
-"@tradedal/aws-client-lambda@workspace:providers/aws/generated/clients/lambda":
-  version: 0.0.0-use.local
-  resolution: "@tradedal/aws-client-lambda@workspace:providers/aws/generated/clients/lambda"
-  dependencies:
-    "@tradedal/aws-client-core": "workspace:^"
-    effect: "npm:4.1.4"
-  languageName: unknown
-  linkType: soft
-
-"@tradedal/aws-client-sfn@workspace:providers/aws/generated/clients/sfn":
-  version: 0.0.0-use.local
-  resolution: "@tradedal/aws-client-sfn@workspace:providers/aws/generated/clients/sfn"
-  dependencies:
-    "@tradedal/aws-client-core": "workspace:^"
-    effect: "npm:4.1.4"
-  languageName: unknown
-  linkType: soft
-
-"@tradedal/aws-client-sqs@workspace:^, @tradedal/aws-client-sqs@workspace:providers/aws/generated/clients/sqs":
-  version: 0.0.0-use.local
-  resolution: "@tradedal/aws-client-sqs@workspace:providers/aws/generated/clients/sqs"
-  dependencies:
-    "@tradedal/aws-client-core": "workspace:^"
-    effect: "npm:4.1.4"
-  languageName: unknown
-  linkType: soft
-
-"@tradedal/aws-client-sso-oidc@workspace:^, @tradedal/aws-client-sso-oidc@workspace:providers/aws/generated/clients/sso-oidc":
-  version: 0.0.0-use.local
-  resolution: "@tradedal/aws-client-sso-oidc@workspace:providers/aws/generated/clients/sso-oidc"
-  dependencies:
-    "@tradedal/aws-client-core": "workspace:^"
-    effect: "npm:4.1.4"
-  languageName: unknown
-  linkType: soft
-
-"@tradedal/aws-client-sso@workspace:^, @tradedal/aws-client-sso@workspace:providers/aws/generated/clients/sso":
-  version: 0.0.0-use.local
-  resolution: "@tradedal/aws-client-sso@workspace:providers/aws/generated/clients/sso"
-  dependencies:
-    "@tradedal/aws-client-core": "workspace:^"
-    effect: "npm:4.1.4"
-  languageName: unknown
-  linkType: soft
-
-"@tradedal/aws-client-sts@workspace:^, @tradedal/aws-client-sts@workspace:providers/aws/generated/clients/sts":
-  version: 0.0.0-use.local
-  resolution: "@tradedal/aws-client-sts@workspace:providers/aws/generated/clients/sts"
-  dependencies:
-    "@tradedal/aws-client-core": "workspace:^"
-    effect: "npm:4.1.4"
-  languageName: unknown
-  linkType: soft
-
-"@tradedal/aws-credentials@workspace:^, @tradedal/aws-credentials@workspace:providers/aws/credentials":
-  version: 0.0.0-use.local
-  resolution: "@tradedal/aws-credentials@workspace:providers/aws/credentials"
-  dependencies:
-    "@effect/platform-node-shared": "npm:4.1.4"
-    "@tradedal/aws-client-core": "workspace:^"
-    "@tradedal/aws-client-sso": "workspace:^"
-    "@tradedal/aws-client-sso-oidc": "workspace:^"
-    "@tradedal/aws-client-sts": "workspace:^"
-    effect: "npm:4.1.4"
-  languageName: unknown
-  linkType: soft
 
 "@tradedal/linteffect@npm:0.1.2-dev":
   version: 0.1.2-dev
@@ -3322,12 +3228,7 @@ __metadata:
     "@effect/platform-node": "npm:4.1.4"
     "@effect/tsgo": "npm:0.73.4"
     "@effect/vitest": "npm:4.1.4"
-    "@tradedal/aws-client-cloudcontrol": "workspace:^"
-    "@tradedal/aws-client-core": "workspace:^"
-    "@tradedal/aws-client-iam": "workspace:^"
-    "@tradedal/aws-client-sqs": "workspace:^"
-    "@tradedal/aws-client-sts": "workspace:^"
-    "@tradedal/aws-credentials": "workspace:^"
+    "@nomoss/aws": "workspace:^"
     "@tradedal/linteffect": "npm:0.1.2-dev"
     "@types/node": "npm:^24.0.0"
     commit-and-tag-version: "npm:^12"

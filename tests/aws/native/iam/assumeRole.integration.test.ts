@@ -1,21 +1,18 @@
 import { assert } from "@effect/vitest";
-import { awsClientLayer } from "@tradedal/aws-client-core";
+import { awsClientLayer } from "@nomoss/aws";
 import {
   AwsClientConfig,
   AwsClientConfigurationError,
   AwsRegion,
   awsClientConfigLayerFromProvider,
   awsCredentialProviderLayer,
-} from "@tradedal/aws-client-core/config";
-import { AwsServiceError } from "@tradedal/aws-client-core/model";
-import {
-  type AssumeRoleRequest,
-  makeSTSClient,
-} from "@tradedal/aws-client-sts";
+} from "@nomoss/aws/config";
 import {
   AwsStsCredentials,
   awsAssumeRoleCredentialsLayer,
-} from "@tradedal/aws-credentials";
+} from "@nomoss/aws/credentials";
+import { AwsServiceError } from "@nomoss/aws/model";
+import { type AssumeRoleRequest, makeSTSClient } from "@nomoss/aws/sts";
 import { Effect, Layer, Option, Schedule, Schema } from "effect";
 import { SecureRandom } from "effect/crypto";
 import { AwsEnvironment } from "nomoss/providers/aws";

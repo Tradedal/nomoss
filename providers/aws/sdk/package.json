@@ -1,0 +1,55 @@
+{
+  "name": "@nomoss/aws",
+  "version": "0.0.1-dev",
+  "description": "Effect AWS SDK generated from Smithy models.",
+  "keywords": [
+    "aws",
+    "aws-sdk",
+    "effect",
+    "smithy",
+    "typescript",
+    "nomoss"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Tradedal/nomoss.git",
+    "directory": "providers/aws/sdk"
+  },
+  "files": [
+    "client-core/**/*.ts",
+    "credentials/*.ts",
+    "generated/clients/*/index.ts"
+  ],
+  "exports": {
+    ".": "./client-core/awsClient.ts",
+    "./config": "./client-core/awsClientConfig.ts",
+    "./credentials": "./credentials/index.ts",
+    "./decoder": "./client-core/awsResponseDecoder.ts",
+    "./http-operation": "./client-core/awsHttpOperation.ts",
+    "./model": "./client-core/awsClientModel.ts",
+    "./retry": "./client-core/awsRetryPolicy.ts",
+    "./signer": "./client-core/awsRequestSigner.ts",
+    "./sso": "./generated/clients/sso/index.ts",
+    "./sso-oidc": "./generated/clients/sso-oidc/index.ts",
+    "./sts": "./generated/clients/sts/index.ts",
+    "./iam": "./generated/clients/iam/index.ts",
+    "./sqs": "./generated/clients/sqs/index.ts",
+    "./lambda": "./generated/clients/lambda/index.ts",
+    "./apigatewayv2": "./generated/clients/apigatewayv2/index.ts",
+    "./cloudcontrol": "./generated/clients/cloudcontrol/index.ts",
+    "./sfn": "./generated/clients/sfn/index.ts"
+  },
+  "dependencies": {
+    "@effect/platform-node-shared": "4.1.4",
+    "effect": "4.1.4",
+    "fast-xml-parser": "5.10.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

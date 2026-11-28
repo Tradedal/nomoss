@@ -1,4 +1,4 @@
-import { AwsClientConfig } from "@tradedal/aws-client-core/config";
+import { AwsClientConfig } from "@nomoss/aws/config";
 import {
   AwsAccountId,
   AwsArn,
@@ -6,8 +6,8 @@ import {
   AwsArnFromString,
   AwsPartition,
   AwsRegionName,
-} from "@tradedal/aws-client-core/model";
-import { makeSTSClient } from "@tradedal/aws-client-sts";
+} from "@nomoss/aws/model";
+import { makeSTSClient } from "@nomoss/aws/sts";
 import { Context, Effect, Layer, Schema, Struct } from "effect";
 
 const principal = Schema.Struct({

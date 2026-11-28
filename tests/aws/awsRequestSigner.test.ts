@@ -1,12 +1,6 @@
 import { expect, layer } from "@effect/vitest";
-import {
-  AwsCredentials,
-  AwsSessionToken,
-} from "@tradedal/aws-client-core/config";
-import {
-  AwsRequestSigner,
-  awsRequestSignerLayer,
-} from "@tradedal/aws-client-core/signer";
+import { AwsCredentials, AwsSessionToken } from "@nomoss/aws/config";
+import { AwsRequestSigner, awsRequestSignerLayer } from "@nomoss/aws/signer";
 import { Effect, Schema } from "effect";
 import { HttpClientRequest } from "effect/http";
 import { TestClock } from "effect/testing";
