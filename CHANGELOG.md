@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.5](https://github.com/Tradedal/nomoss/compare/v0.0.3...v0.0.5) (2026-11-28)
+
+
+### Features
+
+* **aws:** package native clients and verify IAM lifecycles ([#21](https://github.com/Tradedal/nomoss/issues/21)) ([2833ab2](https://github.com/Tradedal/nomoss/commit/2833ab29ca744a2aa67d7e507bb6eb64265b09e0))
+
 ## [0.0.3](https://github.com/Tradedal/nomoss/compare/v0.0.2...v0.0.3) (2026-11-25)
 
 

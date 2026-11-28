@@ -1,7 +1,7 @@
 {
   "name": "@tradedal/aws-client-sqs",
   "description": "Effect client for an AWS service, generated from Smithy.",
-  "version": "0.0.3",
+  "version": "0.0.5",
   "type": "module",
   "license": "MIT",
   "engines": {
