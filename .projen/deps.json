@@ -26,16 +26,6 @@
       "type": "build"
     },
     {
-      "name": "@tradedal/aws-client-cloudcontrol",
-      "version": "workspace:^",
-      "type": "build"
-    },
-    {
-      "name": "@tradedal/aws-client-sqs",
-      "version": "workspace:^",
-      "type": "build"
-    },
-    {
       "name": "@tradedal/linteffect",
       "version": "0.1.2-dev",
       "type": "build"
@@ -90,22 +80,7 @@
       "type": "runtime"
     },
     {
-      "name": "@tradedal/aws-client-core",
-      "version": "workspace:^",
-      "type": "runtime"
-    },
-    {
-      "name": "@tradedal/aws-client-iam",
-      "version": "workspace:^",
-      "type": "runtime"
-    },
-    {
-      "name": "@tradedal/aws-client-sts",
-      "version": "workspace:^",
-      "type": "runtime"
-    },
-    {
-      "name": "@tradedal/aws-credentials",
+      "name": "@nomoss/aws",
       "version": "workspace:^",
       "type": "runtime"
     },
